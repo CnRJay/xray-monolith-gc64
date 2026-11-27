@@ -662,9 +662,6 @@ void CRenderDevice::on_idle()
 		mProjectCam_prev = mProjectCam;
 		mFullTransformCam_prev = mFullTransformCam;
 
-		Device.matrices_previous[0] = Device.matrices[0];
-		Device.matrices_previous[1] = Device.matrices[1];
-
 		extern int g_svp_hud_true_fov;
 		const float hud_fov_deg = (g_svp_hud_true_fov && true_pip_on && m_SecondViewport.IsSVPActive()
 			&& g_pGamePersistent && g_pGamePersistent->m_pGShaderConstants->hud_params.x > 0.999f) ? fFOV : psHUD_FOV * 83.f;
@@ -882,9 +879,6 @@ void CRenderDevice::on_idle()
 	mViewCam_prev = mViewCam;
 	mProjectCam_prev = mProjectCam;
 	mFullTransformCam_prev = mFullTransformCam;
-
-	Device.matrices_previous[0] = Device.matrices[0];
-	Device.matrices_previous[1] = Device.matrices[1];
 
 	extern int g_svp_hud_true_fov;
 	const float hud_fov_deg = (g_svp_hud_true_fov && true_pip_on && m_SecondViewport.IsSVPActive()
