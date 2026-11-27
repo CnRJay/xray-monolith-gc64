@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "../xrRender/dxEnvironmentRender.h"
 #include "../../xrEngine/igame_persistent.h"
 #include "../xrRender/FBasicVisual.h"
 #include "../../xrEngine/customhud.h"
@@ -236,8 +237,13 @@ void CRender::ExtractFrame()
 	BOOL bSUN = ps_r2_ls_flags.test(R2FLAG_SUN) && (u_diffuse2s(sun_color.r, sun_color.g, sun_color.b) > EPS) && !Core.ParamsData.test(ECoreParams::r4_dev);
 	if (o.sunstatic) bSUN = FALSE;
 
-	// Freeze bone palettes and dynamic transforms for the upcoming Render Thread frame.
+	// Freeze bone palettes, sky/env textures, and dynamic transforms for the upcoming Render Thread frame.
 	g_rt_bone_arena.begin_frame(Device.dwFrame);
+	if (g_pGamePersistent && g_pGamePersistent->Environment().CurrentEnv && g_pGamePersistent->Environment().m_pRender)
+	{
+		dxEnvironmentRender& envRen = *(dxEnvironmentRender*)&*g_pGamePersistent->Environment().m_pRender;
+		envRen.SyncSkyTextures(g_pGamePersistent->Environment());
+	}
 
 	ViewBase.CreateFromMatrix(Device.mFullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
 	HOM.MT_RENDER();

@@ -91,19 +91,24 @@ DEFINE_VECTOR(intrusive_ptr<CSkeletonWallmark>, SkeletonWMVec, SkeletonWMVecIt);
 
 struct SFrameBoneArena
 {
+	xrCriticalSection lock;
 	xr_vector<Fmatrix> matrices;
 	u32 frame_id = 0;
 	bool active = false;
 
 	void begin_frame(u32 frame)
 	{
+		xrCriticalSectionGuard guard(&lock);
 		frame_id = frame;
 		matrices.clear();
+		if (matrices.capacity() < 4096)
+			matrices.reserve(4096);
 		active = true;
 	}
 
 	void end_frame()
 	{
+		xrCriticalSectionGuard guard(&lock);
 		active = false;
 	}
 };
@@ -373,7 +378,10 @@ public:
 	{
 		if (!g_rt_bone_arena.active || m_rt_bone_frame == g_rt_bone_arena.frame_id || !bone_instances || !bones_size)
 			return;
-		xrCriticalSectionGuard guard(&UCalc_Mutex);
+		xrCriticalSectionGuard bone_guard(&UCalc_Mutex);
+		xrCriticalSectionGuard arena_guard(&g_rt_bone_arena.lock);
+		if (!g_rt_bone_arena.active || m_rt_bone_frame == g_rt_bone_arena.frame_id)
+			return;
 		const u16 count = bones_size;
 		const u32 offset = static_cast<u32>(g_rt_bone_arena.matrices.size());
 		g_rt_bone_arena.matrices.resize(static_cast<size_t>(offset) + count);
