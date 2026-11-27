@@ -195,6 +195,89 @@ IC bool ImGui_DragFloat4(LPCSTR name, Fvector4& vec, float speed = 1.f, float mi
 	return ImGui::DragFloat4(name, (float*)&vec, speed, min, max, format, flags);
 }
 
+IC bool ImGui_MagnificationCurve(LPCSTR label, Fvector4& low, Fvector4& high,
+	float value_min, float value_max, Fvector2 size)
+{
+	static const float magnifications[8] = {1.f, 2.f, 3.f, 4.f, 6.f, 8.f, 12.f, 20.f};
+	float* values[8] = {&low.x, &low.y, &low.z, &low.w, &high.x, &high.y, &high.z, &high.w};
+	const float graph_width = size.x > 0.f ? size.x : 500.f;
+	const float graph_height = size.y > 0.f ? size.y : 190.f;
+	const ImGuiID curve_id = ImGui::GetID(label);
+	static ImGuiID active_curve = 0;
+	static int active_point = -1;
+
+	ImGui::PushID(label);
+	ImGui::InvisibleButton("curve", ImVec2(graph_width, graph_height), ImGuiButtonFlags_MouseButtonLeft);
+	const ImVec2 canvas_min = ImGui::GetItemRectMin();
+	const ImVec2 canvas_max = ImGui::GetItemRectMax();
+	const ImVec2 plot_min(canvas_min.x + 34.f, canvas_min.y + 8.f);
+	const ImVec2 plot_max(canvas_max.x - 8.f, canvas_max.y - 22.f);
+	const float log_max = logf(magnifications[7]);
+	auto point_position = [&](int index)
+	{
+		const float x = logf(magnifications[index]) / log_max;
+		const float y = (*values[index] - value_min) / _max(value_max - value_min, EPS);
+		return ImVec2(plot_min.x + x * (plot_max.x - plot_min.x),
+			plot_max.y - clampr(y, 0.f, 1.f) * (plot_max.y - plot_min.y));
+	};
+
+	if (ImGui::IsItemActivated())
+	{
+		const ImVec2 mouse = ImGui::GetMousePos();
+		float nearest = FLT_MAX;
+		for (int i = 0; i < 8; ++i)
+		{
+			const float distance = _abs(mouse.x - point_position(i).x);
+			if (distance < nearest)
+			{
+				nearest = distance;
+				active_point = i;
+			}
+		}
+		active_curve = curve_id;
+	}
+
+	bool changed = false;
+	if (ImGui::IsItemActive() && active_curve == curve_id && active_point >= 0)
+	{
+		const float normalized = (plot_max.y - ImGui::GetMousePos().y) / _max(plot_max.y - plot_min.y, 1.f);
+		const float value = clampr(value_min + normalized * (value_max - value_min), value_min, value_max);
+		if (_abs(*values[active_point] - value) > EPS)
+		{
+			*values[active_point] = value;
+			changed = true;
+		}
+	}
+	else if (active_curve == curve_id)
+	{
+		active_curve = 0;
+		active_point = -1;
+	}
+
+	ImDrawList* draw = ImGui::GetWindowDrawList();
+	draw->AddRectFilled(canvas_min, canvas_max, ImGui::GetColorU32(ImGuiCol_FrameBg), 3.f);
+	draw->AddRect(canvas_min, canvas_max, ImGui::GetColorU32(ImGuiCol_Border), 3.f);
+	for (int grid = 0; grid <= 4; ++grid)
+	{
+		const float y = plot_min.y + (plot_max.y - plot_min.y) * (float(grid) / 4.f);
+		draw->AddLine(ImVec2(plot_min.x, y), ImVec2(plot_max.x, y), ImGui::GetColorU32(ImGuiCol_Separator), 1.f);
+	}
+	for (int i = 0; i < 8; ++i)
+	{
+		const ImVec2 point = point_position(i);
+		draw->AddLine(ImVec2(point.x, plot_min.y), ImVec2(point.x, plot_max.y), ImGui::GetColorU32(ImGuiCol_Separator), 1.f);
+		char text[16];
+		xr_sprintf(text, "%gx", magnifications[i]);
+		draw->AddText(ImVec2(point.x - 7.f, plot_max.y + 4.f), ImGui::GetColorU32(ImGuiCol_TextDisabled), text);
+		if (i > 0)
+			draw->AddLine(point_position(i - 1), point, ImGui::GetColorU32(ImGuiCol_PlotLines), 2.f);
+		draw->AddCircleFilled(point, 5.f,
+			ImGui::GetColorU32(active_curve == curve_id && active_point == i ? ImGuiCol_PlotLinesHovered : ImGuiCol_PlotLines));
+	}
+	ImGui::PopID();
+	return changed;
+}
+
 IC bool ImGui_ColorPicker3(LPCSTR name, Fcolor& color, ImGuiColorEditFlags flags = 0)
 {
 	return ImGui::ColorPicker3(name, (float*)&color, flags);

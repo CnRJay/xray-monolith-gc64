@@ -30,6 +30,7 @@ public:
 	float m_fMaxScale;
 
 	ref_shader shader;
+	shared_str shader_name; // shader file this object loaded, named in the element inventory log
 	fvfVertexIn* vertices;
 	u32 number_vertices;
 	u16* indices;

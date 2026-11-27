@@ -198,6 +198,8 @@ public:
 	typedef std::pair<u32, ref_cbuffer> cb_table_record;
 	typedef xr_vector<cb_table_record> cb_table;
 	cb_table m_CBTable;
+	// element size the shader declares for the dt_instances structured buffer, 0 when absent
+	u16 dt_instance_size = 0;
 #endif	//	USE_DX10
 private:
 	void fatal(LPCSTR s, LPCSTR name);

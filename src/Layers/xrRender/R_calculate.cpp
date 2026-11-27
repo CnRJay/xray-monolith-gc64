@@ -11,49 +11,17 @@ extern float r_ssaLOD_B;
 extern float r_ssaHZBvsTEX;
 extern float r_ssaGLOD_start, r_ssaGLOD_end;
 
-#if RENDER == R_R4
-void CRender::SetMatrices(Fmatrix view, Fmatrix projection, Fmatrix projection_hud)
-{
-	Device.mView.set(view);
-	Device.mProject.set(projection);
-	Device.mProjectHud.set(projection_hud);
-	Device.mFullTransform.mul(Device.mProject, Device.mView);
-	Device.mFullTransformHud.mul(Device.mProjectHud, Device.mView);
-
-	Device.mInvView.invert(view);
-	Device.mInvProject.invert(projection);
-	Device.mInvProjectHud.invert(projection_hud);
-	D3DXMatrixInverse((D3DXMATRIX*)&Device.mInvFullTransform, 0, (D3DXMATRIX*)&Device.mFullTransform);
-
-	Device.mInvView.transform(Device.vCameraPosition.set(0, 0, 0));
-	Device.mInvView.transform_dir(Device.vCameraDirection.set(0, 0, 1));
-	Device.mInvView.transform_dir(Device.vCameraTop.set(0, 1, 0));
-	Device.mInvView.transform_dir(Device.vCameraRight.set(1, 0, 0));
-
-	Device.vCameraPosition_saved.set(Device.vCameraPosition);
-	Device.mView_saved.set(Device.mView);
-	Device.mProject_saved.set(Device.mProject);
-	Device.mFullTransform_saved.set(Device.mFullTransform);
-
-	float fFov, fAspect, _;
-	projection.decompose_projection(fFov, fAspect, _, _);
-	Device.fFOV = rad2deg(fFov);
-	Device.fASPECT = fAspect;
-
-	Device.m_pRender->SetCacheXform(Device.mView, Device.mProject);
-	Device.prepare_matrices();
-}
-#endif
-
 void CRender::Calculate()
 {
-#if RENDER == R_R4
-	g_pGamePersistent->m_pGShaderConstants->hud_params.w = false;
-	Device.m_SecondViewport.isSVPFrame = false;
-	auto m = Device.matrices[0];
-	SetMatrices(m.mView, m.mProject, m.mProjectHud);
-	TargetMain->SetActive();
+	// once per frame, gates the hybrid IsSVPFrame and the legacy SVP paths. true PiP is DX11-only, so it
+	// stays off on the DX10/9/8 renderers even if r__svpscope is set, otherwise the shared scope capture
+	// would divert the lens meshes into PiP maps those renderers never render or clear
+#if defined(USE_DX11)
+	Device.true_pip_on = (scope_svp_enabled != 0);
+#else
+	Device.true_pip_on = false;
 #endif
+
 	// Transfer to global space to avoid deep pointer access
 	IRender_Target* T = getTarget();
 	float fov_factor = _sqr(90.f / Device.fFOV);

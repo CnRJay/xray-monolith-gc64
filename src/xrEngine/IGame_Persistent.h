@@ -104,8 +104,8 @@ public:
 		float time[16];
 		float fade[16];
 		float speed[16];
-		Fvector4 prev_pos[2][16];
-		Fvector4 prev_dir[2][16];
+		Fvector4 prev_pos[16];
+		Fvector4 prev_dir[16];
 	} grass_shader_data;
 
 public:
@@ -147,6 +147,7 @@ public:
 	virtual void _BCL OnFrame();
 	virtual void ImGui_OnRender(LPCSTR name) {};
 	virtual void ImGui_OnShow(bool show) {};
+	virtual bool OnModelLoadFatal(LPCSTR message) { return false; };
 
 	// вызывается только когда изменяется тип игры
 	virtual void OnGameStart();

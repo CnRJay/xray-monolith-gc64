@@ -1,420 +1,1074 @@
---[[ 
-to add magnifications via DLTX (check console after zooming weapon for names)
-
-section search priority is attached_scope, then item section
-magnifications takes a comma separated list of 
-exact zoom   : N
-variable zoom: M-N
-
-Anomaly equivalents \/
-scope_zoom_factor 15 , dynamic_zoom no  -> magnifications = 4
-scope_zoom_factor 7.5, dynamic_zoom yes -> magnifications = 1-8
-
-No anomaly equivalent \/
-toggle between exact zooms              -> magnifications = 2, 4, 8
-combination of the above                -> magnifications = 2-8, 16
-]]--
-
-local options = { -- Delay the zoom in until the optic is (near) centered 
-                  -- Gives the eye a distraction and may feel closer to pip
-                  only_zoom_when_rotated = false     
-
-                  -- makes dynamic zoom seem more like a dial, but feels detached/laggy
-                , use_linear_smoothzoom  = false    
-                }
-
-function scope_zoom_factor_to_magnification_3dss(szf)
-    if szf then
-        return szf < 1 and 1 or 120 / szf
-    end
-end
-
-local TO_RADIANS = 3.14159 / 180
-local TO_DEGREES = 1 / TO_RADIANS
-local PI = 3.14159;
-
--- Find fov that would result in magnification in screen space
---    if you change this, you must provide matching tc calculations in the shader
-function mag_to_fov(cur_fov, magnification)
-    return (2 * math.atan( math.tan(cur_fov/2) * (1/magnification) ))
-end
-
-function mag_between_fovs(x, y)
-    return 1 / (math.tan(y/2) / math.tan(x/2))
-end
-
-function fov_to_zoomfactor(fov)
-	return fov * TO_DEGREES / 0.75
-end
-
-function zoomfactor_to_fov(zf)
-	return zf * 0.75 * TO_RADIANS
-end
-
-local floatg = "(%d*%.?%d*)"
-
-local token = function(s) return "%s*" .. s end
-local p_mag   = token(floatg)
-local p_mag_dzoom = token(floatg) .. token("-") .. token(floatg)
-local p_mag_szoom = token(floatg) .. token(",") .. token(floatg)
-function parse_magnifications(str)
-    str = str:gsub("%s+", "")
-    local min,max = str:match(p_mag_dzoom)
-    if min and max then
-        return {min = tonumber(min), max = tonumber(max)}
-    end
-    
-    local min,max = str:match(p_mag_szoom)
-    if min and max then
-        return {min = tonumber(min), max = tonumber(max), zoom_step_count = 1}
-    end
-
-    local fixed = str:match(p_mag)
-    if fixed then
-        return {min = tonumber(fixed), max = tonumber(fixed)}
-    end
-
-    return nil
-end
-
-function read_3dss(o, section, alt)
-    local max = scope_zoom_factor_to_magnification_3dss(ini_sys:r_float_ex(section, alt and "scope_zoom_factor_alt" or "scope_zoom_factor"))
-    local min = scope_zoom_factor_to_magnification_3dss(ini_sys:r_float_ex(section, alt and "min_scope_zoom_factor_alt" or "min_scope_zoom_factor"))
-    local magnification = ini_sys:r_float_ex(section, alt and "magnification_alt" or "magnification")
-    local min_magnification = ini_sys:r_float_ex(section, alt and "min_magnification_alt" or "min_magnification")
-    local dzoomb = ini_sys:r_bool_ex(section, alt and "scope_dynamic_zoom_alt" or "scope_dynamic_zoom")
-    local dzooms = ini_sys:r_string_ex(section, alt and "scope_dynamic_zoom_alt" or "scope_dynamic_zoom")
-    local dzoom = dzoomb or (dzooms == "on")
-    local zoom_step_count = ini_sys:r_float_ex(section, "zoom_step_count")
-    local scope_objective_lens_offset = ini_sys:r_string_ex(section, "scope_objective_lens_offset")
-    local lewd_lens_hide_bone = ini_sys:r_string_ex(section, "lewd_lens_hide_bone")
-
-    local m = parse_magnifications(ini_sys:r_string_ex(section, "magnifications") or "")
-    if m and m.min and m.max then 
-        o.min = m.min or o.min
-        o.max = m.max or o.max
-        o.zoom_step_count = m.zoom_step_count or o.zoom_step_count
-    elseif magnification then
-        min_magnification = dzoom and (min_magnification or 1)
-                          or magnification
-        o.min = min_magnification and tonumber(min_magnification) or o.min
-        o.max = magnification and tonumber(magnification) or o.max
-    elseif max then
-        min = dzoom and (min or 1)
-            or max
-        o.min = min and tonumber(min) or o.min
-        o.max = max and tonumber(max) or o.max
-        o.legacy_config = true
-    end
-    o.zoom_step_count = zoom_step_count or o.zoom_step_count
-    o.scope_objective_lens_offset = scope_objective_lens_offset or o.scope_objective_lens_offset
-    o.lewd_lens_hide_bone = lewd_lens_hide_bone or o.lewd_lens_hide_bone
-    return o;
-end
-
-function _active_2d_scope()
-    local item = db.actor:active_item()
-    local weapon = item and item:cast_Weapon()
-    if weapon then 
-        if not weapon:IsZoomed() then
-            return nil
-        end
-        local zoomtype = weapon:GetZoomType()
-
-        local scope = zoomtype == 0 and utils_item.get_attached_scope(item)
-        local isAlt = zoomtype ~= 0
-
-        if isAlt then
-            return nil
-        end
-
-        local section = scope or item:section()
-        local r = {}
-        read_3dss(r, section, isAlt)
-        r.section = section
-        r.zoomtype = zoomtype
-
-        return r;
-    end
-end
-
-local property_cache = {}
-
--- Taken from weapon_cover_tilt.script
 function IsBinoc(sec)
-	return 	SYS_GetParam(0, sec, "ammo_class", "") == "ammo_binoc"
-	or 		SYS_GetParam(0, sec, "class", "") == "WP_BINOC"
+    return SYS_GetParam(0, sec, "ammo_class", "") == "ammo_binoc"
+        or SYS_GetParam(0, sec, "class", "") == "WP_BINOC"
 end
 
-function active_2d_scope()
-    local item = db.actor:active_item()
-    local weapon = item and item:cast_Weapon()
+local RETRY_EV = "pip_scope_push"
+local RETRY_STEP_S = 0.5
+local RETRY_MAX = 60
+local TYPED_API_VERSION = 3
+local TYPED_SCHEMA_VERSION = 3
+local RECONCILE_MS = 100
 
-    if not (weapon and weapon:IsZoomed()) then
-        return -- Not aiming a scope; skip all per-frame key/binoc work
+local active_key
+local active_token
+local active_route
+local active_generation
+local active_profile_fingerprint
+local last_diag_key
+local last_mode
+local last_api
+local last_route_epoch
+local last_editor_epoch = 0
+local next_reconcile_ms = 0
+local identity_diag_key
+local api_checked = false
+local api_supported = false
+local api_hybrid_reflex = false
+local api_begin
+local api_apply
+local api_clear
+local api_route_epoch
+
+local function probe_typed_api()
+    if api_checked then
+        return api_supported
+    end
+    api_checked = true
+
+    local version_fn = rawget(_G, "svp_optic_api_version")
+    local info_fn = rawget(_G, "svp_optic_api_info")
+    local connect_fn = rawget(_G, "svp_optic_api_connect")
+    local capability_fn = rawget(_G, "svp_optic_api_has_capability")
+    local epoch_fn = rawget(_G, "svp_optic_route_epoch")
+    local begin_fn = rawget(_G, "svp_begin_optic_context")
+    local apply_fn = rawget(_G, "svp_apply_optic_profile")
+    local clear_fn = rawget(_G, "svp_clear_optic_profile")
+    if type(version_fn) ~= "function" or type(info_fn) ~= "function"
+        or type(connect_fn) ~= "function"
+        or type(epoch_fn) ~= "function"
+        or type(begin_fn) ~= "function"
+        or type(apply_fn) ~= "function" or type(clear_fn) ~= "function" then
+        return false
     end
 
-    if IsBinoc(item:section()) then
-        return -- Don't handle binoculars at all
+    local ok, version = pcall(version_fn)
+    if not ok or version ~= TYPED_API_VERSION then
+        printf("![SVP-CONFIG] typed api unavailable version=%s", tostring(version))
+        return false
     end
-
-    local key = get_item_key(item)
-    if key then
-        if not property_cache[key] then
-            local r = _active_2d_scope()
-            if not r then
-                return nil
+    local info_ok, info = pcall(info_fn)
+    local pair_supported = false
+    if info_ok and type(info) == "table" and type(info.supported_pairs) == "table" then
+        for _, pair in ipairs(info.supported_pairs) do
+            if type(pair) == "table" and pair.api == TYPED_API_VERSION
+                and pair.schema == TYPED_SCHEMA_VERSION then
+                pair_supported = true
+                break
             end
-            debug("New item seen: " .. key)
-            GetZoomFactor = function(self) 
-                return 60 / r.zoom_target 
+        end
+    end
+    if not pair_supported then
+        printf("![SVP-CONFIG] typed api pair unavailable api=%d schema=%d",
+            TYPED_API_VERSION, TYPED_SCHEMA_VERSION)
+        return false
+    end
+    local connect_ok, connected =
+        pcall(connect_fn, TYPED_API_VERSION, TYPED_SCHEMA_VERSION)
+    if not connect_ok or type(connected) ~= "table" or connected.ok ~= true
+        or connected.api ~= TYPED_API_VERSION
+        or connected.schema ~= TYPED_SCHEMA_VERSION
+        or type(info.schema_hash) ~= "string" or info.schema_hash == ""
+        or connected.schema_hash ~= info.schema_hash then
+        printf("![SVP-CONFIG] typed api handshake failed call=%s result=%s",
+            tostring(connect_ok), tostring(connected))
+        return false
+    end
+
+    api_supported = true
+    api_route_epoch = epoch_fn
+    api_begin = begin_fn
+    api_apply = apply_fn
+    api_clear = clear_fn
+    if type(capability_fn) == "function" then
+        local capability_ok, supported = pcall(capability_fn, "hybrid_reflex")
+        api_hybrid_reflex = capability_ok and supported == true
+    end
+    printf("[SVP-CONFIG] typed api version=%d schema=%d hash=%s hybrid_reflex=%s",
+        TYPED_API_VERSION, TYPED_SCHEMA_VERSION,
+        tostring(connected.schema_hash), tostring(api_hybrid_reflex))
+    return true
+end
+
+local function typed_route()
+    return probe_typed_api()
+end
+
+local function select_route()
+    if typed_route() then
+        return "typed"
+    end
+    return "legacy_console"
+end
+
+local function line_source(section, key)
+    if section and ini_sys:section_exist(section) and ini_sys:line_exist(section, key) then
+        return ini_sys:dltx_get_filename_of_line(section, key)
+    end
+end
+
+local function source_text(kind, section, source, key)
+    return table.concat({
+        kind or "unknown",
+        section or "none",
+        key or "unknown",
+        source or "merged",
+    }, ":")
+end
+
+local function read_str_info(scope_sec, weap_sec, key, scope_hint)
+    if weap_sec then
+        local value = ini_sys:r_string_ex(weap_sec, key)
+        if value then
+            return value, weap_sec, line_source(weap_sec, key), "weapon"
+        end
+    end
+    if scope_sec then
+        local value = ini_sys:r_string_ex(scope_sec, key)
+        if value then
+            return value, scope_sec, line_source(scope_sec, key), "scope"
+        end
+    end
+    if scope_hint then
+        local value = ini_sys:r_string_ex(scope_hint, key)
+        if value then
+            return value, scope_hint, line_source(scope_hint, key), "scope_hint"
+        end
+    end
+end
+
+local function read_num_info(scope_sec, weap_sec, key, scope_hint)
+    if weap_sec then
+        local value = ini_sys:r_float_ex(weap_sec, key)
+        if value ~= nil then
+            return value, weap_sec, line_source(weap_sec, key), "weapon"
+        end
+    end
+    if scope_sec then
+        local value = ini_sys:r_float_ex(scope_sec, key)
+        if value ~= nil then
+            return value, scope_sec, line_source(scope_sec, key), "scope"
+        end
+    end
+    if scope_hint then
+        local value = ini_sys:r_float_ex(scope_hint, key)
+        if value ~= nil then
+            return value, scope_hint, line_source(scope_hint, key), "scope_hint"
+        end
+    end
+end
+
+local function read_3dss_num_info(item, scope_sec, weap_sec, key, scope_hint)
+    local value
+    local section
+    local source
+    local kind
+
+    if item then
+        local ok = pcall(function()
+            item:iterate_installed_upgrades(function(upgrade_sec)
+                value = ini_sys:r_float_ex(upgrade_sec, key)
+                section = value ~= nil and upgrade_sec or nil
+                source = value ~= nil and line_source(upgrade_sec, key) or nil
+                kind = value ~= nil and "upgrade" or nil
+            end)
+        end)
+        if not ok then
+            value = nil
+            section = nil
+            source = nil
+            kind = nil
+        end
+    end
+
+    local modular = weap_sec
+        and ini_sys:r_bool_ex(weap_sec, "modular_attachments", false)
+    if value == nil and weap_sec and not modular then
+        value = ini_sys:r_float_ex(weap_sec, key)
+        if value ~= nil then
+            section = weap_sec
+            source = line_source(weap_sec, key)
+            kind = "weapon"
+        end
+    end
+
+    local sight_sec = scope_sec or scope_hint
+    if value == nil and sight_sec then
+        value = ini_sys:r_float_ex(sight_sec, key)
+        if value ~= nil then
+            section = sight_sec
+            source = line_source(sight_sec, key)
+            kind = scope_sec and "scope" or "scope_hint"
+        end
+    end
+
+    if value == nil then
+        value = ini_sys:r_float_ex("s3ds_defaults", key)
+        if value ~= nil then
+            section = "s3ds_defaults"
+            source = line_source(section, key)
+            kind = "default"
+        end
+    end
+    return value, section, source, kind
+end
+
+local hybrid_ini
+local hybrid_ini_loaded = false
+local function read_3dss_bool_info(item, scope_sec, weap_sec, key, scope_hint)
+    local value
+    local section
+    local source
+    local kind
+
+    if item then
+        pcall(function()
+            item:iterate_installed_upgrades(function(upgrade_sec)
+                if ini_sys:line_exist(upgrade_sec, key) then
+                    value = ini_sys:r_bool_ex(upgrade_sec, key, false)
+                    section = upgrade_sec
+                    source = line_source(upgrade_sec, key)
+                    kind = "upgrade"
+                end
+            end)
+        end)
+    end
+
+    local modular = weap_sec
+        and ini_sys:r_bool_ex(weap_sec, "modular_attachments", false)
+    if value == nil and weap_sec and not modular and ini_sys:line_exist(weap_sec, key) then
+        value = ini_sys:r_bool_ex(weap_sec, key, false)
+        section = weap_sec
+        source = line_source(weap_sec, key)
+        kind = "weapon"
+    end
+
+    if value == nil and scope_sec and ini_sys:line_exist(scope_sec, key) then
+        value = ini_sys:r_bool_ex(scope_sec, key, false)
+        section = scope_sec
+        source = line_source(scope_sec, key)
+        kind = "scope"
+    end
+    if value == nil and scope_hint and ini_sys:line_exist(scope_hint, key) then
+        value = ini_sys:r_bool_ex(scope_hint, key, false)
+        section = scope_hint
+        source = line_source(scope_hint, key)
+        kind = "scope_hint"
+    end
+
+    if value ~= nil then
+        return value, source_text(kind, section, source, key), true
+    end
+
+    if not hybrid_ini_loaded then
+        hybrid_ini_loaded = true
+        if getFS():exist("$game_config$", "pip_hybrid_optics.ltx") then
+            hybrid_ini = ini_file("pip_hybrid_optics.ltx")
+        end
+    end
+    if not hybrid_ini then
+        return false, "registry:missing", false
+    end
+    if weap_sec and hybrid_ini:section_exist(weap_sec)
+        and hybrid_ini:line_exist(weap_sec, key) then
+        return hybrid_ini:r_bool_ex(weap_sec, key, false),
+            "registry:pip_hybrid_optics.ltx:" .. weap_sec, true
+    end
+    if scope_sec and hybrid_ini:section_exist(scope_sec)
+        and hybrid_ini:line_exist(scope_sec, key) then
+        return hybrid_ini:r_bool_ex(scope_sec, key, false),
+            "registry:pip_hybrid_optics.ltx:" .. scope_sec, true
+    end
+    if scope_hint and hybrid_ini:section_exist(scope_hint)
+        and hybrid_ini:line_exist(scope_hint, key) then
+        return hybrid_ini:r_bool_ex(scope_hint, key, false),
+            "registry:pip_hybrid_optics.ltx:" .. scope_hint, true
+    end
+    return false, "default:legacy", false
+end
+
+local function resolve_aux(scope_sec, weap_sec, scope_hint)
+    local middle, middle_section, middle_file, middle_kind =
+        read_num_info(scope_sec, weap_sec, "s3ds_middle_grey", scope_hint)
+    local adapt, adapt_section, adapt_file, adapt_kind =
+        read_num_info(scope_sec, weap_sec, "s3ds_adapt_speed", scope_hint)
+    local convergence, convergence_section, convergence_file, convergence_kind =
+        read_num_info(scope_sec, weap_sec, "scope_zero_m", scope_hint)
+    local convergence_source
+    if convergence == nil then
+        local profile
+        convergence, profile, convergence_source =
+            pip_optic_profile.profile_value_for(scope_sec, weap_sec, "scope_zero_m", scope_hint)
+        convergence_source =
+            convergence_source or ("profile:" .. tostring(profile or "default"))
+    else
+        convergence_source = source_text(convergence_kind, convergence_section,
+            convergence_file, "scope_zero_m")
+    end
+
+    return {
+        middle_grey = middle or 0,
+        middle_grey_source = middle ~= nil
+            and source_text(middle_kind, middle_section, middle_file, "s3ds_middle_grey")
+            or "lua_default",
+        adapt_speed = adapt or 0,
+        adapt_speed_source = adapt ~= nil
+            and source_text(adapt_kind, adapt_section, adapt_file, "s3ds_adapt_speed")
+            or "lua_default",
+        convergence_limit_m = convergence ~= nil and convergence or 100,
+        convergence_source = convergence_source or "lua_default",
+    }
+end
+
+local mm_ini
+local function finite_positive(value)
+    return value and value == value and value > 0 and value < math.huge
+end
+
+local function read_mm(scope_sec, weap_sec, scope_hint)
+    local mm, spec, _, _, spec_source =
+        pip_optic_profile.objective_mm(scope_sec, weap_sec, scope_hint)
+    if mm then
+        return mm, spec_source or ("spec:" .. tostring(spec or "unknown"))
+    end
+
+    local section
+    local source
+    local kind
+    mm, section, source, kind =
+        read_num_info(scope_sec, weap_sec, "s3ds_objective_mm", scope_hint)
+    if mm then
+        return mm, source_text(kind, section, source, "s3ds_objective_mm")
+    end
+
+    mm_ini = mm_ini or ini_file("pip_objective_mm.ltx")
+    if weap_sec then
+        mm = mm_ini:r_float_ex(weap_sec, "s3ds_objective_mm")
+        if mm then
+            return mm, "table:pip_objective_mm.ltx:" .. weap_sec
+        end
+    end
+    if scope_sec then
+        mm = mm_ini:r_float_ex(scope_sec, "s3ds_objective_mm")
+        if mm then
+            return mm, "table:pip_objective_mm.ltx:" .. scope_sec
+        end
+    end
+    if scope_hint then
+        mm = mm_ini:r_float_ex(scope_hint, "s3ds_objective_mm")
+        if mm then
+            return mm, "table_hint:pip_objective_mm.ltx:" .. scope_hint
+        end
+    end
+end
+
+local function resolve_objective_mm(scope_sec, weap_sec, scope_hint)
+    local objective, objective_source = read_mm(scope_sec, weap_sec, scope_hint)
+    if objective == 0 then
+        objective = nil
+        objective_source = nil
+    elseif objective ~= nil and (not finite_positive(objective) or objective > 200) then
+        return nil, nil, "objective_mm:range"
+    end
+    if objective == nil then
+        local detected = rawget(_G, "svp_detected_obj_mm")
+        local measured = type(detected) == "function" and detected() or nil
+        if finite_positive(measured) and measured <= 200 then
+            objective = measured
+            objective_source = "engine_detection"
+        end
+    end
+    return objective, objective_source
+end
+
+local function parse_offset(value)
+    local text = tostring(value or "")
+    local numbers = {}
+    local cursor = 1
+    while true do
+        local separator = string.find(text, ",", cursor, true)
+        local item = string.match(
+            string.sub(text, cursor, separator and separator - 1 or #text),
+            "^%s*(.-)%s*$")
+        local number = tonumber(item)
+        if item == "" or not number or number ~= number or number == math.huge
+            or number == -math.huge then
+            return nil, "component"
+        end
+        numbers[#numbers + 1] = number
+        if #numbers > 4 then
+            return nil, "count"
+        end
+        if not separator then
+            break
+        end
+        cursor = separator + 1
+    end
+    if #numbers ~= 4 then
+        return nil, "count"
+    end
+    if numbers[1] < -8 or numbers[1] > 64
+        or numbers[2] < -8 or numbers[2] > 64
+        or numbers[3] <= 0 or numbers[3] > 64
+        or numbers[4] <= 0 or numbers[4] > 64 then
+        return nil, "range"
+    end
+    return numbers
+end
+
+local offset_ini
+local function read_offset_table(scope_sec, weap_sec, scope_hint)
+    offset_ini = offset_ini or ini_file("pip_objective_offsets.ltx")
+    local sections = {weap_sec, scope_sec, scope_hint}
+    for index = 1, 3 do
+        local section = sections[index]
+        if section then
+            local value = offset_ini:r_string_ex(section, "scope_objective_lens_offset")
+            if value then
+                return value, "table:pip_objective_offsets.ltx:" .. section
             end
-            r.key = key
-            r.zoom_current = 0
-            r.zoom_target = 0
-            property_cache[key] = r
         end
-        return property_cache[key]
     end
 end
 
-local _key_upgrades = ""
-local function _accum_upgrade(upgrade_section)
-    _key_upgrades = _key_upgrades .. "+" .. upgrade_section
-end
-
-function get_item_key(item)
-    local weapon = item and item:cast_Weapon()
-    if not weapon then
-        return nil
+local function resolve_lens(scope_sec, weap_sec, scope_hint)
+    local offset, section, source, kind =
+        read_str_info(scope_sec, weap_sec, "scope_objective_lens_offset", scope_hint)
+    local offset_source
+    if offset then
+        offset_source = source_text(kind, section, source, "scope_objective_lens_offset")
+    else
+        offset, offset_source = read_offset_table(scope_sec, weap_sec, scope_hint)
     end
-    local id       = item:id()
-    local zoomtype = weapon:GetZoomType()
-    local section  = zoomtype == 0
-                        and utils_item.get_attached_scope(item)
-                        or  item:section()
-
-    _key_upgrades = ""
-    item:iterate_installed_upgrades(_accum_upgrade)
-    return id .. ":" .. zoomtype .. ":" .. section .. ":" .. _key_upgrades
-end
-
-function current_magnification(info, wantTarget)
-    local isValid = info.zoom_target and info.zoom_current and info.min and info.max
-    return isValid and ((wantTarget and info.zoom_target or info.zoom_current) * (info.max - info.min) + info.min)
-        or nil
-end
-
--- avoid calling this shit every frame. why tf was this done in the first place?
-local last_sp_a, last_sp_b, last_sp_c, last_sp_d
-local function push_scope_params(a, b, c, d)
-    if a ~= last_sp_a or b ~= last_sp_b or c ~= last_sp_c or d ~= last_sp_d then
-        last_sp_a, last_sp_b, last_sp_c, last_sp_d = a, b, c, d
-        exec_console_cmd("shader_scope_params " .. a .. ", " .. b .. ", " .. c .. ", " .. d)
-    end
-end
-
-local last_key = nil
-function actor_on_update()
-    
-    local item = db.actor:active_item()
-    local weapon = item and item:cast_Weapon()
-
-    local info = active_2d_scope()
-    if info and item and weapon then 
-        if last_key ~= info.key then
-            debug("Aim type changed: " .. (last_key or "nil") .. " -> " .. (info and info.key or "nil"))
-            last_key = info.key
-            print_optic_detail(info) 
+    if not offset then
+        local detected = rawget(_G, "svp_detected_offset")
+        offset = type(detected) == "function" and detected() or nil
+        if offset == "" then
+            offset = nil
         end
+        if offset then
+            offset_source = "engine_detection"
+        end
+    end
+    if not offset then
+        return false
+    end
 
-        local delta = device().f_time_delta           	
-        local src = clamp(10 * delta, 0, 1);
-        local dst = 1 - src;
-        info.zoom_current = info.zoom_current * dst + info.zoom_target * src;
+    local values, offset_error = parse_offset(offset)
+    if not values then
+        printf("![SVP-PUSH] invalid objective offset section=%s value=%s",
+            scope_sec or weap_sec or "none", tostring(offset))
+        return false, nil, "objective_offset:" .. tostring(offset_error)
+    end
 
-        local magnification = current_magnification(info)
-        if not magnification then
+    return true, {
+        offset_text = offset,
+        x = values[1],
+        y = values[2],
+        z = values[3],
+        w = values[4],
+        offset_source = offset_source or "unknown",
+    }
+end
+
+local function objective_optional(scope_sec, weap_sec, zoom_type, scope_hint)
+    if zoom_type ~= 0 then
+        return true
+    end
+    local sections = {weap_sec, scope_sec, scope_hint}
+    local found = false
+    for index = 1, 3 do
+        local section = sections[index]
+        if section then
+            local factor = ini_sys:r_float_ex(section, "scope_zoom_factor")
+            if factor ~= nil then
+                found = true
+                if factor > 0 then
+                    return false
+                end
+            end
+        end
+    end
+    return found
+end
+
+local function authoritative_scope(weapon, item)
+    local scope
+    if weapon:IsScopeAttached() then
+        scope = weapon:GetScopeName()
+        if scope == "" then
+            scope = nil
+        end
+    end
+
+    local diagnostic
+    local helpers = rawget(_G, "utils_item")
+    local diagnostic_fn = type(helpers) == "table" and helpers.get_attached_scope or nil
+    if type(diagnostic_fn) == "function" then
+        local ok, result = pcall(diagnostic_fn, item)
+        if ok then
+            diagnostic = result
+        end
+    end
+    if type(diagnostic) ~= "string" or diagnostic == "" then
+        diagnostic = nil
+    end
+    if diagnostic and not ini_sys:section_exist(diagnostic) then
+        diagnostic = nil
+    end
+    return scope, diagnostic
+end
+
+local function permanent_scope_hint(item, scope_sec, diagnostic_scope, weap_sec)
+    if scope_sec or not diagnostic_scope then
+        return
+    end
+    if ini_sys:r_bool_ex(weap_sec, "modular_attachments") then
+        return
+    end
+    local ok, status = pcall(function()
+        return item:weapon_scope_status()
+    end)
+    if ok and status == 1 then
+        return diagnostic_scope
+    end
+end
+
+local function aim_context()
+    if get_console():get_integer("r__svpscope") <= 0 then
+        return
+    end
+    local item = db.actor and db.actor:active_item()
+    local weapon = item and item:cast_Weapon()
+    -- binoculars publish on the typed route only, the legacy route has no scopeless lane
+    if not (item and weapon and weapon:IsZoomed())
+        or (IsBinoc(item:section()) and select_route() ~= "typed") then
+        return
+    end
+
+    local weap_sec = item:section()
+    local scope_sec, diagnostic_scope = authoritative_scope(weapon, item)
+    local scope_hint = permanent_scope_hint(item, scope_sec, diagnostic_scope, weap_sec)
+    local weapon_id = item:id()
+    local zoom_type = weapon:GetZoomType()
+    local key = table.concat({
+        weap_sec or "",
+        tostring(weapon_id or 0),
+        scope_sec or "",
+        scope_hint or "",
+        tostring(zoom_type or 0),
+    }, "|")
+    if scope_sec ~= diagnostic_scope and identity_diag_key ~= key then
+        identity_diag_key = key
+        printf("![SVP-CONFIG] scope identity engine=%s diagnostic=%s hint=%s key=%s",
+            scope_sec or "none", diagnostic_scope or "none", scope_hint or "none", key)
+        if diagnostic_scope and not scope_hint then
+            printf("[PIP-MAS-STALE] section=%s scope=%s action=hint_not_applied",
+                weap_sec, diagnostic_scope)
+        end
+    end
+    return item, weapon, weapon_id, scope_sec, diagnostic_scope, scope_hint,
+        weap_sec, zoom_type, key
+end
+
+local function field_text(scope_sec, weap_sec, field, scope_hint)
+    local value, section, source, kind =
+        read_str_info(scope_sec, weap_sec, field, scope_hint)
+    if not value then
+        return "none"
+    end
+    return tostring(value) .. "@" .. (kind or "?") .. "@" .. (section or "?")
+        .. "@" .. (source or "?")
+end
+
+local function log_optic(item, weapon, scope_sec, diagnostic_scope, scope_hint, weap_sec,
+    zoom_type, key, optics, lens, objective_mm, objective_source,
+    hybrid_reflex, hybrid_authored, hybrid_source, route, token)
+    local diag_key = table.concat({ key, route or "unknown", tostring(token or 0) }, "|")
+    if get_console():get_integer("r__svp_diag") <= 0 or last_diag_key == diag_key then
+        return
+    end
+    last_diag_key = diag_key
+    printf("[PIP-OPTIC] key=%s route=%s token=%s generation=%s fingerprint=%s scope=%s diagnostic_scope=%s weapon=%s spec=%s model=%s binding=%s profile=%s physical=%s..%s",
+        key, route or "unknown", tostring(token or 0), tostring(active_generation or 0),
+        tostring(active_profile_fingerprint or "none"), scope_sec or "none",
+        diagnostic_scope or "none", weap_sec or "none", optics.spec or "none",
+        optics.model or "none", optics.binding or "none", optics.profile or "default",
+        tostring(optics.physical_min or "none"), tostring(optics.physical_max or "none"))
+    printf("[PIP-OPTIC-ZOOM] type=%s live_factor=%s svp=%s magnifications=%s magnification=%s min_magnification=%s factor=%s min_factor=%s dynamic=%s",
+        tostring(zoom_type or 0), tostring(weapon:GetZoomFactor()),
+        field_text(scope_sec, weap_sec, "svp_magnifications", scope_hint),
+        field_text(scope_sec, weap_sec, "magnifications", scope_hint),
+        field_text(scope_sec, weap_sec, "magnification", scope_hint),
+        field_text(scope_sec, weap_sec, "min_magnification", scope_hint),
+        field_text(scope_sec, weap_sec, "scope_zoom_factor", scope_hint),
+        field_text(scope_sec, weap_sec, "min_scope_zoom_factor", scope_hint),
+        field_text(scope_sec, weap_sec, "scope_dynamic_zoom", scope_hint))
+    local reticle, reticle_section, reticle_source, reticle_kind =
+        read_3dss_num_info(item, scope_sec, weap_sec, "s3ds_reticle_type", scope_hint)
+    local reticle_text = reticle == nil and "none"
+        or tostring(reticle) .. "@" .. (reticle_kind or "?")
+            .. "@" .. (reticle_section or "?") .. "@" .. (reticle_source or "?")
+    printf("[PIP-OPTIC-GEOM] hud=%s reticle=%s hybrid=%s authored=%s hybrid_src=%s offset=%s off_src=%s objective_mm=%s mm_src=%s pupil=%s..%s",
+        field_text(scope_sec, weap_sec, "hud", scope_hint),
+        reticle_text,
+        tostring(hybrid_reflex),
+        tostring(hybrid_authored),
+        hybrid_source or "none",
+        lens and lens.offset_text or "none",
+        lens and lens.offset_source or "none",
+        tostring(objective_mm or 0),
+        objective_source or "none",
+        tostring(optics.exit_pupil_low_mm or "none"),
+        tostring(optics.exit_pupil_high_mm or "none"))
+end
+
+local function materialize_legacy_console(optics, aux, lens, objective_mm)
+    pip_optic_profile.materialize_legacy(optics)
+    exec_console_cmd("s3ds_middle_grey " .. tostring(aux.middle_grey))
+    exec_console_cmd("s3ds_adapt_speed " .. tostring(aux.adapt_speed))
+    exec_console_cmd("g_svp_zero " .. tostring(aux.convergence_limit_m))
+    exec_console_cmd("scope_objective_lens_offset "
+        .. (lens and lens.offset_text or "0,0,0,0"))
+    exec_console_cmd("s3ds_objective_mm "
+        .. tostring(objective_mm or 0))
+end
+
+local function typed_table(token, key, item, weapon_id, scope_sec, diagnostic_scope, scope_hint,
+    weap_sec, zoom_type, optics, aux, lens, objective_mm, objective_source,
+    hybrid_reflex, hybrid_authored, hybrid_source)
+    local values = optics.values
+    local sources = optics.sources
+    local reticle_type, reticle_section, reticle_file, reticle_kind =
+        read_3dss_num_info(item, scope_sec, weap_sec, "s3ds_reticle_type", scope_hint)
+    local reticle_source = reticle_type ~= nil
+        and source_text(reticle_kind, reticle_section, reticle_file, "s3ds_reticle_type")
+        or "engine_default:s3ds_reticle_type"
+    local config = {
+        schema_version = 3,
+        context_token = token,
+        context = key,
+        weapon = weap_sec or "",
+        weapon_id = weapon_id or 0,
+        identity_source = scope_sec and "engine:CWeapon.GetScopeName"
+            or (scope_hint and "legacy:permanent_scope" or "engine:none"),
+        zoom_type = zoom_type or 0,
+        reticle_type = reticle_type or 0,
+        profile_id = optics.profile or "default",
+        middle_grey = aux.middle_grey,
+        adapt_speed = aux.adapt_speed,
+        convergence_limit_m = aux.convergence_limit_m,
+        tunneling_parallax = values.s3ds_tunneling_parallax,
+        tunneling_min = values.s3ds_tunneling_min,
+        tunneling_max = values.s3ds_tunneling_max,
+        tracking_speed = values.s3ds_eye_tracking_speed,
+        tracking_accel_mm_s2 = values.s3ds_eye_tracking_accel_mm_s2,
+        tracking_limit_mm = values.s3ds_eye_tracking_limit_mm,
+        eye_relief_low_mm = values.s3ds_eye_relief_low_mm,
+        eye_relief_high_mm = values.s3ds_eye_relief_high_mm,
+        exit_pupil_low_mm = values.s3ds_exit_pupil_low_mm,
+        exit_pupil_high_mm = values.s3ds_exit_pupil_high_mm,
+        pupil_parity = values.s3ds_pupil_parity,
+        pupil_field_low = values.s3ds_pupil_field_low,
+        pupil_field_high = values.s3ds_pupil_field_high,
+        transmission = values.s3ds_transmission,
+        twilight_strength = values.s3ds_twilight_strength,
+        eye_coupling = optics.eye_coupling,
+        reticle_illum = optics.reticle_illum,
+        sources = {
+            reticle_type = reticle_source,
+            middle_grey = aux.middle_grey_source,
+            adapt_speed = aux.adapt_speed_source,
+            convergence_limit_m = aux.convergence_source,
+            tunneling_parallax = sources.s3ds_tunneling_parallax,
+            tunneling_min = sources.s3ds_tunneling_min,
+            tunneling_max = sources.s3ds_tunneling_max,
+            tracking_speed = sources.s3ds_eye_tracking_speed,
+            tracking_accel_mm_s2 = sources.s3ds_eye_tracking_accel_mm_s2,
+            tracking_limit_mm = sources.s3ds_eye_tracking_limit_mm,
+            eye_relief_low_mm = sources.s3ds_eye_relief_low_mm,
+            eye_relief_high_mm = sources.s3ds_eye_relief_high_mm,
+            exit_pupil_low_mm = sources.s3ds_exit_pupil_low_mm,
+            exit_pupil_high_mm = sources.s3ds_exit_pupil_high_mm,
+            pupil_parity = sources.s3ds_pupil_parity,
+            pupil_field_low = sources.s3ds_pupil_field_low,
+            pupil_field_high = sources.s3ds_pupil_field_high,
+            transmission = sources.s3ds_transmission,
+            twilight_strength = sources.s3ds_twilight_strength,
+            eye_coupling = optics.eye_coupling_source,
+            reticle_illum = optics.reticle_illum_source,
+        },
+    }
+    if scope_sec and scope_sec ~= "" then
+        config.scope = scope_sec
+    end
+    if diagnostic_scope and diagnostic_scope ~= "" then
+        config.diagnostic_scope = diagnostic_scope
+    end
+    if optics.spec and optics.spec ~= "" then
+        config.spec_section = optics.spec
+    end
+    if optics.model and optics.model ~= "" then
+        config.model = optics.model
+    end
+    if optics.binding and optics.binding ~= "" then
+        config.binding = optics.binding
+    end
+    if optics.binding_section and optics.binding_section ~= "" then
+        config.binding_section = optics.binding_section
+    end
+    if lens then
+        config.objective_offset = {
+            x = lens.x,
+            y = lens.y,
+            z = lens.z,
+            radius = lens.w,
+        }
+        config.sources.objective_offset = lens.offset_source
+    end
+    if finite_positive(objective_mm) and objective_mm <= 200 then
+        config.objective_mm = objective_mm
+        config.sources.objective_mm = objective_source
+    end
+    if optics.physical_min and optics.physical_max then
+        config.physical_min = optics.physical_min
+        config.physical_max = optics.physical_max
+        config.sources.physical_min = optics.physical_min_source
+        config.sources.physical_max = optics.physical_max_source
+    end
+    if optics.magnification_mode and optics.magnifications then
+        config.magnification_mode = optics.magnification_mode
+        config.magnifications = optics.magnifications
+        config.sources.magnification_mode = optics.magnification_source
+        config.sources.magnifications = optics.magnification_source
+    end
+    if api_hybrid_reflex and hybrid_authored then
+        config.hybrid_reflex = hybrid_reflex == true
+        config.sources.hybrid_reflex = hybrid_source
+    end
+    return config
+end
+
+-- optional editor overlay, absent module leaves the composed table untouched
+local function workbench_overlay(config)
+    local workbench = rawget(_G, "pip_optic_workbench")
+    if type(workbench) ~= "table" or type(workbench.overlay_apply) ~= "function" then
+        return config
+    end
+    local ok, overlaid = pcall(workbench.overlay_apply, config)
+    return (ok and type(overlaid) == "table") and overlaid or config
+end
+
+local function workbench_epoch()
+    local workbench = rawget(_G, "pip_optic_workbench")
+    if type(workbench) ~= "table" or type(workbench.editor_epoch) ~= "function" then
+        return 0
+    end
+    local ok, value = pcall(workbench.editor_epoch)
+    return (ok and type(value) == "number") and value or 0
+end
+
+local function try_push(expected_key, expected_token, expected_route)
+    local item, weapon, weapon_id, scope_sec, diagnostic_scope, scope_hint,
+        weap_sec, zoom_type, key = aim_context()
+    if not item then
+        return true
+    end
+    if key ~= expected_key or key ~= active_key or expected_token ~= active_token
+        or expected_route ~= active_route then
+        printf("[SVP-PUSH] stale retry stopped expected=%s current=%s token=%s active=%s",
+            expected_key or "none", key or "none", tostring(expected_token or 0),
+            tostring(active_token or 0))
+        return true
+    end
+
+    local optics = pip_optic_profile.resolve(scope_sec, weap_sec, scope_hint)
+    if expected_route == "typed" and optics.field_error then
+        printf("![SVP-CONFIG] profile rejected context=%s error=%s",
+            key, tostring(optics.field_error))
+        return true
+    end
+    local aux = resolve_aux(scope_sec, weap_sec, scope_hint)
+    local hybrid_reflex, hybrid_source, hybrid_authored =
+        read_3dss_bool_info(item, scope_sec, weap_sec, "svp_hybrid_reflex", scope_hint)
+    local objective_mm, objective_source, objective_error =
+        resolve_objective_mm(scope_sec, weap_sec, scope_hint)
+    if expected_route == "typed" and objective_error then
+        printf("![SVP-CONFIG] profile rejected context=%s error=%s",
+            key, tostring(objective_error))
+        return true
+    end
+    local landed, lens, lens_error = resolve_lens(scope_sec, weap_sec, scope_hint)
+    if expected_route == "typed" and lens_error then
+        printf("![SVP-CONFIG] profile rejected context=%s error=%s",
+            key, tostring(lens_error))
+        return true
+    end
+    if expected_route ~= "typed" and not landed
+        and not objective_optional(scope_sec, weap_sec, zoom_type, scope_hint) then
+        return false
+    end
+    if expected_route ~= "typed" then
+        materialize_legacy_console(optics, aux, lens, objective_mm)
+    else
+        local config = typed_table(expected_token, key, item, weapon_id, scope_sec,
+            diagnostic_scope, scope_hint, weap_sec, zoom_type, optics, aux, lens,
+            objective_mm, objective_source, hybrid_reflex, hybrid_authored, hybrid_source)
+        config = workbench_overlay(config)
+        local ok, accepted = pcall(api_apply, config.context_token, config)
+        if not ok or type(accepted) ~= "table" or accepted.ok ~= true then
+            printf("![SVP-CONFIG] apply failed route=%s token=%s context=%s call=%s code=%s message=%s",
+                expected_route, tostring(expected_token), key, tostring(ok),
+                type(accepted) == "table" and tostring(accepted.code) or "call_failed",
+                type(accepted) == "table" and tostring(accepted.message) or tostring(accepted))
+            return true
+        end
+        active_generation = accepted.config_generation
+        active_profile_fingerprint = accepted.profile_fingerprint
+        if not landed and get_console():get_integer("r__svp_diag") > 0 then
+            printf("[SVP-PUSH] typed objective=engine_fallback key=%s token=%s",
+                key, tostring(expected_token or 0))
+        end
+    end
+
+    log_optic(item, weapon, scope_sec, diagnostic_scope, scope_hint, weap_sec, zoom_type,
+        key, optics, lens, objective_mm, objective_source,
+        hybrid_reflex, hybrid_authored, hybrid_source,
+        expected_route, expected_token)
+    return true
+end
+
+local function clear_token()
+    if active_token and api_clear then
+        local ok, cleared = pcall(api_clear, active_token)
+        if not ok then
+            printf("![SVP-CONFIG] clear failed token=%s", tostring(active_token))
+        elseif not cleared then
+            printf("[SVP-CONFIG] clear stale token=%s", tostring(active_token))
+        end
+    end
+    active_token = nil
+    active_generation = nil
+    active_profile_fingerprint = nil
+end
+
+local function clear_legacy_route(route)
+    if route == "legacy_console" then
+        exec_console_cmd("s3ds_middle_grey 0")
+        exec_console_cmd("s3ds_adapt_speed 0")
+    end
+end
+
+local function clear_offset()
+    RemoveTimeEvent(RETRY_EV, "retry")
+    local route = active_route
+    if route == "typed" then
+        clear_token()
+    else
+        active_token = nil
+        active_generation = nil
+        active_profile_fingerprint = nil
+    end
+    clear_legacy_route(route)
+    active_key = nil
+    active_route = nil
+    last_diag_key = nil
+    identity_diag_key = nil
+end
+
+local function push_offset(force)
+    RemoveTimeEvent(RETRY_EV, "retry")
+    local item, _, weapon_id, scope_sec, diagnostic_scope, scope_hint,
+        weap_sec, zoom_type, key = aim_context()
+    if not item then
+        return
+    end
+    local route = select_route()
+    if force or active_key ~= key or active_route ~= route then
+        if active_route ~= route then
+            clear_legacy_route(active_route)
+        end
+        clear_token()
+        active_key = key
+        active_route = route
+        last_diag_key = nil
+        if route == "typed" then
+            local identity_source = scope_sec and "engine:CWeapon.GetScopeName"
+                or (scope_hint and "legacy:permanent_scope" or "engine:none")
+            local ok, token = pcall(api_begin, key, weap_sec or "", weapon_id or 0, scope_sec or "",
+                zoom_type or 0, identity_source, diagnostic_scope or "")
+            if not ok or not token or token <= 0 then
+                printf("![SVP-CONFIG] begin failed context=%s call=%s token=%s",
+                    key, tostring(ok), tostring(token))
+                active_token = nil
+                return
+            end
+            active_token = token
+        end
+    end
+
+    local token = active_token
+    if try_push(key, token, route) then
+        return
+    end
+    printf("[SVP-PUSH] unresolved neutral, retrying key=%s token=%s",
+        key, tostring(token or 0))
+    local tries = 0
+    CreateTimeEvent(RETRY_EV, "retry", RETRY_STEP_S, function()
+        tries = tries + 1
+        if try_push(key, token, route) then
+            return true
+        end
+        if tries >= RETRY_MAX then
+            printf("![SVP-PUSH] unresolved after retry key=%s token=%s",
+                key, tostring(token or 0))
+            return true
+        end
+        ResetTimeEvent(RETRY_EV, "retry", RETRY_STEP_S)
+        return false
+    end)
+end
+
+local function route_update()
+    local now = time_global()
+    if now < next_reconcile_ms then
+        return
+    end
+    next_reconcile_ms = now + RECONCILE_MS
+
+    local mode = get_console():get_integer("r__svpscope")
+    local api = probe_typed_api() and 1 or 0
+    local epoch = 0
+    if api_supported then
+        local ok, value = pcall(api_route_epoch)
+        epoch = ok and value or 0
+    end
+    local editor = workbench_epoch()
+    if last_mode == nil then
+        last_mode = mode
+        last_api = api
+        last_route_epoch = epoch
+        last_editor_epoch = editor
+    end
+
+    if mode ~= last_mode or api ~= last_api or epoch ~= last_route_epoch then
+        local previous_mode = last_mode
+        local previous_api = last_api
+        local previous_epoch = last_route_epoch
+        local previous_editor = last_editor_epoch
+        last_mode = mode
+        last_api = api
+        last_route_epoch = epoch
+        last_editor_epoch = editor
+        RemoveTimeEvent(RETRY_EV, "retry")
+        clear_legacy_route(active_route)
+        active_token = nil
+        active_generation = nil
+        active_profile_fingerprint = nil
+        active_key = nil
+        active_route = nil
+        last_diag_key = nil
+        printf("[SVP-CONFIG] route transition mode=%s>%s api=%s>%s epoch=%s>%s editor=%s>%s",
+            tostring(previous_mode), tostring(mode), tostring(previous_api), tostring(api),
+            tostring(previous_epoch), tostring(epoch),
+            tostring(previous_editor), tostring(editor))
+        if mode > 0 then
+            push_offset(true)
+        end
+        return
+    end
+
+    if mode <= 0 then
+        return
+    end
+
+    -- an editor overlay change re applies on the live context, no teardown
+    if editor ~= last_editor_epoch then
+        last_editor_epoch = editor
+        if active_key then
+            push_offset(false)
+        end
+        return
+    end
+
+    local item, _, _, _, _, _, _, _, key = aim_context()
+    local route = select_route()
+    if item and (key ~= active_key or route ~= active_route) then
+        push_offset(true)
+    elseif not item and active_key then
+        clear_offset()
+    end
+end
+
+-- gamma zoom sound script seeds its wheel memo with the console fov
+-- reseed with the live factor at zoom in so a clamped scroll stays silent
+local function seed_zoom_sound_memo()
+    if get_console():get_integer("r__svpscope") <= 0 then
+        return
+    end
+    local sounds = rawget(_G, "scope_zoom_sounds")
+    if type(sounds) ~= "table" or type(sounds.weapons) ~= "table"
+        or type(sounds.get_const_params) ~= "function" then
+        return
+    end
+    local item = db.actor and db.actor:active_item()
+    local weapon = item and item:cast_Weapon()
+    if not (item and weapon) then
+        return
+    end
+    local id = item:id()
+    local entry = sounds.weapons[id]
+    if not entry then
+        local ok, params = pcall(sounds.get_const_params, item:section())
+        if not ok or type(params) ~= "table" then
             return
         end
-
-        local min_magnification = info.min
-        local max_magnification = info.max
-
-        local scope_factor = get_console():get_float("scope_factor")
-        local is_svp = get_console():get_string("r__svpscope") ~= "0";
-
-        if is_svp then 
-            local player_fov = get_console():get_float("fov") * TO_RADIANS
-            local target_fov = mag_to_fov(player_fov, magnification)
-            weapon:SetZoomFactor(fov_to_zoomfactor(target_fov))
-            push_scope_params(magnification, min_magnification, max_magnification, -1.0)
-        else
-            local max_pip_magnification = (ui_mcm and ui_mcm.get("3d_scopes/zoom_factor")) or (1.0/scope_factor);
-            local pip_magnification = math.min( magnification
-                                              , max_pip_magnification)
-
-
-            local remaining_magnification = magnification / pip_magnification
-            
-            local player_fov = get_console():get_float("fov") * TO_RADIANS
-            local target_fov = mag_to_fov(player_fov, magnification)
-            
-
-            local fov_factor = mag_to_fov( player_fov
-                                         , remaining_magnification)
-
-            local zoom_factor  = options.only_zoom_when_rotated
-                and weapon:GetInertionAimFactor() > 0.001 and fov_to_zoomfactor(player_fov)
-                or fov_to_zoomfactor(fov_factor)
-            weapon:SetZoomFactor(zoom_factor)
-            push_scope_params(magnification, min_magnification, max_magnification, target_fov)
-        end
+        entry = params
+        sounds.weapons[id] = entry
     end
-end
-
-function isFixed(info, zc)
-    local cur = info.magnifications[math.floor(zc+0.01)]
-    return cur.l == cur.h
-end
-
-local function clamp_or_wrap(v, min, max, wantClamp)
-    return wantClamp
-        and clamp(v, min, max)
-        or (v > max and min)
-        or (v < min and max)
-        or v
-end
-
--- If wantClamp is false, the zoom will wrap.  Useful to support a "cycle zoom" keybind
-function change_zoom(info, direction, wantClamp)
-    if info then
-        local steps = info.zoom_step_count or get_console():get_float("zoom_step_count") or 100;   -- If it find neither, make it obvious that something is broken
-	    local delta = 1.0 / steps;
-
-        info.zoom_target_old = info.zoom_target;
-        info.zoom_target = clamp_or_wrap(info.zoom_target + direction*delta, 0, 1, wantClamp);
-        debug("Zoom target %: %s", info.zoom_target)
-    end
-end
-
-function on_mouse_wheel(scroll_dir, flags) 
-    local info = active_2d_scope()
-    if info and current_magnification(info) and scroll_dir and (not actor_menu.inventory_opened())then
-        local i = get_console():get_bool("mouse_wheel_invert_zoom") and -1 or 1
-
-        change_zoom(info, i*(scroll_dir*2-1), true)
-
-        flags.ret_value = false
-    end
-end
-local mwheel_supported_ver	= 20230701
-local mwheel_avail 			= MODDED_EXES_VERSION and (MODDED_EXES_VERSION >= mwheel_supported_ver)
-
-local function fmt_mag(n)
-    return n
-        and (math.floor(n) == n
-                and tostring(n)
-                or string.format("%.1f", n))
-        or "nil"
-end
-
-function print_optic_detail(info)
-    local snap_type = info.zoom_step_count == 1 and "," or "-"
-    local mag_string = info.min == info.max and fmt_mag(info.max)
-        or  fmt_mag(info.min) .. snap_type .. fmt_mag(info.max)
-
-    log( "Weapon".. (info.legacy_config and "[LEGACY]" or "") ..": " .. info.section
-         .. " | Magnification: " .. mag_string 
-         .. " | key: " .. info.key
-         .. " | objective-lens: " .. (info.scope_objective_lens_offset or "nil")
-        )
-end
-
-function disable_conflicting_scripts()
-    local drop = function(...) end
-    if scopes_as_binocs then
-        -- sets the zoom factor, which overrides our fixes
-        scopes_as_binocs.actor_on_update = drop
-    end
-    if zoomed_out_scope_draw then
-        zoomed_out_scope_draw.actor_on_weapon_zoom_in = drop
-        zoomed_out_scope_draw.actor_on_weapon_zoom_out = drop
-    end
-    if fakelens then 
-        fakelens.actor_on_update = drop
-    end
-
-    if zzz_mspizza_Godis_ZoomCalc then
-        zzz_mspizza_Godis_ZoomCalc.actor_on_weapon_zoom_in = drop;
-        zzz_mspizza_Godis_ZoomCalc.actor_on_weapon_zoom_type_changed = drop;
-
-    end
-
-    if zzz_mspizzaZoomCalc then
-        zzz_mspizzaZoomCalc.actor_on_weapon_zoom_in = function() end
+    entry.zoom = weapon:GetZoomFactor() or entry.zoom
+    if get_console():get_integer("r__svp_diag") > 0 then
+        printf("[SVP-SND] memo seed id=%s zoom=%s", tostring(id), tostring(entry.zoom))
     end
 end
 
 function on_game_start()
     if not get_console():get_string("scope_objective_lens_offset") then
-        printf("dev/svp exes not installed")
+        printf("dev/svp exes not installed - extra scope features inert")
         return
     end
-    disable_conflicting_scripts()    
-
-    -- Allows mods like dynamic zoom click to work
-    CWeapon.GetZoomFactor = function(...)
-        local info = active_2d_scope()
-        if info then 
-            local current_mag = current_magnification(info, true)
-            local v = info and current_mag and (60 / current_mag) or 0
-            return v;
-        else 
-            return get_console():get_float("fov") / 0.75;
-        end
+    probe_typed_api()
+    last_mode = get_console():get_integer("r__svpscope")
+    last_api = api_supported and 1 or 0
+    if api_supported then
+        local ok, epoch = pcall(api_route_epoch)
+        last_route_epoch = ok and epoch or 0
+    else
+        last_route_epoch = 0
     end
-
-	RegisterScriptCallback("actor_on_update", actor_on_update)
-    if mwheel_avail then
-		RegisterScriptCallback("on_mouse_wheel",on_mouse_wheel)
-	end
-
-    add_scope_radii('wpn_crosshair_bino', 1.0)
-
-    local last_info
-    RegisterScriptCallback("actor_on_weapon_zoom_out", function()
-        if last_info then
-            last_info.scope_objective_lens_offset = get_console():get_string("scope_objective_lens_offset")
-        end
+    last_editor_epoch = workbench_epoch()
+    RegisterScriptCallback("actor_on_weapon_zoom_in", function()
+        push_offset(false)
+        seed_zoom_sound_memo()
     end)
-
-    local function aim_changed()
-        local info = active_2d_scope()
-        last_info = info
-        if info then
-            print_optic_detail(info)
-
-            exec_console_cmd("scope_objective_lens_offset " .. (info.scope_objective_lens_offset or "0,0,0,0"))
-
-            actor_on_update()
-        end
-    end
-
-    RegisterScriptCallback("actor_on_weapon_zoom_in", aim_changed)
-    RegisterScriptCallback("actor_on_weapon_zoom_type_changed", aim_changed)
-end
-
-function debug(...)
-    if false and DEV_DEBUG then
-        printf(...)
-    end
-end
-
-function log(...)
-    printf(...)
-end
-
-function error(fmt, ...)
-    printf("ERROR: " .. fmt, ...)
+    -- reseed at every wheel event, the sound gate compares one tick later against a memo
+    -- that an analog glide leaves stale, so a clamped scroll at the floor stays silent
+    RegisterScriptCallback("on_mouse_wheel", function()
+        seed_zoom_sound_memo()
+    end)
+    RegisterScriptCallback("actor_on_weapon_zoom_type_changed", function()
+        push_offset(false)
+    end)
+    RegisterScriptCallback("actor_on_weapon_zoom_out", clear_offset)
+    RegisterScriptCallback("actor_on_update", route_update)
 end

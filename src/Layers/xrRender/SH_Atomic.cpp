@@ -109,6 +109,8 @@ SDeclaration::~SDeclaration()
 		//	Release vertex layout
 		_RELEASE(iLayout->second);
 	}
+	RCache.invalidate_layout_memo(); // this address can come back as a new declaration
+
 #else	//	USE_DX10
 	//	Release vertex layout
 	_RELEASE(dcl);

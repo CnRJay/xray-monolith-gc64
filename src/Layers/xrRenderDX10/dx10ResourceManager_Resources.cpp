@@ -254,6 +254,7 @@ void CResourceManager::_DeleteVS(const SVS* vs)
 				(*iDecl)->vs_to_layout.erase(iLayout);
 			}
 		}
+		RCache.invalidate_layout_memo(); // a released layout must not survive as a memo hit
 		return;
 	}
 	Msg("! ERROR: Failed to find compiled vertex-shader '%s'", *vs->cName);

@@ -4,7 +4,12 @@
 #include "../xrRender/ColorMapManager.h"
 #include "../xrRender/light_db.h"
 #include "../xrRender/r__dsgraph_types.h"
+#include "SvpDlss.h"
 class light;
+
+// pip SVP scene render extent for the color/depth/MV targets, full display-res (svp_height) at gate 0
+// so r__svp_render_scale is inert until the DLSS scaffolding is active (r__svp_dlss != 0)
+u32 svp_render_extent();
 
 //#define DU_SPHERE_NUMVERTEX 92
 //#define DU_SPHERE_NUMFACES	180
@@ -105,9 +110,13 @@ public:
 	xr_vector<Fplane>												dbg_planes;
 #endif
 
-	// HW baseRT/baseZB
 	ID3D11RenderTargetView* baseRT;
 	ID3D11DepthStencilView* baseZB;
+	ref_rt rt_baseRT;
+	ref_rt rt_baseZB;
+	xr_vector<std::pair<ref_texture, ref_rt>> RenderTargetRemaps;
+	int m_remap_generic0_idx = -1;
+	int m_remap_generic_idx = -1;
 
 	// MRT-path
 	ref_rt rt_Depth; // Z-buffer like - initial depth
@@ -133,6 +142,8 @@ public:
 	resptr_core<CRT, resptrcode_crt> rt_Generic_temp;
 
 	ref_rt rt_secondVP;	// 32bit		(r,g,b,a) --//#SM+#-- +SecondVP+
+	ID3DTexture2D* m_svp_nb_mip_surf = nullptr; // pip mip-prefiltered svp color for near-blur
+	ref_texture m_svp_nb_mip_tex; // pip holds the all-mip srv for GenerateMips
 
 
 	ref_rt rt_fakescope;	// crookr fakescope
@@ -172,11 +183,10 @@ public:
 	// HDR10
 	ref_rt rt_HDR10_HalfRes[2];
 
-	ref_texture t_reticle;
-
 	// env
 	ref_texture t_envmap_0; // env-0
 	ref_texture t_envmap_1; // env-1
+	ref_texture t_reticle; // pip per-lens reticle art bound for the scope color shader ($user$reticle)
 
 	// smap
 	ref_rt rt_smap_surf; // 32bit,		color
@@ -187,6 +197,7 @@ public:
 	//	IDirect3DSurface9*			rt_smap_ZB;		//
 
 	// Screen Space Shaders Stuff
+	ref_rt rt_tempzb;
 	ref_rt rt_ssfx;
 	ref_rt rt_ssfx_temp;
 	ref_rt rt_ssfx_temp2;
@@ -235,17 +246,28 @@ public:
 	ref_shader s_ssfx_ao;
 	//ref_shader s_ssfx_hud[5]; // SSS23: DEPRECATED
 
-	struct PreviousData {
-		Fmatrix Matrix_previous, Matrix_current;
-		Fmatrix Matrix_HUD_previous, Matrix_HUD_current;
-		Fvector3 Position_previous;
-	} Previous[2];
-
-	PreviousData* GetPrevious() {
-		return &Previous[Device.m_SecondViewport.IsSVPFrame()];
-	}
+	Fmatrix Matrix_previous, Matrix_current;
+	Fmatrix Matrix_HUD_previous, Matrix_HUD_current;
+	Fvector3 Position_previous;
 
 	ref_shader s_ssfx_dumb;
+
+	// pip scope lens glue shaders, created lazily (never at init) so a setup without the PiP mod is unaffected
+	ref_shader s_scope_color_write;
+	ref_shader s_scope_depth_write;
+	ref_shader s_scope_debug; // pip r__scope_debug on-screen multi-view inspector overlay
+	ref_shader s_scope_lensfx; // pip r__svp_lensfx additive lens FX (CA, distortion, exit-pupil dimming)
+	ref_shader s_svp_nearblur; // pip near-field defocus on the scope image (svpscope 2)
+	ref_shader s_svp_distort_stamp; // pip neutral distort-mask stamp over the composited lens
+	ref_shader s_svp_taa_stamp; // pip raw taa skip mask over the composited lens
+	bool m_scope_shaders_ready = false;
+	// taa history seeds from the current frame on the next resolve, true at creation and on scope edges
+	bool m_taa_seed_history = true;
+	bool m_svp_dlss_built = false; // pip this SVP target was built with the DLSS gate on (toggle-recreate key)
+	// lean gate one-shot clear, the water reflection buffer gets wiped once on entering the skip
+	bool m_lean_water_cleared = false;
+	void EnsureScopeShaders();
+	void phase_scope_debug(); // pip draw the scope debug overlay (main+SVP views, ssfx, smap), main only
 
 	//	Igor: for async screenshots
 	ID3DTexture2D* t_ss_async; //32bit		(r,g,b,a) is situated in the system memory
@@ -259,13 +281,8 @@ public:
 	ID3DTexture2D* t_noise_surf_mipped;
 	ref_texture t_noise_mipped;
 
-	ref_shader s_scope_color_write;
-	ref_shader s_scope_depth_write;
 private:
 	// OCCq
-
-	ref_rt rt_baseRT;
-	ref_rt rt_baseZB;
 
 	ref_shader s_occq;
 	ref_shader s_sunshafts;
@@ -296,7 +313,6 @@ private:
 	ref_shader s_nightvision;
 	ref_shader s_fakescope; //crookr
 	ref_shader s_distort;
-	ref_shader s_scope_debug;
 	ref_shader s_heatvision; //--DSR-- HeatVision
 	ref_shader s_smaa;
 
@@ -426,7 +442,6 @@ private:
 	bool m_bHasActiveVolumetric;
 	bool m_bHasActiveVolumetric_spot;
 
-	xr_list<std::pair<ref_texture, ref_rt>> RenderTargetRemaps;
 public:
 	CRenderTarget();
 	CRenderTarget(LPCSTR name, u32 width, u32 height);
@@ -454,8 +469,6 @@ public:
 	void u_calc_tc_duality_ss(Fvector2& r0, Fvector2& r1, Fvector2& l0, Fvector2& l1);
 	BOOL u_need_PP();
 	bool u_need_CM();
-	BOOL u_DBT_enable(float zMin, float zMax);
-	void u_DBT_disable();
 	void phase_sunshafts();
 	void phase_blur();
 	void phase_pp_bloom();
@@ -463,14 +476,21 @@ public:
 	void phase_gasmask_drops();
 	void phase_gasmask_dudv();
 	void phase_nightvision();
+	bool svp_nvg_pass();
 	void phase_fakescope(); //crookr
 	void phase_heatvision(); //--DSR-- HeatVision
-	void draw_reflex();
-	void draw_scope(ref_shader e, std::function<void(R_dsgraph::DSGraphItem<float, true>* N)> bind);
 	void phase_3DSSReticle(); // Redotix99: for 3D Shader Based Scopes
 	void phase_apply_distortion();
 	ref_rt& post_dest_rt();
 	void post_commit(ref_rt& dest_rt);
+	void phase_svp_capture();
+	bool svp_nearblur_pass();
+	void draw_scope(ref_shader se, std::function<void()> bind);
+	void svp_objective_hud_prepare(bool svp_follows);
+	void svp_objective_hud_report();
+	void EvalSVP_DLSS(const SvpDlssInputs& in);
+	u32 draw_reflex(bool svp = false);
+	bool draw_hybrid_reflex();
 	void phase_lut();
 	void phase_smaa();
 	void phase_scene_prepare();
@@ -480,7 +500,6 @@ public:
 	void phase_ssao();
 	void phase_hdao();
 	void phase_downsamp();
-	void phase_scope_debug();
 	void phase_wallmarks();
 	void phase_smap_direct(light* L, ref_rt smap, u32 sub_phase);
 	void phase_smap_direct_tsh(light* L, u32 sub_phase);
@@ -519,12 +538,14 @@ public:
 	void draw_rain(light& RainSetup);
 
 	void mark_msaa_edges();
+	void stamp_svp_corner_mask(); // pip zero the geometry stencil in the dead disc corners so the svp lighting skips them
 
 	bool need_to_render_sunshafts();
 	bool use_minmax_sm_this_frame();
 
 	BOOL enable_scissor(light* L); // true if intersects near plane
-	void enable_dbt_bounds(light* L);
+	// conservative screen rect for the light volume, false leaves the draw unscissored
+	BOOL compute_light_scissor(light* L, BOOL near_intersect, Irect& R);
 
 	void disable_aniso();
 

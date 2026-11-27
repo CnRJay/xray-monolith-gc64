@@ -12,9 +12,10 @@
 
 #include "../../xrEngine/igame_persistent.h"
 #include "../../xrEngine/environment.h"
-#include "../../xrEngine/shader_bus.h"
 
 #include "dxRenderDeviceRender.h"
+
+#include "svp_constants.h"
 
 // matrices
 #define	BIND_DECLARE(xf)	\
@@ -397,12 +398,44 @@ extern Fvector4 ps_s3ds_param_1;
 extern Fvector4 ps_s3ds_param_2;
 extern Fvector4 ps_s3ds_param_3;
 extern Fvector4 ps_s3ds_param_4;
+extern float g_pip_scope_magnification;
+extern float g_pip_scope_min_mag;
+extern float g_pip_scope_max_mag;
+extern int g_svp_crescent;
 
 static class s3ds_param_1 : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, ps_s3ds_param_1.x, ps_s3ds_param_1.y, ps_s3ds_param_1.z, ps_s3ds_param_1.w);
+		// the crescent swing envelope runs only when g_svp_crescent is on, off (default) the 3DSS
+		// exit-pupil value passes through raw so a non-crescent pip scope stays stock 3DSS faithful
+		float z = ps_s3ds_param_1.z;
+		const bool scoped = Device.true_pip_on && Device.m_SecondViewport.IsSVPActive();
+		if (g_svp_crescent && scoped && z > 0.001f)
+		{
+			// aggressiveness tracks absolute magnification, loose at 1x and snug at high power
+			float t = (g_pip_scope_magnification > 0.01f) ? (g_pip_scope_magnification - 1.f) / 7.f : 0.f;
+			clamp(t, 0.f, 1.f);
+			const float snug = 1.3f + (0.55f - 1.3f) * t;
+			// geometry snaps snug early and holds through the drain, the alpha fade in the
+			// shader finishes before the pupil reopens so the crescent never pops out
+			float gp = Device.m_SecondViewport.svp_shadow_gain * 4.f;
+			clamp(gp, 0.f, 1.f);
+			z *= 3.0f + (snug - 3.0f) * gp;
+			if (z < 0.08f) z = 0.08f;
+		}
+		// pip execution proof, at crescent 0 final tracks raw so the ledger sees the passthrough
+		if (ps_r__svp_cop_diag && scoped)
+		{
+			static u32 s_pupil_ms = 0;
+			if (Device.dwTimeGlobal - s_pupil_ms > 1000)
+			{
+				s_pupil_ms = Device.dwTimeGlobal;
+				PipMsg("[SVP-PUPIL] crescent=%d raw=%.3f final=%.3f gain=%.2f",
+					g_svp_crescent, ps_s3ds_param_1.z, z, Device.m_SecondViewport.svp_shadow_gain);
+			}
+		}
+		RCache.set_c(C, ps_s3ds_param_1.x, ps_s3ds_param_1.y, z, ps_s3ds_param_1.w);
 	}
 }    s3ds_param_1;
 
@@ -410,7 +443,8 @@ static class s3ds_param_2 : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, ps_s3ds_param_2.x, ps_s3ds_param_2.y, ps_s3ds_param_2.z, ps_s3ds_param_2.w);
+		RCache.set_c(C, ps_s3ds_param_2.x, ps_s3ds_param_2.y,
+			ps_s3ds_param_2.z, ps_s3ds_param_2.w);
 	}
 }    s3ds_param_2;
 
@@ -429,27 +463,6 @@ static class s3ds_param_4 : public R_constant_setup
 		RCache.set_c(C, ps_s3ds_param_4.x, ps_s3ds_param_4.y, ps_s3ds_param_4.z, ps_s3ds_param_4.w);
 	}
 }    s3ds_param_4;
-
-// For passing scope magnification information
-extern Fvector4 ps_shader_scope_params;
-static class shader_scope_params : public R_constant_setup
-{
-	virtual void setup(R_constant* C)
-	{
-		RCache.set_c(C, ps_shader_scope_params.x, ps_shader_scope_params.y, ps_shader_scope_params.z, ps_shader_scope_params.w);
-	}
-}    shader_scope_params;
-
-// Reflex Sights
-extern Fvector4 ps_reflex_param;
-
-static class reflex_param : public R_constant_setup
-{
-	virtual void setup(R_constant* C)
-	{
-		RCache.set_c(C, ps_reflex_param.x, ps_reflex_param.y, ps_reflex_param.z, ps_reflex_param.w);
-	}
-}    reflex_param;
 
 //--DSR-- SilencerOverheat_start
 static class cl_silencer_glowing : public R_constant_setup
@@ -886,14 +899,31 @@ static class dev_param_8 : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, ps_dev_param_8.x, ps_dev_param_8.y, ps_dev_param_8.z, ps_dev_param_8.w);
+		float x = ps_dev_param_8.x;
+		// svp render keeps the gen digit but draws the centered tube class so
+		// the wearer mask never bakes into the scope image
+		if (ps_r__svp_nvg_objective && Device.true_pip_on && x >= 1.f
+			&& Device.m_SecondViewport.m_render_pass_is_svp)
+			x = floorf(x) + 0.10f;
+		RCache.set_c(C, x, ps_dev_param_8.y, ps_dev_param_8.z, ps_dev_param_8.w);
 	}
 }    dev_param_8;
+
+// pip sss weapon dof while scoped rides r__svp_wpn_dof, 0 zeroes the constants
+static bool svp_wpn_dof_off()
+{
+	return !ps_r__svp_wpn_dof && Device.true_pip_on && Device.m_SecondViewport.IsSVPActive();
+}
 
 static class ssfx_wpn_dof_1 : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
+		if (svp_wpn_dof_off())
+		{
+			RCache.set_c(C, 0.f, 0.f, 0.f, 0.f);
+			return;
+		}
 		RCache.set_c(C, ps_ssfx_wpn_dof_1.x, ps_ssfx_wpn_dof_1.y, ps_ssfx_wpn_dof_1.z, ps_ssfx_wpn_dof_1.w);
 	}
 }    ssfx_wpn_dof_1;
@@ -902,6 +932,11 @@ static class ssfx_wpn_dof_2 : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
+		if (svp_wpn_dof_off())
+		{
+			RCache.set_c(C, 0.f, 0, 0, 0);
+			return;
+		}
 		RCache.set_c(C, ps_ssfx_wpn_dof_2, 0, 0, 0);
 	}
 }    ssfx_wpn_dof_2;
@@ -1122,14 +1157,6 @@ static class ssfx_hud_hemi : public R_constant_setup
 	}
 }    ssfx_hud_hemi;
 
-static class ssfx_issvp : public R_constant_setup
-{
-	virtual void setup(R_constant* C)
-	{
-		RCache.set_c(C, 0, 0, 0, 0);
-	}
-}    ssfx_issvp;
-
 static class ssfx_bloom_1 : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
@@ -1184,9 +1211,11 @@ static class ssfx_jitter : public R_constant_setup
 		float JitterY = 0;
 
 #if defined(USE_DX11)
-		if (ps_ssfx_taa.x > 0 && RImplementation.o.ssfx_taa)
+		// the svp is rendered unjittered (svp jitter only under r__svp_dlss), so skip the main jitter
+		// on the svp pass or its gbuffer decode over-corrects a jitter that was never applied
+		if (ps_ssfx_taa.x > 0 && RImplementation.o.ssfx_taa && !(Device.true_pip_on && Device.m_SecondViewport.m_render_pass_is_svp))
 		{
-			static Fvector2 TAA_Offset[4] = 
+			static Fvector2 TAA_Offset[4] =
 			{
 				{  0.0f, -1.0f },
 				{ -1.0f,  0.0f },
@@ -1208,7 +1237,7 @@ static class ssfx_fTimeDelta : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, Device.fTimeDelta, (float)Device.dwFrame, 0, 0);
+		RCache.set_c(C, Device.fTimeDelta, 0, 0, 0);
 	}
 }    ssfx_fTimeDelta;
 
@@ -1378,97 +1407,6 @@ static class vignette_control : public R_constant_setup
 	}
 } vignette_control;
 
-class bus_binder : public R_constant_setup
-{
-	ShaderBus::lane* lane;
-
-public:
-	bus_binder(ShaderBus::lane* l) : lane(l)
-	{
-	}
-
-	virtual void setup(R_constant* C)
-	{
-		lane->bound_frame = Device.dwFrame;
-		RCache.set_c(C, lane->bound.x, lane->bound.y, lane->bound.z, lane->bound.w);
-	}
-};
-
-// one binder per lane so the pass table dedup, which compares handler pointers, still matches
-static xr_vector<bus_binder*> bus_binders;
-
-// writes the lane's value on a table switch, each drawn object then writes its own
-class bus_object_binder : public R_constant_setup
-{
-	ShaderBus::lane* lane;
-
-public:
-	bus_object_binder(ShaderBus::lane* l) : lane(l)
-	{
-	}
-
-	virtual void setup(R_constant* C)
-	{
-		lane->bound_frame = Device.dwFrame;
-		RCache.bus_object.map(C, lane);
-	}
-};
-
-static xr_vector<bus_object_binder*> bus_object_binders;
-
-#if defined(USE_DX10) || defined(USE_DX11)
-// copies every bound row, the setter zeroes declared rows past the last one set
-class bus_row_binder : public R_constant_setup
-{
-	ShaderBus::lane* lane;
-
-public:
-	bus_row_binder(ShaderBus::lane* l) : lane(l)
-	{
-	}
-
-	virtual void setup(R_constant* C)
-	{
-		lane->bound_frame = Device.dwFrame;
-		if (lane->rows_bound.empty())
-			RCache.set_c_bytes(C, &lane->bound, sizeof(Fvector4));
-		else
-			RCache.set_c_bytes(C, &lane->rows_bound.front(), u32(lane->rows_bound.size() * sizeof(Fvector4)));
-	}
-};
-
-static xr_vector<bus_row_binder*> bus_row_binders;
-#endif
-
-static const u32 bus_stages[] = { RC_dest_pixel, RC_dest_vertex, RC_dest_geometry, RC_dest_hull, RC_dest_domain, RC_dest_compute };
-
-// declared size in 16 byte rows, the largest over every stage
-static u32 bus_rows(R_constant* C)
-{
-	u32 rows = 1;
-	for (u32 i = 0; i < sizeof(bus_stages) / sizeof(bus_stages[0]); ++i)
-		if (C->destination & bus_stages[i])
-			rows = _max(rows, (C->get_load(bus_stages[i]).size + 15) / 16);
-	return rows;
-}
-
-// the vector binder serves a constant only where every stage declares one float to float4
-static bool bus_fits_vector(R_constant* C)
-{
-	for (u32 i = 0; i < sizeof(bus_stages) / sizeof(bus_stages[0]); ++i)
-	{
-		if (!(C->destination & bus_stages[i]))
-			continue;
-
-		const R_constant_load& L = C->get_load(bus_stages[i]);
-		if (L.cls != RC_1x1 && L.cls != RC_1x2 && L.cls != RC_1x3 && L.cls != RC_1x4)
-			return false;
-		if (L.size > sizeof(Fvector4))
-			return false;
-	}
-	return true;
-}
-
 // Standart constant-binding
 void CBlender_Compile::SetMapping()
 {
@@ -1535,6 +1473,8 @@ void CBlender_Compile::SetMapping()
 #endif
 
 	r_Constant("screen_res", &binder_screen_res);
+	// beef nvg rework declares this alias, unbound it reads (0,0) and its depth taps collapse to texel 0
+	r_Constant("screen_res_real", &binder_screen_res);
 	r_Constant("ogse_c_screen", &binder_screen_params);
 	r_Constant("near_far_plane", &binder_near_far_plane);
 	// misc
@@ -1575,7 +1515,6 @@ void CBlender_Compile::SetMapping()
 	r_Constant("ssfx_bloom_1", &ssfx_bloom_1);
 	r_Constant("ssfx_bloom_2", &ssfx_bloom_2);
 
-	r_Constant("ssfx_issvp", &ssfx_issvp);
 	r_Constant("ssfx_hud_hemi", &ssfx_hud_hemi);
 	r_Constant("ssfx_il_setup", &ssfx_il);
 	r_Constant("ssfx_il_setup2", &ssfx_il_setup1);
@@ -1628,10 +1567,7 @@ void CBlender_Compile::SetMapping()
 	r_Constant("s3ds_param_2", &s3ds_param_2);
 	r_Constant("s3ds_param_3", &s3ds_param_3);
 	r_Constant("s3ds_param_4", &s3ds_param_4);
-	r_Constant("shader_scope_params", &shader_scope_params);
-
-	// Reflex Sights
-	r_Constant("reflex_param", &reflex_param);
+	RegisterSvpConstants(*this); // pip binders and their names live in svp_constants.cpp
 
 	// crookr
 	r_Constant("fakescope_params1", &binder_fakescope_params);
@@ -1643,88 +1579,6 @@ void CBlender_Compile::SetMapping()
 	{
 		std::pair<shared_str, R_constant_setup*> cs = DEV->v_constant_setup[it];
 		r_Constant(*cs.first, cs.second);
-	}
-
-	u32 object_lanes = 0;
-	for (u32 it = 0; it < ctable.table.size(); it++)
-	{
-		R_constant* C = &*ctable.table[it];
-		LPCSTR cname = C->name.c_str();
-		if (!cname || 0 != strncmp(cname, "bus_", 4))
-			continue;
-
-		if (C->type != RC_float && C->type != RC_uint)
-		{
-			if (C->type == RC_int || C->type == RC_bool)
-				ShaderBus::refuse(cname, "is an int or bool, a lane binds float or uint only");
-			continue;
-		}
-		// uint lanes always take the byte copy so the raw bits arrive unchanged
-		const bool fits = C->type == RC_float && bus_fits_vector(C);
-		const u32 rows = bus_rows(C);
-
-		// an obj_ lane takes its value from the drawn object
-		const bool object = 0 == strncmp(cname, "bus_obj_", 8);
-		if (object && !fits)
-		{
-			ShaderBus::refuse(cname, "is an object lane, which binds one float to float4 only");
-			continue;
-		}
-		if (object && object_lanes == ShaderBus::max_object_lanes)
-		{
-			ShaderBus::refuse(cname, "is past the 16 object lanes one pass binds");
-			continue;
-		}
-#if defined(USE_DX10) || defined(USE_DX11)
-		if (rows > ShaderBus::max_rows)
-		{
-			ShaderBus::refuse(cname, "is larger than the 4096 rows a lane allows");
-			continue;
-		}
-#else
-		if (!fits)
-		{
-			ShaderBus::refuse(cname, "is an array or matrix, a lane binds one float to float4 only on this renderer");
-			continue;
-		}
-#endif
-
-		ShaderBus::lane* lane = ShaderBus::declare(cname, rows,
-			C->type == RC_uint ? ShaderBus::kind_uint : ShaderBus::kind_float);
-		if (!lane)
-			continue;
-
-		if (object)
-		{
-			++object_lanes;
-			if (bus_object_binders.size() <= lane->index)
-				bus_object_binders.resize(lane->index + 1, nullptr);
-			if (!bus_object_binders[lane->index])
-				bus_object_binders[lane->index] = xr_new<bus_object_binder>(lane);
-
-			C->handler = bus_object_binders[lane->index];
-			continue;
-		}
-
-#if defined(USE_DX10) || defined(USE_DX11)
-		if (!fits)
-		{
-			if (bus_row_binders.size() <= lane->index)
-				bus_row_binders.resize(lane->index + 1, nullptr);
-			if (!bus_row_binders[lane->index])
-				bus_row_binders[lane->index] = xr_new<bus_row_binder>(lane);
-
-			C->handler = bus_row_binders[lane->index];
-			continue;
-		}
-#endif
-
-		if (bus_binders.size() <= lane->index)
-			bus_binders.resize(lane->index + 1, nullptr);
-		if (!bus_binders[lane->index])
-			bus_binders[lane->index] = xr_new<bus_binder>(lane);
-
-		C->handler = bus_binders[lane->index];
 	}
 
 

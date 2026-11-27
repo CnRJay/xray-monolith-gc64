@@ -1,0 +1,14 @@
+; PiP per-scope objective placement, x,y lateral and z forward to the front lens with w the
+; objective radius, all in eyepiece radii so the numbers survive any mesh scale.
+; Read by zzz_extra_scope_features when no section carries scope_objective_lens_offset, ahead of
+; the engine mesh detection, so an authored optic never rides a lens the detector picked.
+; Plain sections, not a dltx merge target, a section-authored offset still wins
+
+; M84 telescope, 13.2in body over a 1.01cm eyepiece, detection measured 32.70 at the same station
+; w is the r__svp_obj_size fallback median since the objective aperture is unpublished
+[wpn_fmgarand_garand_scope]
+scope_objective_lens_offset = 0,0,33.2,1.0
+
+; Holosun DRS-TH, 3.7in body over a 1.32cm eyepiece, w from the 22.7mm thermal clear aperture
+[wpn_fmgarand_drs]
+scope_objective_lens_offset = 0,0,7.12,0.86

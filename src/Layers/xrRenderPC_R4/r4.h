@@ -171,7 +171,7 @@ public:
 	CModelPool* Models;
 	CWallmarksEngine* Wallmarks;
 
-	CRenderTarget* Target; // Active Render-target
+	CRenderTarget* Target;
 	CRenderTarget* TargetMain;
 	CRenderTarget* TargetSVP;
 
@@ -235,6 +235,7 @@ private:
 public:
 	IRender_Sector* rimp_detectSector(Fvector& P, Fvector& D);
 	void render_forward();
+	void render_Reticle();
 	void render_smap_direct(Fmatrix& mCombined);
 	void render_indirect(light* L);
 	void render_lights_shadowmaps(light_Package& LP);
@@ -299,10 +300,9 @@ public:
 	IC void apply_lmaterial()
 	{
 		RCache.bus_object.apply_static();
-		// an object's own obj_hotness skips the hot texture check, only for the draw right after apply_object
 		const bool hotness_own = o_hotness_own;
 		o_hotness_own = false;
-		R_constant* C = RCache.get_c(c_sbase); // get sampler
+		R_constant* C = RCache.get_c_sbase(c_sbase);
 		if (0 == C) return;
 		VERIFY(RC_dest_sampler == C->destination);
 		VERIFY(RC_dx10texture == C->type);
@@ -362,6 +362,8 @@ public:
 	virtual IRenderVisual* getVisual(int id);
 	virtual IRender_Sector* detectSector(const Fvector& P);
 	virtual IRender_Target* getTarget();
+	void SetMatrices(Fmatrix view, Fmatrix projection, Fmatrix projection_hud);
+	void EnsureTargetSVP(); // pip: lazy-alloc TargetSVP on the first SVP pass (never when off)
 
 	// Main
 	virtual void flush();
@@ -451,19 +453,19 @@ public:
 	virtual BOOL occ_visible(sPoly& P);
 
 	// Main
-	void SetMatrices(Fmatrix view, Fmatrix projection, Fmatrix projection_hud);
 	virtual void Calculate();
-	void renderGBuffer();
-	void combineLightingAndBloom();
-	void renderSun();
-	void renderShadowmaps();
-	void combineGBuffer();
 	virtual void Render();
 	virtual void RenderUI3DDirect();
 	bool GetUI3DIconAtlasInfo(u32& width, u32& height, float& resolution) override;
 	bool BeginUI3DIconAtlas() override;
 	void BeginUI3DIconAtlasItem() override;
 	void EndUI3DIconAtlas() override;
+
+	void renderGBuffer(bool clearGraph);
+	void renderSceneLighting(BOOL bSUN, bool svp);
+	void ResetSVPHistory();
+	void share_main_smaps();
+	void deriveScopeLens();
 	virtual void Screenshot(ScreenshotMode mode = SM_NORMAL, LPCSTR name = 0);
 	virtual void Screenshot(ScreenshotMode mode, CMemoryWriter& memory_writer);
 	virtual void ScreenshotAsyncBegin();

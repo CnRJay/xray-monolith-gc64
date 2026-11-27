@@ -7,6 +7,9 @@
 //class ENGINE_API CResourceManager;
 //class ENGINE_API CGammaControl;
 
+#include <functional>
+#include <atomic>
+
 #include "pure.h"
 #include "../xrCore/xrSyncronize.h"
 //#include "hw.h"
@@ -69,8 +72,8 @@ public:
 	// Engine flow-control (Updates once per Present)
 	u32 dwFrame;
 
-	// Used for cache clearing when in SVP mode.
 	u32 dwViewport = 0;
+	bool true_pip_on = false;
 
 	float fTimeDelta;
 	float fTimeGlobal;
@@ -126,14 +129,13 @@ public:
 	float fASPECT;
 	float ViewportNear = 0.2f;
 
-	// Data for the main camera (0), and svp camera (1)
+	// Per-viewport camera data: [0] = main, [1] = SVP
 	struct MatrixData
 	{
 		Fmatrix mView;
 		Fmatrix mProject;
 		Fmatrix mProjectHud;
 	};
-
 	MatrixData matrices[2];
 	MatrixData matrices_previous[2];
 protected:
@@ -169,45 +171,11 @@ public:
 };
 
 // refs
+#include "svp_state.h" // pip the SVP cross-thread data bus
 class ENGINE_API CRenderDevice : public CRenderDeviceBase
 {
 public:
-	class ENGINE_API CSecondVPParams //--#SM+#-- +SecondVP+
-	{
-		bool isActive;
-
-	public:
-		struct Lens { Fmatrix m_W; float radius; };
-		Lens eyepiece;
-		Lens objective;
-
-		Fvector3 w_ffp;
-		Fvector3 w_sfp;
-
-		// Objective lens screen space bounding box (FIXME: Hardcoded to 50% screen size)
-		Irect computeRect(float width, float height)
-		{
-			Fvector v = { width, height };
-
-			auto c = Fvector(v).mul(0.5);
-			auto s = v.y * 0.5;
-			auto hs = s * 0.5;
-
-			auto min = Fvector(c).sub(hs);
-			auto max = Fvector(c).add(hs);
-
-			return { static_cast<int>(min.x), static_cast<int>(min.y), static_cast<int>(max.x), static_cast<int>(max.y) };
-		}
-
-		bool isSVPFrame = false;
-		IC bool IsSVPActive() { return isActive; }
-		void SetSVPActive(bool bState);
-		bool IsSVPFrame() { return isSVPFrame; }
-
-		// Fetch the bone matrix of `v` from renderable skeleton (set in r4)
-		std::function<bool(IKinematics* k, IRenderVisual* v, Fmatrix& m)> get_bone_matrix;
-		std::function<void()> update_lens_params;
-	};	
+	using CSecondVPParams = ::CSecondVPParams;
 	
 private:
 	// Main objects used for creating and rendering the 3D scene
@@ -263,6 +231,7 @@ public:
 	}
 
 	void DumpResourcesMemoryUsage() { m_pRender->ResourcesDumpMemoryUsage(); }
+	void prepare_matrices();
 public:
 	// Registrators
 	//CRegistrator <pureRender > seqRender;
@@ -344,7 +313,7 @@ public:
 
 	CSecondVPParams m_SecondViewport;	//--#SM+#-- +SecondVP+
 
-	// FIXME: Use chaindesc (Macro)
+	// SVP target is square, half the main height per side
 	u32 svp_width() { return svp_height(); }
 	u32 svp_height() { return dwHeight >> 1; }
 
@@ -475,6 +444,34 @@ public:
 	{
 		return hud_to_world(m, mProjectCamAttached);
 	}
+
+	Fvector& hud_to_world(Fvector& v, const Fmatrix& p, const Fmatrix& view, const Fmatrix& inv_view, const Fmatrix& inv_proj)
+	{
+		view.transform_tiny(v);
+		p.transform_tiny(v);
+		v.z -= ViewportNear;
+		inv_proj.transform_tiny(v);
+		inv_view.transform_tiny(v);
+		return v;
+	}
+
+	Fvector& hud_to_world_dir(Fvector& v, const Fmatrix& p, const Fmatrix& view, const Fmatrix& inv_view, const Fmatrix& inv_proj)
+	{
+		view.transform_dir(v);
+		p.transform_dir(v);
+		inv_proj.transform_dir(v);
+		inv_view.transform_dir(v);
+		return v;
+	}
+
+	Fmatrix& hud_to_world(Fmatrix& m, const Fmatrix& p, const Fmatrix& view, const Fmatrix& inv_view, const Fmatrix& inv_proj)
+	{
+		hud_to_world(m.c, p, view, inv_view, inv_proj);
+		hud_to_world_dir(m.i, p, view, inv_view, inv_proj).normalize();
+		hud_to_world_dir(m.j, p, view, inv_view, inv_proj).normalize();
+		hud_to_world_dir(m.k, p, view, inv_view, inv_proj).normalize();
+		return m;
+	}
 	Fvector& world_to_hud(Fvector& v, const Fmatrix& p)
 	{
 		mInvView.transform_tiny(v);
@@ -561,7 +558,6 @@ public:
 	}
 
 public:
-	void prepare_matrices();
 	void xr_stdcall on_idle();
 	bool xr_stdcall on_message(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, LRESULT& result);
 
@@ -600,6 +596,14 @@ private:
 
 extern ENGINE_API CRenderDevice Device;
 extern ENGINE_API CRenderDevice* DevicePtr;
+
+// pip clear a draw-list shared across the main + SVP passes only on the last pass to drain it
+// svp_first = SVP pass drains before main (combine order), false = main first (gbuffer/wmark order)
+inline bool svp_clear_shared_list(bool svp_first)
+{
+	if (!(Device.true_pip_on && Device.m_SecondViewport.IsSVPActive())) return true;
+	return svp_first ? !Device.m_SecondViewport.m_render_pass_is_svp : Device.m_SecondViewport.m_render_pass_is_svp;
+}
 
 #ifndef _EDITOR
 #define RDEVICE Device

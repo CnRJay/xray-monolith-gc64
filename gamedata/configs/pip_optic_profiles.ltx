@@ -1,0 +1,39 @@
+; Per-optic controller tuning. Physical measurements live in
+; pip_optic_physical_specs.ltx and override matching values for geometric specs.
+;
+; Tunneling is the persistent inner tube visible around a centered sight picture.
+; Exit-pupil vignetting is the separate image loss caused by eye misalignment.
+;
+; eye_coupling is 1 for an eyepiece image that follows the eye and 0 for a rigid
+; digital panel. The bound spec optic_class picks the default and any runtime
+; section overrides it with its own line, as in eye_coupling = 0.
+
+[default]
+reticle_illum = 1
+s3ds_tunneling_parallax = 0.035
+s3ds_tunneling_min = 0.04
+s3ds_tunneling_max = 0.06
+s3ds_eye_tracking_speed = 5.0
+s3ds_eye_tracking_accel_mm_s2 = 80.0
+s3ds_eye_tracking_limit_mm = 7.0
+s3ds_eye_relief_low_mm = 80.0
+s3ds_eye_relief_high_mm = 80.0
+s3ds_exit_pupil_low_mm = 0.0
+s3ds_exit_pupil_high_mm = 0.0
+s3ds_pupil_parity = -1.0
+s3ds_pupil_field_low = 0.55
+s3ds_pupil_field_high = 0.55
+s3ds_transmission = 1.0
+s3ds_twilight_strength = 0.35
+scope_zero_m = 100
+
+; Runtime attachment section for the Vortex Razor HD Gen III.
+[cortex]
+s3ds_eye_tracking_speed = 5.5
+s3ds_eye_tracking_accel_mm_s2 = 90.0
+s3ds_eye_tracking_limit_mm = 7.5
+
+; The 1PN23 is an intensifier tube viewed through a real ocular, its spec class is
+; display only as an alias so the coupling comes back with an authored line.
+[pn23]
+eye_coupling = 1

@@ -15,6 +15,7 @@ public:
 	ID3DBuffer* GetBuffer() { return m_pBuffer; }
 
 	void Flush();
+	bool IsChanged() const { return m_bChanged; }
 
 	//	Set copy data into constant buffer
 	//	Plain buffer member

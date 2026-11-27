@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include "script_export_space.h"
 #include "object_interfaces.h"
 #include "inventory_space.h"

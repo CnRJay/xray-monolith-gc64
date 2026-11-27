@@ -97,6 +97,8 @@ void CBackend::Invalidate()
 	cs = 0;
 #endif
 	ctable = NULL;
+	m_sbase_c = NULL;
+	m_sbase_known = false;
 
 	T = NULL;
 	M = NULL;
@@ -126,6 +128,13 @@ void CBackend::Invalidate()
 	m_PrimitiveTopology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
 	m_bChangedRTorZB = false;
 	m_pInputSignature = NULL;
+	m_layout_decl = NULL;
+	m_layout_sig = NULL;
+	m_layout_cached = false;
+	m_smapsize_zb = NULL;
+	m_smapsize_w = 0;
+	m_smapsize_h = 0;
+	m_smap_null_ps = false;
 	for (int i = 0; i < MaxCBuffers; ++i)
 	{
 		m_aPixelConstants[i] = 0;
@@ -137,6 +146,9 @@ void CBackend::Invalidate()
 		m_aComputeConstants[i] = 0;
 #endif
 	}
+	for (int s = 0; s < MaxCBStages; ++s)
+		m_cb_slot_count[s] = 0;
+
 	StateManager.Reset();
 	//	Redundant call. Just no note that we need to unmap const
 	//	if we create dedicated class.

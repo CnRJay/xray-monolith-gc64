@@ -158,7 +158,7 @@ void CDetailManager::cache_Update(int v_x, int v_z, Fvector& view, int limit)
 	}
 
 	// Task performer
-	if(ps_r2_ls_flags.test(R2FLAG_FAST_DETAILS_UPDATE))
+	if(ps_r2_ls_flags_ext.test(R2FLAGEXT_FAST_DETAILS_UPDATE))
 	{
 		for (u32 iteration=0; iteration<cache_task.size(); iteration++)
 		{

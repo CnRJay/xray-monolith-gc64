@@ -35,14 +35,20 @@ void CRenderTarget::accum_spot(light* L)
 		}
 	}
 
-	BOOL bIntersect = FALSE; //enable_scissor(L);
+	Irect scissor_rect;
+	BOOL scissored = FALSE;
 	{
 		// setup xform
 		RCache.set_xform_world(L->m_xform);
 		RCache.set_xform_view(Device.mView);
 		RCache.set_xform_project(Device.mProject);
-		bIntersect = enable_scissor(L);
-		enable_dbt_bounds(L);
+		const BOOL near_intersect = enable_scissor(L);
+		// built per call so the svp replay of this light clips to its own viewport
+		if (ps_r__light_scissor && compute_light_scissor(L, near_intersect, scissor_rect))
+		{
+			RCache.set_Scissor(&scissor_rect);
+			scissored = TRUE;
+		}
 
 		// *** similar to "Carmack's reverse", but assumes convex, non intersecting objects,
 		// *** thus can cope without stencil clear with 127 lights
@@ -263,12 +269,13 @@ void CRenderTarget::accum_spot(light* L)
 		}
 	}
 
-	RCache.set_Scissor(0);
 	//CHK_DX		(HW.pDevice->SetRenderState(D3DRS_SCISSORTESTENABLE,FALSE));
+	// later passes must not inherit this light's rect
+	if (scissored)
+		RCache.set_Scissor(nullptr);
+
 	//dwLightMarkerID					+=	2;	// keep lowest bit always setted up
 	increment_light_marker();
-
-	u_DBT_disable();
 }
 
 void CRenderTarget::accum_volumetric_lv(light* L)
@@ -426,13 +433,12 @@ void CRenderTarget::accum_volumetric(light* L)
 	*/
 	// *** assume accumulator setted up ***
 	// *****************************	Mask by stencil		*************************************
-	BOOL bIntersect = FALSE; //enable_scissor(L);
 	{
 		// setup xform
 		RCache.set_xform_world(L->m_xform);
 		RCache.set_xform_view(Device.mView);
 		RCache.set_xform_project(Device.mProject);
-		bIntersect = enable_scissor(L);
+		enable_scissor(L);
 
 		//enable_dbt_bounds				(L);
 	}
@@ -615,30 +621,35 @@ void CRenderTarget::accum_volumetric(light* L)
 		//	Set correct depth surface
 		//	It's slow. Make this when shader is created
 		{
-			char* pszSMapName;
-			BOOL b_HW_smap = RImplementation.o.HW_smap;
-			BOOL b_HW_PCF = RImplementation.o.HW_smap_PCF;
-			if (b_HW_smap)
+			static bool b_resolved = false;
+			if (!ps_r__light_lean || !b_resolved)
 			{
-				if (b_HW_PCF) pszSMapName = r2_RT_smap_depth;
-				else pszSMapName = r2_RT_smap_depth;
-			}
-			else pszSMapName = r2_RT_smap_surf;
-			//s_smap
-			STextureList* _T = &*s_accum_volume->E[0]->passes[0]->T;
-
-			STextureList::iterator _it = _T->begin();
-			STextureList::iterator _end = _T->end();
-			for (; _it != _end; _it++)
-			{
-				std::pair<u32, ref_texture>& loader = *_it;
-				u32 load_id = loader.first;
-				//	Shadowmap texture always uses 0 texture unit
-				if (load_id == 0)
+				char* pszSMapName;
+				BOOL b_HW_smap = RImplementation.o.HW_smap;
+				BOOL b_HW_PCF = RImplementation.o.HW_smap_PCF;
+				if (b_HW_smap)
 				{
-					//	Assign correct texture
-					loader.second.create(pszSMapName);
+					if (b_HW_PCF) pszSMapName = r2_RT_smap_depth;
+					else pszSMapName = r2_RT_smap_depth;
 				}
+				else pszSMapName = r2_RT_smap_surf;
+				//s_smap
+				STextureList* _T = &*s_accum_volume->E[0]->passes[0]->T;
+
+				STextureList::iterator _it = _T->begin();
+				STextureList::iterator _end = _T->end();
+				for (; _it != _end; _it++)
+				{
+					std::pair<u32, ref_texture>& loader = *_it;
+					u32 load_id = loader.first;
+					//	Shadowmap texture always uses 0 texture unit
+					if (load_id == 0)
+					{
+						//	Assign correct texture
+						loader.second.create(pszSMapName);
+					}
+				}
+				b_resolved = true;
 			}
 		}
 
@@ -785,7 +796,6 @@ void CRenderTarget::accum_volumetric(light* L)
 		}
 	*/
 	//CHK_DX		(HW.pDevice->SetRenderState(D3DRS_SCISSORTESTENABLE,FALSE));
-	RCache.set_Scissor(0);
 
 	/*if (RImplementation.o.ssfx_volumetric)
 		set_viewport_size(HW.pContext, w, h);*/

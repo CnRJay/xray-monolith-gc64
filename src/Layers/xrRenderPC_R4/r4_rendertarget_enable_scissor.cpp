@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "../../xrEngine/cl_intersect.h"
 #include "../xrRender/du_cone.h"
+#include "../xrRender/du_sphere.h"
+#include "../xrRender/du_sphere_part.h"
 
 //extern Fvector du_cone_vertices			[DU_CONE_NUMVERTEX];
 
@@ -8,57 +10,6 @@ BOOL tri_vs_sphere_intersect(Fvector& SC, float R, Fvector& v0, Fvector& v1, Fve
 {
 	Fvector e0, e1;
 	return CDB::TestSphereTri(SC, R, v0, e0.sub(v1, v0), e1.sub(v2, v0));
-}
-
-void CRenderTarget::enable_dbt_bounds(light* L)
-{
-	if (!RImplementation.o.nvdbt) return;
-	if (!ps_r2_ls_flags.test(R2FLAG_USE_NVDBT)) return;
-
-	u32 mask = 0xffffffff;
-	EFC_Visible vis = RImplementation.ViewBase.testSphere(L->SpatialComponent->spatial.sphere.P, L->SpatialComponent->spatial.sphere.R * 1.01f, mask);
-	if (vis != fcvFully) return;
-
-	// xform BB
-	Fbox BB;
-	Fvector rr;
-	rr.set(L->SpatialComponent->spatial.sphere.R, L->SpatialComponent->spatial.sphere.R, L->SpatialComponent->spatial.sphere.R);
-	BB.setb(L->SpatialComponent->spatial.sphere.P, rr);
-
-	Fbox bbp;
-	bbp.invalidate();
-	for (u32 i = 0; i < 8; i++)
-	{
-		Fvector pt;
-		BB.getpoint(i, pt);
-		Device.mFullTransform.transform(pt);
-		bbp.modify(pt);
-	}
-	u_DBT_enable(bbp.min.z, bbp.max.z);
-}
-
-// nv-DBT
-BOOL CRenderTarget::u_DBT_enable(float zMin, float zMax)
-{
-	if (!RImplementation.o.nvdbt) return FALSE;
-	if (!ps_r2_ls_flags.test(R2FLAG_USE_NVDBT)) return FALSE;
-
-	return FALSE;
-
-	//	TODO: DX10: Check if DX10 supports this feature
-	// enable cheat
-	//HW.pDevice->SetRenderState(D3DRS_ADAPTIVETESS_X,MAKEFOURCC('N','V','D','B'));
-	//HW.pDevice->SetRenderState(D3DRS_ADAPTIVETESS_Z,*(DWORD*)&zMin);
-	//HW.pDevice->SetRenderState(D3DRS_ADAPTIVETESS_W,*(DWORD*)&zMax); 
-
-	//return TRUE;
-}
-
-void CRenderTarget::u_DBT_disable()
-{
-	//	TODO: DX10: Check if DX10 supports this feature
-	//if (RImplementation.o.nvdbt && ps_r2_ls_flags.test(R2FLAG_USE_NVDBT))	
-	//	HW.pDevice->SetRenderState(D3DRS_ADAPTIVETESS_X,0);
 }
 
 BOOL CRenderTarget::enable_scissor(light* L) // true if intersects near plane
@@ -154,6 +105,87 @@ BOOL CRenderTarget::enable_scissor(light* L) // true if intersects near plane
 
 	return near_intersect;
 #endif
+}
+
+static Fbox build_volume_box(const Fvector* v, u32 n)
+{
+	Fbox b;
+	b.invalidate();
+	for (u32 i = 0; i < n; ++i)
+		b.modify(v[i]);
+	return b;
+}
+
+// local bounds of the volume mesh draw_volume rasterizes for this light type
+static const Fbox* light_volume_box(light* L)
+{
+	static const Fbox s_sphere = build_volume_box(du_sphere_vertices, DU_SPHERE_NUMVERTEX);
+	static const Fbox s_cone = build_volume_box(du_cone_vertices, DU_CONE_NUMVERTEX);
+	static const Fbox s_part = build_volume_box(du_sphere_part_vertices, DU_SPHERE_PART_NUMVERTEX);
+
+	switch (L->flags.type)
+	{
+	case IRender_Light::REFLECTED:
+	case IRender_Light::POINT: return &s_sphere;
+	case IRender_Light::SPOT: return &s_cone;
+	case IRender_Light::OMNIPART: return &s_part;
+	default: return nullptr;
+	}
+}
+
+BOOL CRenderTarget::compute_light_scissor(light* L, BOOL near_intersect, Irect& R)
+{
+	// a volume touching the near plane has corners behind the eye and will not project
+	if (near_intersect)
+		return FALSE;
+
+	const Fbox* lb = light_volume_box(L);
+	if (!lb)
+		return FALSE;
+
+	// live camera, the svp replay reaches here with its own matrices and target size
+	const Fmatrix& FT = Device.mFullTransform;
+	const float fw = float(Device.dwWidth);
+	const float fh = float(Device.dwHeight);
+
+	float x0 = flt_max, y0 = flt_max, x1 = -flt_max, y1 = -flt_max;
+	for (u32 c = 0; c < 8; ++c)
+	{
+		Fvector lp, p;
+		lp.set((c & 1) ? lb->max.x : lb->min.x,
+		       (c & 2) ? lb->max.y : lb->min.y,
+		       (c & 4) ? lb->max.z : lb->min.z);
+		L->m_xform.transform_tiny(p, lp);
+
+		const float cw = p.x * FT._14 + p.y * FT._24 + p.z * FT._34 + FT._44;
+		if (cw < 0.001f)
+			return FALSE;
+		const float inv = 1.f / cw;
+		const float cx = (p.x * FT._11 + p.y * FT._21 + p.z * FT._31 + FT._41) * inv;
+		const float cy = (p.x * FT._12 + p.y * FT._22 + p.z * FT._32 + FT._42) * inv;
+
+		const float sx = (cx * .5f + .5f) * fw;
+		const float sy = (.5f - cy * .5f) * fh;
+		x0 = _min(x0, sx);
+		x1 = _max(x1, sx);
+		y0 = _min(y0, sy);
+		y1 = _max(y1, sy);
+	}
+
+	// round outward so the rect never crops a pixel the unscissored draw would touch
+	R.x1 = clampr(iFloor(clampr(x0, 0.f, fw)), 0, int(Device.dwWidth));
+	R.x2 = clampr(iCeil(clampr(x1, 0.f, fw)), 0, int(Device.dwWidth));
+	R.y1 = clampr(iFloor(clampr(y0, 0.f, fh)), 0, int(Device.dwHeight));
+	R.y2 = clampr(iCeil(clampr(y1, 0.f, fh)), 0, int(Device.dwHeight));
+
+	// covers the frame anyway, skip the state change
+	if (R.x1 <= 0 && R.y1 <= 0 && R.x2 >= int(Device.dwWidth) && R.y2 >= int(Device.dwHeight))
+		return FALSE;
+	// an empty rect means the projection folded, keep the light rather than drop it
+	if (R.x2 <= R.x1 || R.y2 <= R.y1)
+		return FALSE;
+
+	return TRUE;
 }
 
 /*

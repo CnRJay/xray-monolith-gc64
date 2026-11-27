@@ -124,7 +124,8 @@
 		bool, vector DragFloat3(string, vector, number, number, number, string, ImGuiSliderFlags)
 		bool, vector4 DragFloat4(string, vector4, number, number, number, string, ImGuiSliderFlags)
 		bool, number, number DragFloatRange2(string, number, number, number, number, number, string, string, ImGuiSliderFlags)
-		
+		bool, vector4, vector4 MagnificationCurve(string, vector4, vector4, number, number, vector2)
+
 		bool, number SliderFloat(string, number, number, number, string, ImGuiSliderFlags)
 		bool, vector2 SliderFloat2(string, vector2, number, number, string, ImGuiSliderFlags)
 		bool, vector SliderFloat3(string, vector, number, number, string, ImGuiSliderFlags)

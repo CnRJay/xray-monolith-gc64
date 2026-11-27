@@ -40,6 +40,7 @@
 #include "IGame_Level.h"
 
 #include "Rain.h"
+#include "../Layers/xrRender/svp_console.h"
 
 #pragma comment( lib, "d3dx9.lib" )
 
@@ -335,28 +336,9 @@ void mt_FreezeThread(void *ptr) {
 void CRenderDevice::prepare_matrices()
 {
 	auto svp = m_SecondViewport.IsSVPFrame();
-	// Previous frame data -- 
 	mView_prev = Device.matrices_previous[svp].mView;
 	mProject_prev = Device.matrices_previous[svp].mProject;
-	//mFullTransform_prev = mFullTransform_saved; // Unused?
-
 	m_pRender->SetCacheXform_prev(mView_prev, mProject_prev);
-
-	// Save previous frame grass benders data
-	IGame_Persistent::grass_data& GData = g_pGamePersistent->grass_shader_data;
-
-	GData.prev_pos[svp][0].set(Device.vCameraPosition.x, Device.vCameraPosition.y, Device.vCameraPosition.z, -1);
-	GData.prev_dir[svp][0].set(0.0f, -99.0f, 0.0f, 1.0f);
-
-	for (int pBend = 1; pBend < _min(16, ps_ssfx_grass_interactive.y + 1); pBend++)
-	{
-		GData.prev_pos[svp][pBend].set(GData.pos[pBend].x, GData.pos[pBend].y, GData.pos[pBend].z, GData.radius_curr[pBend]);
-		GData.prev_dir[svp][pBend].set(GData.dir[pBend].x, GData.dir[pBend].y, GData.dir[pBend].z, GData.str[pBend]);
-	}
-
-	// Save wind animation position
-	wind_anim_prev = wind_anim_saved;
-	wind_anim_saved = g_pGamePersistent->Environment().wind_anim;
 }
 
 void CRenderDevice::on_idle()
@@ -484,6 +466,14 @@ void CRenderDevice::on_idle()
 	mFullTransform3DIcons.mul(mProject3DIcons, mView);
 	m_pRender->SetCacheXform(mView, mProject);
 
+	// advance per-viewport history and store the main camera in slot 0
+	// slot 1 = SVP, filled by svpCamera in the render layer
+	Device.matrices_previous[0] = Device.matrices[0];
+	Device.matrices_previous[1] = Device.matrices[1];
+	Device.matrices[0].mView = mView;
+	Device.matrices[0].mProject = mProject;
+	Device.matrices[0].mProjectHud = mProjectHud;
+
 	mViewHud_prev = mViewHud;
 	mProjectHud_prev = mProjectHud;
 	mFullTransformHud_prev = mFullTransformHud;
@@ -494,7 +484,10 @@ void CRenderDevice::on_idle()
 	Device.matrices_previous[0] = Device.matrices[0];
 	Device.matrices_previous[1] = Device.matrices[1];
 
-	mProjectHud.build_projection(deg2rad(psHUD_FOV * 83.f), fASPECT, R_VIEWPORT_NEAR, g_pGamePersistent->Environment().CurrentEnv->far_plane);
+	extern int g_svp_hud_true_fov;
+	const float hud_fov_deg = (g_svp_hud_true_fov && true_pip_on && m_SecondViewport.IsSVPActive()
+		&& g_pGamePersistent && g_pGamePersistent->m_pGShaderConstants->hud_params.x > 0.999f) ? fFOV : psHUD_FOV * 83.f;
+	mProjectHud.build_projection(deg2rad(hud_fov_deg), fASPECT, R_VIEWPORT_NEAR, g_pGamePersistent->Environment().CurrentEnv->far_plane);
 	mProjectCam.build_projection(deg2rad(psCamAttachedFOV * psCAM_ATTACHED_FOV), fASPECT, R_VIEWPORT_NEAR, g_pGamePersistent->Environment().CurrentEnv->far_plane);
 	mProjectCamAttached = mProjectCam;
 
@@ -504,13 +497,27 @@ void CRenderDevice::on_idle()
 
 	prepare_matrices();
 
-	mFullTransform_prev = mFullTransform_saved; // Unused?
-
+	mFullTransform_prev = mFullTransform_saved;
 	mViewHud.set(mView);
 	mViewCam.set(mView);
 	mFullTransformHud.mul(mProjectHud, mViewHud);
 	mFullTransformCam.mul(mProjectCam, mViewCam);
 	mFullTransformCamAttached = mFullTransformCam;
+
+	if (true_pip_on)
+		Device.matrices[0].mProjectHud = mProjectHud;
+
+	IGame_Persistent::grass_data& GData = g_pGamePersistent->grass_shader_data;
+	GData.prev_pos[0].set(Device.vCameraPosition.x, Device.vCameraPosition.y, Device.vCameraPosition.z, -1);
+	GData.prev_dir[0].set(0.0f, -99.0f, 0.0f, 1.0f);
+	for (int pBend = 1; pBend < _min(16, ps_ssfx_grass_interactive.y + 1); pBend++)
+	{
+		GData.prev_pos[pBend].set(GData.pos[pBend].x, GData.pos[pBend].y, GData.pos[pBend].z, GData.radius_curr[pBend]);
+		GData.prev_dir[pBend].set(GData.dir[pBend].x, GData.dir[pBend].y, GData.dir[pBend].z, GData.str[pBend]);
+	}
+
+	wind_anim_prev = wind_anim_saved;
+	wind_anim_saved = g_pGamePersistent->Environment().wind_anim;
 
 	//RCache.set_xform_view ( mView );
 	//RCache.set_xform_project ( mProject );
@@ -520,6 +527,7 @@ void CRenderDevice::on_idle()
 	mFullTransform_saved = mFullTransform;
 	mView_saved = mView;
 	mProject_saved = mProject;
+
 
 	vCameraPosition_bones = vCameraPosition;
 	mFullTransform_bones = mFullTransform;
@@ -597,7 +605,13 @@ void CRenderDevice::on_idle()
 		frame_record.join[0] = CPU::QPC();
 	{
 		PROF_EVENT("secondary_tasks.wait", PROF_CAT(Wait));
+		extern int ps_r__svp_stats;
+		extern float svp_stats_join_ms;
+		const bool timed = ps_r__svp_stats != 0;
+		CTimer join_timer;
+		if (timed) join_timer.Start();
 		secondary_tasks.wait();
+		if (timed) svp_stats_join_ms = join_timer.GetElapsed_ms_f();
 	}
 	if (record)
 	{
@@ -981,9 +995,62 @@ void CLoadScreenRenderer::OnRender()
 	pApp->load_draw_internal();
 }
 
-void CRenderDevice::CSecondVPParams::SetSVPActive(bool bState) //--#SM+#-- +SecondVP+
+void CSecondVPParams::SetSVPActive(bool bState) //--#SM+#-- +SecondVP+
 {
-	isActive = bState;
+	const bool was_active = isActive.load(std::memory_order_acquire);
+	if (scope_svp_enabled < 2)
+	{
+		if (bState != was_active)
+		{
+			if (!bState)
+				isActive.store(false, std::memory_order_release);
+			m_svp_session.fetch_add(1, std::memory_order_acq_rel);
+			InvalidateOpticConfig();
+			if (bState)
+			{
+				ClearWeaponPose();
+				ClearSight();
+				dlss_reset_next = true;
+				isActive.store(true, std::memory_order_release);
+			}
+		}
+		if (!bState)
+		{
+			ClearWeaponPose();
+			ClearSight();
+		}
+		if (g_pGamePersistent != NULL)
+			g_pGamePersistent->m_pGShaderConstants->m_blender_mode.z = bState ? 1.0f : 0.0f;
+		return;
+	}
+	if (bState != was_active)
+	{
+		if (!bState)
+		{
+			isActive.store(false, std::memory_order_release);
+			m_svp_session.fetch_add(1, std::memory_order_acq_rel);
+			InvalidateOpticConfig();
+		}
+		if (bState)
+		{
+			xrCriticalSectionGuard guard(m_snapshot_lock);
+			m_weapon_pose = WeaponPoseSnapshot{};
+			dlss_reset_next = true;
+			isActive.store(true, std::memory_order_release);
+		}
+	}
+	if (!bState)
+	{
+		xrCriticalSectionGuard guard(m_snapshot_lock);
+		m_weapon_pose = WeaponPoseSnapshot{};
+		m_sight = SightSnapshot{};
+	}
 	if (g_pGamePersistent != NULL)
-		g_pGamePersistent->m_pGShaderConstants->m_blender_mode.z = (isActive ? 1.0f : 0.0f);
+		g_pGamePersistent->m_pGShaderConstants->m_blender_mode.z = bState ? 1.0f : 0.0f;
+}
+bool CSecondVPParams::IsSVPFrame()
+{
+	if (Device.true_pip_on)
+		return m_render_pass_is_svp;
+	return IsSVPActive() && Device.dwFrame % frameDelay == 0;
 }

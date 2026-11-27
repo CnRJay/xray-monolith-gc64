@@ -2,6 +2,9 @@
 #include "../../xrEngine/xr_object.h"
 #include "FBasicVisual.h"
 #include "SkeletonCustom.h"
+#include "../../Include/xrAPI/xrAPI.h"
+#include "../../Include/xrRender/DebugRender.h"
+#include "xrRender_console.h"
 #if RENDER == R_R4
 #include "../../xrGame/debug_renderer.h"
 #include <tbb/parallel_for.h>
@@ -510,6 +513,41 @@ void CRender::render_lights(light_Package& LP)
 	stats.ls_shadowed_peak_in = _max(stats.ls_shadowed_peak_in, (u32)LP.v_shadowed.size());
 	//////////////////////////////////////////////////////////////////////////
 
+	// pip build the scope cone once so the mirrored svp blends can drop a light whose sphere never
+	// meets it, main accumulation below always runs the full list, only the svp mirror is filtered
+	CFrustum svp_cone;
+	const bool svp_cull_lights = Device.m_SecondViewport.dual_accum && ps_r__svp_light_cull;
+	if (svp_cull_lights)
+	{
+		Fmatrix svp_full;
+		svp_full.mul(Device.matrices[1].mProject, Device.matrices[1].mView);
+		svp_cone.CreateFromMatrix(svp_full, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
+	}
+	static xr_vector<light*> svp_mirror_subset;
+	// returns the batch subset inside the cone (cull off returns the whole batch), empty = skip the mirror
+	auto svp_cone_subset = [&](xr_vector<light*>& src) -> xr_vector<light*>&
+	{
+		if (!svp_cull_lights)
+			return src;
+		svp_mirror_subset.clear();
+		for (light* L : src)
+		{
+			Fvector wc = L->position;
+			if (svp_cone.testSphere_dirty(wc, L->range))
+			{
+				svp_mirror_subset.push_back(L);
+				if (ps_r__svp_stats) ++svp_stats_lights_mirrored; // overlay cone-cull tally
+				if (!svp_ledger_lights_mirrored) svp_ledger_lights_mirrored = 1;
+			}
+			else
+			{
+				if (ps_r__svp_stats) ++svp_stats_lights_skipped;
+				if (!svp_ledger_lights_skipped) svp_ledger_lights_skipped = 1;
+			}
+		}
+		return svp_mirror_subset;
+	};
+
 	{
 #if defined(USE_DX10) || defined(USE_DX11)
 		PIX_EVENT(SHADOWED_LIGHTS);
@@ -542,6 +580,13 @@ void CRender::render_lights(light_Package& LP)
 				if (!L->vis.visible)
 				{
 					RImplementation.stats.ls_shadowed_invisible_skipped++;
+					if (scope_debug >= 3)
+					{
+						// pip grey world direction/range vector for each culled shadowed light (r__scope_debug 3+)
+						Fvector v[2] = { L->position, Fvector(L->direction).mul(L->range).add(L->position) };
+						u16 idx[2] = { 0, 1 };
+						DRender->add_lines(v, 2, idx, 1, 0xff999999, false);
+					}
 					return true;
 				}
 
@@ -564,6 +609,8 @@ void CRender::render_lights(light_Package& LP)
 
 			for (u16 smap_ID = 0; refactored.size() != total; smap_ID++)
 			{
+				// one light placed per pass is the worst case, past total passes something never fits
+				R_ASSERT2(smap_ID <= total, "shadow atlas layout spin, a light's shadow map exceeds o.smapsize");
 				LP_smap_pool.initialize(o.smapsize);
 				std::sort(source.begin(), source.end(), [](light* _1, light* _2) {return _1->X.S.size > _2->X.S.size; });
 				source.erase(std::remove_if(source.begin(), source.end(), [smap_ID](light* L)
@@ -692,34 +739,47 @@ void CRender::render_lights(light_Package& LP)
 				PIX_EVENT(SPOT_LIGHTS_ACCUM_SH);
 #endif
 				stats.ls_shadowed_rendered += (u32)L_spot_s.size();
-				for (light* L : L_spot_s)
+				// pip shared-shadow, this group's smaps are built on the main atlas, accumulate the
+				// group into the main viewport then replay it into the SVP (the hook re-points the atlas
+				// at the main maps so the SVP reads them, no second smap render)
+				auto accum_group = [&](xr_vector<light*>& list)
 				{
-					Target->accum_spot(L);
-					render_indirect(L);
-					if (L->flags.bVolumetric && RImplementation.o.advancedpp && ps_r2_ls_flags.is(R2FLAG_VOLUMETRIC_LIGHTS))
+					for (light* L : list)
 					{
+						Target->accum_spot(L);
+						render_indirect(L);
+						if (L->flags.bVolumetric && RImplementation.o.advancedpp && ps_r2_ls_flags.is(R2FLAG_VOLUMETRIC_LIGHTS))
+						{
 #if defined(USE_DX10) || defined(USE_DX11)
-						PIX_EVENT(ACCUM_VOLUMETRIC);
+							PIX_EVENT(ACCUM_VOLUMETRIC);
 #endif
 #ifdef USE_DX11
-						float w = float(Device.dwWidth);
-						float h = float(Device.dwHeight);
+							float w = float(Device.dwWidth);
+							float h = float(Device.dwHeight);
 
-						if (RImplementation.o.ssfx_volumetric)
-							Target->set_viewport_size(HW.pContext, w / RImplementation.o.volsize, h / RImplementation.o.volsize);
+							if (RImplementation.o.ssfx_volumetric)
+								Target->set_viewport_size(HW.pContext, w / RImplementation.o.volsize, h / RImplementation.o.volsize);
 #endif
 
-						if (ps_pfx_volumetric_mode == 1)
-							Target->accum_volumetric_lv(L);
-						else
-							Target->accum_volumetric(L);
+							if (ps_pfx_volumetric_mode == 1)
+								Target->accum_volumetric_lv(L);
+							else
+								Target->accum_volumetric(L);
 
 #ifdef USE_DX11
-						// Restore resolution
-						if (RImplementation.o.ssfx_volumetric)
-							Target->set_viewport_size(HW.pContext, w, h);
+							// Restore resolution
+							if (RImplementation.o.ssfx_volumetric)
+								Target->set_viewport_size(HW.pContext, w, h);
 #endif
+						}
 					}
+				};
+				accum_group(L_spot_s);
+				if (Device.m_SecondViewport.dual_accum)
+				{
+					xr_vector<light*>& mlist = svp_cone_subset(L_spot_s);
+					if (!mlist.empty())
+						Device.m_SecondViewport.dual_accum([&] { accum_group(mlist); });
 				}
 
 				L_spot_s.clear();
@@ -737,18 +797,28 @@ void CRender::render_lights(light_Package& LP)
 #if defined(USE_DX10) || defined(USE_DX11)
 			PIX_EVENT(POINT_LIGHTS_ACCUM_UNSH);
 #endif
-			// Point lighting (unshadowed, if left)
+			// Point lighting (unshadowed, if left), pip accumulate into both viewports (no smap)
 			if (!LP.v_point.empty())
 			{
-				for (light* L : LP.v_point)
+				auto accum_point = [&](xr_vector<light*>& list)
 				{
-					L->vis_update();
-					if (!L->vis.visible)
-						continue;
+					for (light* L : list)
+					{
+						L->vis_update();
+						if (!L->vis.visible)
+							continue;
 
-					Target->accum_point(L);
-					++stats.ls_unshadowed_point_rendered;
-					render_indirect(L);
+						Target->accum_point(L);
+						++stats.ls_unshadowed_point_rendered;
+						render_indirect(L);
+					}
+				};
+				accum_point(LP.v_point);
+				if (Device.m_SecondViewport.dual_accum)
+				{
+					xr_vector<light*>& mlist = svp_cone_subset(LP.v_point);
+					if (!mlist.empty())
+						Device.m_SecondViewport.dual_accum([&] { accum_point(mlist); });
 				}
 				LP.v_point.clear();
 			}
@@ -757,18 +827,28 @@ void CRender::render_lights(light_Package& LP)
 #if defined(USE_DX10) || defined(USE_DX11)
 			PIX_EVENT(SPOT_LIGHTS_ACCUM_UNSH);
 #endif
-			// Spot lighting (unshadowed, if left)
+			// Spot lighting (unshadowed, if left), pip accumulate into both viewports (no smap)
 			if (!LP.v_spot.empty())
 			{
-				for (light* L : LP.v_spot)
+				auto accum_spot = [&](xr_vector<light*>& list)
 				{
-					L->vis_update();
-					if (!L->vis.visible)
-						continue;
+					for (light* L : list)
+					{
+						L->vis_update();
+						if (!L->vis.visible)
+							continue;
 
-					Target->accum_spot(L);
-					++stats.ls_unshadowed_spot_rendered;
-					render_indirect(L);
+						Target->accum_spot(L);
+						++stats.ls_unshadowed_spot_rendered;
+						render_indirect(L);
+					}
+				};
+				accum_spot(LP.v_spot);
+				if (Device.m_SecondViewport.dual_accum)
+				{
+					xr_vector<light*>& mlist = svp_cone_subset(LP.v_spot);
+					if (!mlist.empty())
+						Device.m_SecondViewport.dual_accum([&] { accum_spot(mlist); });
 				}
 				LP.v_spot.clear();
 			}

@@ -13,7 +13,7 @@ public:
 	Fmatrix m_vp; // Derived	- view2projection
 	Fmatrix m_wvp; // Derived	- world2view2projection
 
-	Fmatrix m_w_prev[2];
+	Fmatrix m_w_prev[2]; // prev-frame matrices, per viewport (main, SVP)
 	Fmatrix m_v_prev[2];
 	Fmatrix m_p_prev[2];
 	Fmatrix m_wv_prev[2];

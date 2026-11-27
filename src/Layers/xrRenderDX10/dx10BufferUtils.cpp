@@ -7,8 +7,7 @@ namespace dx10BufferUtils
 	{
 		D3D_BUFFER_DESC desc;
 		desc.ByteWidth = DataSize;
-		//desc.Usage = bImmutable ? D3D_USAGE_IMMUTABLE : D3D_USAGE_DEFAULT;
-		desc.Usage = D3D_USAGE_DEFAULT;
+		desc.Usage = bImmutable ? D3D_USAGE_IMMUTABLE : D3D_USAGE_DEFAULT;
 		desc.BindFlags = bIndexBuffer ? D3D_BIND_INDEX_BUFFER : D3D_BIND_VERTEX_BUFFER;
 		desc.CPUAccessFlags = 0;
 		desc.MiscFlags = 0;

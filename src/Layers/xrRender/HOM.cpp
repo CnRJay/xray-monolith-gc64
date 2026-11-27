@@ -5,7 +5,10 @@
 #include "stdafx.h"
 #include "HOM.h"
 #include "occRasterizer.h"
+#include "occ_engine.h"
+#include "svp_console.h"
 #include "../../xrEngine/GameFont.h"
+#include "../../xrEngine/GameMtlLib.h"
 
 #include "../../xrCore/profiler.h"
 
@@ -15,7 +18,7 @@ float psOSSR = .001f;
 
 void __stdcall CHOM::MT_RENDER()
 {
-	PROF_EVENT("Render HOM", PROF_CAT(Visibility));
+	PROF_EVENT("Render HOM");
 
 	xrCriticalSectionGuard guard(m_mt_render_guard);
 	const u32 current_frame = Device.dwFrame;
@@ -29,12 +32,11 @@ void __stdcall CHOM::MT_RENDER()
 
 	if (MT_frame_rendered.load(std::memory_order_acquire) != current_frame)
 	{
-		// Snapshot the device matrices, as SVP may change them during the DB render
-		fullTransform = Device.mFullTransform;
-		cameraPosition = Device.vCameraPosition;
+		if (ps_r__svp_stats && GetCurrentThreadId() == m_mt_render_registration_tid)
+			++svp_stats_hom_main_thread; // ran on the queuing thread, the worker task never picked it up
 
 		CFrustum ViewBase;
-		ViewBase.CreateFromMatrix(fullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
+		ViewBase.CreateFromMatrix(Device.mFullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
 		Enable();
 		Render(ViewBase);
 	}
@@ -50,6 +52,19 @@ CHOM::CHOM()
 	m_pModel = 0;
 	m_pTris = 0;
     MT_frame_rendered.store(0, std::memory_order_relaxed);
+    m_mt_render_registration_tid = 0;
+	m_occ_mode = 0;
+	m_occ_mode_logged = -1;
+	m_occ_res_logged = -1;
+	m_occ_time_queries = false;
+	m_occ_raster = &occ_engine_legacy();
+	m_occ_masked = nullptr;
+	m_occ_query = m_occ_raster;
+	m_terr_bounds.invalidate();
+	m_terr_sx = 0.f;
+	m_terr_sz = 0.f;
+	m_terr_ready = false;
+	m_terr_attempted = false;
 #ifdef DEBUG
 	Device.seqRender.Add(this,REG_PRIORITY_LOW-1000);
 #endif
@@ -78,6 +93,174 @@ IC float Area(Fvector& v0, Fvector& v1, Fvector& v2)
 
 	float p = (e1 + e2 + e3) / 2.f;
 	return _sqrt(p * (p - e1) * (p - e2) * (p - e3));
+}
+
+// cform ground materials, a mod renaming one silently drops it so the match is logged
+static const char* s_terr_materials[] =
+{
+	"materials\\earth", "materials\\earth_death", "materials\\earth_slide", "materials\\grass",
+	"materials\\dirt", "materials\\sand", "materials\\gravel", "materials\\asphalt"
+};
+
+void CHOM::terrain_load()
+{
+	m_terr_ready = false;
+	if (!ps_r__hom_terrain || !g_pGameLevel)
+		return;
+
+	CObjectSpace& os = g_pGameLevel->ObjectSpace;
+	CDB::MODEL* cform = os.GetStaticModel();
+	if (!cform)
+		return;
+
+	// the tri array and its material remap both land inside this task
+	cform->async_cform_load.wait();
+
+	const int face_count = cform->get_tris_count();
+	const CDB::TRI* tris = cform->get_tris();
+	const Fvector* verts = cform->get_verts();
+	if (face_count <= 0 || !tris || !verts)
+		return;
+
+	const Fbox& bounds = os.GetBoundingVolume();
+	const float ext_x = bounds.max.x - bounds.min.x;
+	const float ext_z = bounds.max.z - bounds.min.z;
+	if (ext_x < EPS_L || ext_z < EPS_L)
+		return;
+
+	// one flag per GMLib index, cform materials are indices once the level load remap ran
+	const u32 mtl_count = GMLib.CountMaterial();
+	if (0 == mtl_count)
+		return;
+	xr_vector<u8> is_ground(mtl_count, 0);
+	string512 matched;
+	matched[0] = 0;
+	for (u32 m = 0; m < mtl_count; ++m)
+	{
+		SGameMtl* mtl = GMLib.GetMaterialByIdx(u16(m));
+		if (!mtl || mtl->Flags.test(SGameMtl::flPassable) || mtl->Flags.test(SGameMtl::flDynamic))
+			continue;
+		for (u32 n = 0; n < sizeof(s_terr_materials) / sizeof(s_terr_materials[0]); ++n)
+		{
+			if (0 != _stricmp(mtl->m_Name.c_str(), s_terr_materials[n]))
+				continue;
+			is_ground[m] = 1;
+			if (xr_strlen(matched) + xr_strlen(s_terr_materials[n]) + 2 < sizeof(matched))
+			{
+				if (matched[0])
+					xr_strcat(matched, " ");
+				xr_strcat(matched, s_terr_materials[n]);
+			}
+			break;
+		}
+	}
+	Msg("* [MOC-TERR] materials %s", matched[0] ? matched : "none matched");
+
+	m_terr_bounds.set(bounds);
+	m_terr_sx = float(TERR_GRID) / ext_x;
+	m_terr_sz = float(TERR_GRID) / ext_z;
+
+	const u32 cell_count = u32(TERR_GRID) * u32(TERR_GRID);
+	m_terr_grid.resize(cell_count);
+	for (u32 c = 0; c < cell_count; ++c)
+	{
+		terr_cell& C = m_terr_grid[c];
+		C.offset = 0;
+		C.count = 0;
+		C.ymin = flt_max;
+		C.ymax = -flt_max;
+	}
+
+	xr_vector<u32> keep_tri, keep_cell;
+	keep_tri.reserve(1 << 17);
+	keep_cell.reserve(1 << 17);
+
+	u32 bad_mtl = 0;
+	for (int i = 0; i < face_count; ++i)
+	{
+		const CDB::TRI& T = tris[i];
+		if (T.material >= mtl_count)
+		{
+			++bad_mtl;
+			continue;
+		}
+		if (!is_ground[T.material])
+			continue;
+
+		const Fvector& v0 = verts[T.verts[0]];
+		const Fvector& v1 = verts[T.verts[1]];
+		const Fvector& v2 = verts[T.verts[2]];
+		Fvector e1, e2, nrm;
+		e1.sub(v1, v0);
+		e2.sub(v2, v0);
+		nrm.crossproduct(e1, e2);
+		// area 4 without the root, the cross magnitude is twice the area
+		if (nrm.square_magnitude() < 64.f)
+			continue;
+
+		int gi = iFloor(((v0.x + v1.x + v2.x) * (1.f / 3.f) - bounds.min.x) * m_terr_sx);
+		int gj = iFloor(((v0.z + v1.z + v2.z) * (1.f / 3.f) - bounds.min.z) * m_terr_sz);
+		gi = (gi < 0) ? 0 : ((gi >= TERR_GRID) ? (TERR_GRID - 1) : gi);
+		gj = (gj < 0) ? 0 : ((gj >= TERR_GRID) ? (TERR_GRID - 1) : gj);
+		const u32 cell = u32(gi) * TERR_GRID + u32(gj);
+
+		terr_cell& C = m_terr_grid[cell];
+		++C.count;
+		C.ymin = _min(C.ymin, _min(v0.y, _min(v1.y, v2.y)));
+		C.ymax = _max(C.ymax, _max(v0.y, _max(v1.y, v2.y)));
+		keep_cell.push_back(cell);
+		keep_tri.push_back(u32(i));
+	}
+
+	if (keep_tri.empty())
+	{
+		Msg("* [MOC-TERR] no ground tris on this level, terrain occluders off");
+		terrain_unload();
+		return;
+	}
+
+	// prefix sum the counts then scatter the kept indices so each cell owns one span
+	u32 running = 0;
+	u32 used = 0;
+	for (u32 c = 0; c < cell_count; ++c)
+	{
+		m_terr_grid[c].offset = running;
+		running += m_terr_grid[c].count;
+		if (m_terr_grid[c].count)
+			++used;
+	}
+	m_terr_index.resize(running);
+	{
+		const u32 kept = u32(keep_tri.size());
+		xr_vector<u32> cursor(cell_count);
+		for (u32 c = 0; c < cell_count; ++c)
+			cursor[c] = m_terr_grid[c].offset;
+		for (u32 k = 0; k < kept; ++k)
+			m_terr_index[cursor[keep_cell[k]]++] = keep_tri[k];
+	}
+
+	if (bad_mtl)
+		Msg("! [MOC-TERR] %u cform tris carry a material index past the library, skipped", bad_mtl);
+
+	m_terr_hit.reserve(used);
+	const u32 kb = u32((m_terr_index.size() * sizeof(u32) + cell_count * sizeof(terr_cell)
+		+ m_terr_hit.capacity() * sizeof(terr_hit)) / 1024);
+	Msg("* [MOC-TERR] faces %d kept %u cells %u of %u cell %.1fx%.1fm %ukb cap %u",
+		face_count, u32(m_terr_index.size()), used, cell_count,
+		ext_x / float(TERR_GRID), ext_z / float(TERR_GRID), kb, u32(TERR_EMIT_CAP));
+
+	m_terr_ready = true;
+}
+
+void CHOM::terrain_unload()
+{
+	m_terr_ready = false;
+	m_terr_grid.clear_and_free();
+	m_terr_index.clear_and_free();
+	m_terr_hit.clear_and_free();
+	m_terr_bounds.invalidate();
+	m_terr_sx = 0.f;
+	m_terr_sz = 0.f;
 }
 
 void CHOM::Load()
@@ -139,21 +322,28 @@ void CHOM::Load()
 	m_pModel = xr_new<CDB::MODEL>();
 	m_pModel->build(CL.getV(), int(CL.getVS()), CL.getT(), int(CL.getTS()));
 	bEnabled = TRUE;
+	occ_engine_moc_reserve(u32(CL.getTS()) + TERR_EMIT_CAP);
 	S->close();
 	FS.r_close(fs);
 
+	m_terr_attempted = false;
+	terrain_load();
+
 	if (ps_r2_ls_flags.test(R2FLAG_EXP_MT_CALC))
 	{
-		// MT-HOM (@front)
-		Device.seqParallelRender.push_back(xr_make_delegate(this, &CHOM::MT_RENDER));
+		// MT-HOM (@front), ahead of the grass MT_CALC so every occlusion query reads a finished frame
+		Device.seqParallelRender.insert(Device.seqParallelRender.begin(), xr_make_delegate(this, &CHOM::MT_RENDER));
+		m_mt_render_registration_tid = GetCurrentThreadId(); // the thread that queues the worker call
 	}
 }
 
 void CHOM::Unload()
 {
+	terrain_unload();
 	xr_delete(m_pModel);
 	xr_free(m_pTris);
 	bEnabled = FALSE;
+	occ_engine_moc_release();
 
 	auto I = std::find(Device.seqParallelRender.begin(), Device.seqParallelRender.end(), xr_make_delegate(this, &CHOM::MT_RENDER));
 	if (I != Device.seqParallelRender.end())
@@ -188,25 +378,131 @@ public:
 	}
 };
 
+// cform ground into the masked buffer, near cells first so the cap spends on the closest terrain
+void CHOM::terrain_emit(CFrustum& base, const Fvector& COP)
+{
+	const CDB::MODEL* cform = g_pGameLevel ? g_pGameLevel->ObjectSpace.GetStaticModel() : nullptr;
+	const CDB::TRI* tris = cform ? cform->get_tris() : nullptr;
+	const Fvector* verts = cform ? cform->get_verts() : nullptr;
+	if (!tris || !verts)
+		return;
+
+	const float cw = (m_terr_bounds.max.x - m_terr_bounds.min.x) / float(TERR_GRID);
+	const float ch = (m_terr_bounds.max.z - m_terr_bounds.min.z) / float(TERR_GRID);
+	const u32 full_mask = base.getMask();
+
+	const u32 side = u32(TERR_GRID);
+	m_terr_hit.clear();
+
+	// the view hull is the camera apex plus the far rectangle, walk only the cells its xz box reaches
+	u32 gi_lo = 0, gi_hi = side - 1, gj_lo = 0, gj_hi = side - 1;
+	if (cw > EPS_S && ch > EPS_S)
+	{
+		// clip cube corners with d3d z in zero to one, unprojected to world
+		static const Fvector3 clip_corner[8] = {
+			{ -1.f, -1.f, 0.f }, { 1.f, -1.f, 0.f }, { -1.f, 1.f, 0.f }, { 1.f, 1.f, 0.f },
+			{ -1.f, -1.f, 1.f }, { 1.f, -1.f, 1.f }, { -1.f, 1.f, 1.f }, { 1.f, 1.f, 1.f }
+		};
+		Fmatrix inv;
+		inv.identity();
+		const bool inv_ok = (0 != D3DXMatrixInverse((D3DXMATRIX*)&inv, 0, (D3DXMATRIX*)&Device.mFullTransform));
+		if (inv_ok && _valid(inv))
+		{
+			float x_lo = COP.x, x_hi = COP.x, z_lo = COP.z, z_hi = COP.z;
+			for (u32 c = 0; c < 8; ++c)
+			{
+				const Fvector3& q = clip_corner[c];
+				const float qw = q.x * inv._14 + q.y * inv._24 + q.z * inv._34 + inv._44;
+				if (_abs(qw) < EPS_S)
+					continue;
+				const float iw = 1.f / qw;
+				const float wx = (q.x * inv._11 + q.y * inv._21 + q.z * inv._31 + inv._41) * iw;
+				const float wz = (q.x * inv._13 + q.y * inv._23 + q.z * inv._33 + inv._43) * iw;
+				x_lo = _min(x_lo, wx); x_hi = _max(x_hi, wx);
+				z_lo = _min(z_lo, wz); z_hi = _max(z_hi, wz);
+			}
+			// one cell of slack on each side absorbs the grid quantization
+			const int i0 = _max(0, iFloor((x_lo - m_terr_bounds.min.x) / cw) - 1);
+			const int i1 = _min(int(side) - 1, iFloor((x_hi - m_terr_bounds.min.x) / cw) + 1);
+			const int j0 = _max(0, iFloor((z_lo - m_terr_bounds.min.z) / ch) - 1);
+			const int j1 = _min(int(side) - 1, iFloor((z_hi - m_terr_bounds.min.z) / ch) + 1);
+			if (i0 > i1 || j0 > j1)
+				return; // the view box misses the terrain grid outright
+			gi_lo = u32(i0); gi_hi = u32(i1);
+			gj_lo = u32(j0); gj_hi = u32(j1);
+		}
+	}
+
+	for (u32 gi = gi_lo; gi <= gi_hi; ++gi)
+	{
+		const float x0 = m_terr_bounds.min.x + cw * float(gi);
+		for (u32 gj = gj_lo; gj <= gj_hi; ++gj)
+		{
+			const u32 cell = gi * side + gj;
+			const terr_cell& C = m_terr_grid[cell];
+			if (0 == C.count)
+				continue;
+
+			const float z0 = m_terr_bounds.min.z + ch * float(gj);
+			const float aabb[6] = { x0, C.ymin, z0, x0 + cw, C.ymax, z0 + ch };
+			u32 mask = full_mask;
+			if (fcvNone == base.testAABB(aabb, mask))
+				continue;
+
+			Fvector mid;
+			mid.set(x0 + cw * 0.5f, (C.ymin + C.ymax) * 0.5f, z0 + ch * 0.5f);
+			terr_hit hit;
+			hit.d2 = COP.distance_to_sqr(mid);
+			hit.cell = cell;
+			m_terr_hit.push_back(hit);
+		}
+	}
+
+	svp_stats_hom_terr_cells = u32(m_terr_hit.size());
+	if (m_terr_hit.empty())
+		return;
+
+	std::sort(m_terr_hit.begin(), m_terr_hit.end(),
+		[](const terr_hit& a, const terr_hit& b) { return a.d2 < b.d2; });
+
+	// the masked engine ignores the occTri, terrain never builds one
+	occTri unused;
+	const u32 cap = u32(TERR_EMIT_CAP);
+	const u32 hits = u32(m_terr_hit.size());
+	u32 emitted = 0;
+	for (u32 h = 0; h < hits && emitted < cap; ++h)
+	{
+		const terr_cell& C = m_terr_grid[m_terr_hit[h].cell];
+		for (u32 k = 0; k < C.count; ++k)
+		{
+			const CDB::TRI& T = tris[m_terr_index[C.offset + k]];
+			const Fvector& v0 = verts[T.verts[0]];
+			const Fvector& v1 = verts[T.verts[1]];
+			const Fvector& v2 = verts[T.verts[2]];
+
+			// the facing acceptance the hom tris get, sign only so no normalize
+			Fvector e1, e2, nrm, eye;
+			e1.sub(v1, v0);
+			e2.sub(v2, v0);
+			nrm.crossproduct(e1, e2);
+			eye.sub(COP, v0);
+			if (nrm.dotproduct(eye) <= 0.f)
+				continue;
+
+			const Fvector tri[3] = { v0, v1, v2 };
+			m_occ_masked->emit(unused, tri);
+			if (++emitted >= cap)
+			{
+				svp_stats_hom_terr_capped = 1;
+				break;
+			}
+		}
+	}
+	svp_stats_hom_terr_emitted = emitted;
+}
+
 void CHOM::Render_DB(CFrustum& base)
 {
-	//Update projection matrices on every frame to ensure valid HOM culling
-	float view_dim = occ_dim_0;
-	Fmatrix m_viewport = {
-		view_dim / 2.f, 0.0f, 0.0f, 0.0f,
-		0.0f, -view_dim / 2.f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		view_dim / 2.f + 0 + 0, view_dim / 2.f + 0 + 0, 0.0f, 1.0f
-	};
-	Fmatrix m_viewport_01 = {
-		1.f / 2.f, 0.0f, 0.0f, 0.0f,
-		0.0f, -1.f / 2.f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		1.f / 2.f + 0 + 0, 1.f / 2.f + 0 + 0, 0.0f, 1.0f
-	};
-	m_xform.mul(m_viewport, fullTransform);
-	m_xform_01.mul(m_viewport_01, fullTransform);
-
 	// Query DB
 	xrc.frustum_options(0);
 	xrc.frustum_query(m_pModel, base);
@@ -216,18 +512,23 @@ void CHOM::Render_DB(CFrustum& base)
 	CDB::RESULT* it = xrc.r_begin();
 	CDB::RESULT* end = xrc.r_end();
 
-	Fvector COP = cameraPosition;
-	end = std::remove_if(it, end, pred_fb(m_pTris));
+	Fvector COP = Device.vCameraPosition;
+	// only an engine driven by per-tri pixel feedback carries the skip cadence
+	// the shadow compare feeds both engines the full set so the tally stays honest
+	const bool skip_filter = m_occ_query->wants_skip_filter() && !m_occ_masked;
+	if (skip_filter)
+		end = std::remove_if(it, end, pred_fb(m_pTris));
 	std::sort(it, end, pred_fb(m_pTris, COP));
 
-	// Build frustum with near plane only
-	CFrustum clip;
-	clip.CreateFromMatrix(fullTransform,FRUSTUM_P_NEAR);
-	sPoly src, dst;
 	u32 _frame = Device.dwFrame;
+	const bool tally = (ps_r__svp_stats != 0);
+	if (tally)
+	{
+		svp_stats_hom_tris_in = u32(end - it);
+		svp_stats_hom_tris_emitted = 0;
+	}
 #ifdef DEBUG
 	tris_in_frame				= xrc.r_count();
-	tris_in_frame_visible		= 0;
 #endif
 
 	// Perfrom selection, sorting, culling
@@ -235,117 +536,157 @@ void CHOM::Render_DB(CFrustum& base)
 	{
 		// Control skipping
 		occTri& T = m_pTris[it->id];
-		u32 next = _frame + ::Random.randI(3, 10);
+		// the skip cadence is the only reader, a masked frame draws no shared random at all
+		u32 next = skip_filter ? _frame + ::Random.randI(3, 10) : 0;
 
 		// Test for good occluder - should be improved :)
 		if (!(T.flags || (T.plane.classify(COP) > 0)))
 		{
-			T.skip = next;
+			if (skip_filter)
+				T.skip = next;
 			continue;
 		}
+		if (tally)
+			++svp_stats_hom_tris_emitted;
 
 		// Access to triangle vertices
 		CDB::TRI& t = m_pModel->get_tris()[it->id];
 		Fvector* v = m_pModel->get_verts();
-		src.clear();
-		dst.clear();
-		src.push_back(v[t.verts[0]]);
-		src.push_back(v[t.verts[1]]);
-		src.push_back(v[t.verts[2]]);
-		sPoly* P = clip.ClipPoly(src, dst);
-		if (0 == P)
-		{
-			T.skip = next;
-			continue;
-		}
+		const Fvector tri[3] = { v[t.verts[0]], v[t.verts[1]], v[t.verts[2]] };
 
-		// XForm and Rasterize
-#ifdef DEBUG
-		tris_in_frame_visible	++;
-#endif
-		u32 pixels = 0;
-		int limit = int(P->size()) - 1;
-		for (int v = 1; v < limit; v++)
+		// the masked engine takes every facing tri, the legacy clip and pixel tests never gate it
+		if (m_occ_masked)
+			m_occ_masked->emit(T, tri);
+
+		if (m_occ_raster && !m_occ_raster->emit(T, tri))
 		{
-			m_xform.transform(T.raster[0], (*P)[0]);
-			m_xform.transform(T.raster[1], (*P)[v + 0]);
-			m_xform.transform(T.raster[2], (*P)[v + 1]);
-			pixels += Raster.rasterize(&T);
+			if (skip_filter)
+				T.skip = next;
 		}
-		if (0 == pixels)
-		{
-			T.skip = next;
-			continue;
-		}
+	}
+}
+
+// picks this frame's engines once, no query ever reads the request
+void CHOM::latch_engine(float near_w)
+{
+	const int mode = (ps_r__hom_engine < 0) ? 0 : ((ps_r__hom_engine > 2) ? 2 : ps_r__hom_engine);
+	const int res = (ps_r__hom_moc_res < 0) ? 0 : ((ps_r__hom_moc_res > 3) ? 3 : ps_r__hom_moc_res);
+
+	m_occ_mode = mode;
+	m_occ_time_queries = (ps_r__svp_stats >= 2);
+	m_occ_raster = (1 == mode) ? nullptr : &occ_engine_legacy();
+	m_occ_masked = (0 == mode) ? nullptr : &occ_engine_moc();
+	m_occ_query = (1 == mode) ? m_occ_masked : m_occ_raster;
+
+	u32 rw = 0, rh = 0;
+	if (m_occ_masked)
+	{
+		occ_engine_moc_set_res(res);
+		occ_engine_moc_preset_size(res, rw, rh);
+	}
+	svp_stats_hom_engine = u32(mode);
+	svp_stats_hom_res_w = rw;
+	svp_stats_hom_res_h = rh;
+
+	if (mode != m_occ_mode_logged || res != m_occ_res_logged)
+	{
+		m_occ_mode_logged = mode;
+		m_occ_res_logged = res;
+		// no masked buffer under engine 0 so there is no resolution to name
+		if (m_occ_masked)
+			Msg("* [MOC] engine %d res %ux%u near %.3f", mode, rw, rh, near_w);
+		else
+			Msg("* [MOC] engine %d res n/a near %.3f", mode, near_w);
 	}
 }
 
 void CHOM::Render(CFrustum& base)
 {
 	if (!bEnabled) return;
-	PROF_EVENT("CHOM::Render", PROF_CAT(Visibility));
+
+	// clip space near from the projection, w carries view z under it
+	const float pz = -Device.mProject._33;
+	const float near_w = (_abs(pz) > EPS) ? (Device.mProject._43 / pz) : 0.f;
+	latch_engine(near_w);
+
+	// the terrain scan latches lazily so a mid session cvar flip works without a reload
+	if (ps_r__hom_terrain && m_occ_masked && !m_terr_ready && !m_terr_attempted)
+	{
+		m_terr_attempted = true;
+		terrain_load();
+	}
+
+	// the occlusion frame starts here on whichever thread renders it, the latch just wrote engine and res
+	// a menu frame never reaches this so the counters keep the last rendered frame
+	svp_stats_hom_tris_in = 0;
+	svp_stats_hom_tris_emitted = 0;
+	svp_stats_hom_render_us = 0;
+	svp_stats_hom_test_ticks = 0;
+	svp_stats_hom_terr_cells = 0;
+	svp_stats_hom_terr_emitted = 0;
+	svp_stats_hom_terr_capped = 0;
 
 	Device.Statistic->RenderCALC_HOM.Begin();
-	Raster.clear();
+	const u64 t0 = CPU::QPC();
+	if (m_occ_raster) m_occ_raster->begin_frame(Device.mFullTransform, Device.vCameraPosition, near_w);
+	if (m_occ_masked) m_occ_masked->begin_frame(Device.mFullTransform, Device.vCameraPosition, near_w);
 	Render_DB(base);
-	Raster.propagade();
+	// the hom loop can bail on an empty frustum query so terrain rides outside it
+	if (m_occ_masked && m_terr_ready && ps_r__hom_terrain)
+		terrain_emit(base, Device.vCameraPosition);
+	if (m_occ_raster) m_occ_raster->end_frame();
+	if (m_occ_masked) m_occ_masked->end_frame();
+	svp_stats_hom_render_us = u32((CPU::QPC() - t0) * 1000000ull / CPU::qpc_freq);
 	MT_frame_rendered.store(Device.dwFrame, std::memory_order_release);
 	Device.Statistic->RenderCALC_HOM.End();
 }
 
-ICF BOOL xform_b0(Fvector2& min, Fvector2& max, float& minz, Fmatrix& X, float _x, float _y, float _z)
+// shadow compare bookkeeping, legacy answers and the masked result only feeds the divergence tally
+ICF void hom_shadow_note(BOOL primary, BOOL other)
 {
-	float z = _x * X._13 + _y * X._23 + _z * X._33 + X._43;
-	if (z < EPS) return TRUE;
-	float iw = 1.f / (_x * X._14 + _y * X._24 + _z * X._34 + X._44);
-	min.x = max.x = (_x * X._11 + _y * X._21 + _z * X._31 + X._41) * iw;
-	min.y = max.y = (_x * X._12 + _y * X._22 + _z * X._32 + X._42) * iw;
-	minz = 0.f + z * iw;
-	return FALSE;
+	++svp_stats_hom_shadow_queries;
+	if (!!primary != !!other)
+	{
+		++svp_stats_hom_disagree;
+		// legacy culling what the masked engine keeps is the blur artifact direction
+		if (!primary)
+			++svp_stats_hom_dis_keep;
+	}
 }
 
-ICF BOOL xform_b1(Fvector2& min, Fvector2& max, float& minz, Fmatrix& X, float _x, float _y, float _z)
+BOOL CHOM::query_box(const Fbox& B)
 {
-	float t;
-	float z = _x * X._13 + _y * X._23 + _z * X._33 + X._43;
-	if (z < EPS) return TRUE;
-	float iw = 1.f / (_x * X._14 + _y * X._24 + _z * X._34 + X._44);
-	t = (_x * X._11 + _y * X._21 + _z * X._31 + X._41) * iw;
-	if (t < min.x) min.x = t;
-	else if (t > max.x) max.x = t;
-	t = (_x * X._12 + _y * X._22 + _z * X._32 + X._42) * iw;
-	if (t < min.y) min.y = t;
-	else if (t > max.y) max.y = t;
-	t = 0.f + z * iw;
-	if (t < minz) minz = t;
-	return FALSE;
+	const u64 t0 = m_occ_time_queries ? CPU::QPC() : 0;
+	BOOL result = m_occ_query->test_box(B);
+	if (2 == m_occ_mode)
+		hom_shadow_note(result, m_occ_masked->test_box(B));
+	if (m_occ_time_queries)
+		svp_stats_hom_test_ticks += CPU::QPC() - t0;
+	return result;
 }
 
-IC BOOL _visible(Fbox& B, Fmatrix& m_xform_01)
+BOOL CHOM::query_poly(const Fvector* v, u32 n)
 {
-	// Find min/max points of xformed-box
-	Fvector2 min, max;
-	float z;
-	if (xform_b0(min, max, z, m_xform_01, B.min.x, B.min.y, B.min.z)) return TRUE;
-	if (xform_b1(min, max, z, m_xform_01, B.min.x, B.min.y, B.max.z)) return TRUE;
-	if (xform_b1(min, max, z, m_xform_01, B.max.x, B.min.y, B.max.z)) return TRUE;
-	if (xform_b1(min, max, z, m_xform_01, B.max.x, B.min.y, B.min.z)) return TRUE;
-	if (xform_b1(min, max, z, m_xform_01, B.min.x, B.max.y, B.min.z)) return TRUE;
-	if (xform_b1(min, max, z, m_xform_01, B.min.x, B.max.y, B.max.z)) return TRUE;
-	if (xform_b1(min, max, z, m_xform_01, B.max.x, B.max.y, B.max.z)) return TRUE;
-	if (xform_b1(min, max, z, m_xform_01, B.max.x, B.max.y, B.min.z)) return TRUE;
-	return Raster.test(min.x, min.y, max.x, max.y, z);
+	const u64 t0 = m_occ_time_queries ? CPU::QPC() : 0;
+	BOOL result = m_occ_query->test_poly(v, n);
+	if (2 == m_occ_mode)
+		hom_shadow_note(result, m_occ_masked->test_poly(v, n));
+	if (m_occ_time_queries)
+		svp_stats_hom_test_ticks += CPU::QPC() - t0;
+	return result;
 }
 
 BOOL CHOM::visible(Fbox3& B)
 {
 	if (!bEnabled) return TRUE;
-	if (B.contains(cameraPosition)) return TRUE;
-	return _visible(B, m_xform_01);
+	if (B.contains(Device.vCameraPosition)) return TRUE;
+	return query_box(B);
 }
 
 BOOL CHOM::visible(Fbox2& B, float depth)
 {
+	// reads the legacy buffer directly, it is frozen under any other engine and has no caller
+	VERIFY(0 == m_occ_mode);
 	if (!bEnabled) return TRUE;
 	return Raster.test(B.min.x, B.min.y, B.max.x, B.max.y, depth);
 }
@@ -372,12 +713,16 @@ BOOL CHOM::visible(vis_data& vis)
 #ifdef DEBUG
 	Device.Statistic->RenderCALC_HOM.Begin	();
 #endif
-	BOOL result = _visible(vis.box, m_xform_01);
+	BOOL result = query_box(vis.box);
 	u32 delay = 1;
 	if (result)
 	{
-		// Deterministic delay avoids mutating global ::Random from parallel culling workers.
-		delay = 10u + ((u32(uintptr_t(&vis) >> 4) ^ frame_current) % 15u);
+		// visible	- delay next test, hashed per object and frame so worker and main queries never share a draw
+		u32 h = u32(uintptr_t(&vis) >> 4) ^ (frame_current * 2654435761u);
+		h ^= h >> 15; h *= 2246822519u;
+		h ^= h >> 13; h *= 3266489917u;
+		h ^= h >> 16;
+		delay = 10 + (h % 15);
 	}
 	else
 	{
@@ -395,15 +740,7 @@ BOOL CHOM::visible(vis_data& vis)
 BOOL CHOM::visible(sPoly& P)
 {
 	if (!bEnabled) return TRUE;
-
-	// Find min/max points of xformed-box
-	Fvector2 min, max;
-	float z;
-
-	if (xform_b0(min, max, z, m_xform_01, P.front().x, P.front().y, P.front().z)) return TRUE;
-	for (u32 it = 1; it < P.size(); it++)
-		if (xform_b1(min, max, z, m_xform_01, P[it].x, P[it].y, P[it].z)) return TRUE;
-	return Raster.test(min.x, min.y, max.x, max.y, z);
+	return query_poly(&P.front(), P.size());
 }
 
 void CHOM::Disable()
@@ -419,7 +756,9 @@ void CHOM::Enable()
 #ifdef DEBUG
 void CHOM::OnRender	()
 {
-	Raster.on_dbg_render();
+	// the pixel dump reads the legacy buffer, it is stale under any other engine
+	if (0 == m_occ_mode)
+		Raster.on_dbg_render();
 
 	if (psDeviceFlags.is(rsOcclusionDraw)){
 		if (m_pModel){
@@ -466,7 +805,10 @@ void CHOM::stats()
 	if (m_pModel){
 		CGameFont& F		= *Device.Statistic->Font();
 		F.OutNext			(" **** HOM-occ ****");
-		F.OutNext			("  visible:  %2d", tris_in_frame_visible);
+		if (0 == m_occ_mode)
+			F.OutNext		("  visible:  %2d", occ_legacy_dbg_visible());
+		else
+			F.OutNext		("  occ moc");
 		F.OutNext			("  frustum:  %2d", tris_in_frame);
 		F.OutNext			("    total:  %2d", m_pModel->get_tris_count());
 	}

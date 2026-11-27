@@ -1,0 +1,243 @@
+-- pip_optic_api_example.script
+--
+-- A complete read-only reference consumer for the true PiP typed optics API.
+-- It demonstrates every safe integration pattern: the exact-version handshake,
+-- capability probing, schema introspection, reading the active optic with its
+-- provenance, validating authored data without publishing, and reacting to a
+-- route epoch change.
+--
+-- This file never publishes an optic. The bundled zzz_extra_scope_features.script
+-- is the single publisher; a second publisher must not compete with it unless a
+-- mod deliberately owns the entire optic lifecycle. Everything here is inert on
+-- an engine without the API and silent unless r__svp_diag is enabled, so the
+-- file is safe to ship as-is.
+--
+-- Authoritative references:
+--   svp_optic_config_script.cpp   the validator, field types, and ranges
+--   zzz_extra_scope_features.script   the canonical publisher and typed_table builder
+--   README.md, "Modder integration"   the data routes and extension rules
+
+local API_VERSION = 3
+local SCHEMA_VERSION = 3
+
+local TAG = "[PIP-API-EXAMPLE]"
+
+-- Connection state. A route epoch change invalidates everything derived from
+-- an earlier connection, so the epoch is stored alongside the handshake result.
+local connection = nil
+
+local function diag_enabled()
+    return get_console():get_integer("r__svp_diag") > 0
+end
+
+-- The canonical probe. Every access goes through rawget and pcall so the same
+-- file loads cleanly on engines without the API, including svpscope 0 and
+-- non-PiP executables. Never infer support from a console variable.
+local function connect()
+    if connection ~= nil then
+        return connection.ok and connection or nil
+    end
+    connection = { ok = false }
+
+    local version_fn = rawget(_G, "svp_optic_api_version")
+    local info_fn = rawget(_G, "svp_optic_api_info")
+    local connect_fn = rawget(_G, "svp_optic_api_connect")
+    if type(version_fn) ~= "function" or type(info_fn) ~= "function"
+        or type(connect_fn) ~= "function" then
+        return nil
+    end
+
+    -- Require the exact API version. A newer engine that dropped this version
+    -- must leave the consumer inert rather than half-working.
+    local ok, version = pcall(version_fn)
+    if not ok or version ~= API_VERSION then
+        return nil
+    end
+
+    -- info() lists every supported api/schema pair plus the schema hash.
+    -- Require the exact pair; a matching api with a different schema is not
+    -- a partial match, it is an incompatible table contract.
+    local info_ok, info = pcall(info_fn)
+    if not info_ok or type(info) ~= "table"
+        or type(info.supported_pairs) ~= "table" then
+        return nil
+    end
+    local pair_supported = false
+    for _, pair in ipairs(info.supported_pairs) do
+        if type(pair) == "table" and pair.api == API_VERSION
+            and pair.schema == SCHEMA_VERSION then
+            pair_supported = true
+            break
+        end
+    end
+    if not pair_supported then
+        return nil
+    end
+
+    -- The handshake returns a structured result. Cross-check the schema hash
+    -- against info() so a consumer never runs against a table layout it did
+    -- not compile its expectations from.
+    local connect_ok, connected = pcall(connect_fn, API_VERSION, SCHEMA_VERSION)
+    if not connect_ok or type(connected) ~= "table" or connected.ok ~= true
+        or connected.schema_hash ~= info.schema_hash then
+        return nil
+    end
+
+    -- Optional capabilities are feature-probed, never assumed. The published
+    -- capability set also arrives on info().capabilities as a name map.
+    local capability_fn = rawget(_G, "svp_optic_api_has_capability")
+    local has = function(name)
+        if type(capability_fn) ~= "function" then
+            return false
+        end
+        local cap_ok, supported = pcall(capability_fn, name)
+        return cap_ok and supported == true
+    end
+
+    connection.ok = true
+    connection.schema_hash = info.schema_hash
+    connection.inspector = has("profile_inspector")
+    connection.validation = has("structured_validation")
+    connection.descriptors = has("field_descriptors")
+    printf("%s connected api=%d schema=%d hash=%s", TAG,
+        API_VERSION, SCHEMA_VERSION, tostring(info.schema_hash))
+    return connection
+end
+
+-- Introspection. describe() returns one descriptor per schema field with its
+-- type, requiredness, and exact bounds. Read limits from the descriptor table
+-- instead of hardcoding them; the bounds are the validator's own.
+local function describe_field(name)
+    local c = connect()
+    if not (c and c.descriptors) then
+        return nil
+    end
+    local describe_fn = rawget(_G, "svp_optic_api_describe")
+    if type(describe_fn) ~= "function" then
+        return nil
+    end
+    local ok, described = pcall(describe_fn)
+    if not ok or type(described) ~= "table" or type(described.fields) ~= "table" then
+        return nil
+    end
+    return described.fields[name]
+end
+
+-- Read the active optic. The normalized table carries the accepted values plus
+-- a sources map naming where each field came from, which is the same provenance
+-- svp_dump_optic prints. Magnifications are physical magnification units.
+local function read_active_optic()
+    local c = connect()
+    if not (c and c.inspector) then
+        return nil
+    end
+    local current_fn = rawget(_G, "svp_current_optic_profile")
+    if type(current_fn) ~= "function" then
+        return nil
+    end
+    local ok, profile = pcall(current_fn)
+    if not ok or type(profile) ~= "table" or profile.valid ~= true then
+        return nil
+    end
+    return profile
+end
+
+local function log_active_optic(reason)
+    local profile = read_active_optic()
+    if not profile then
+        printf("%s no accepted optic (%s)", TAG, reason)
+        return
+    end
+    local mags = ""
+    if type(profile.magnifications) == "table" then
+        for index, value in ipairs(profile.magnifications) do
+            mags = mags .. (index > 1 and "," or "") .. tostring(value)
+        end
+    end
+    printf("%s %s weapon=%s scope=%s spec=%s profile=%s mode=%s mags=%s coupling=%s gen=%s",
+        TAG, reason,
+        tostring(profile.weapon), tostring(profile.scope or "none"),
+        tostring(profile.spec_section or "none"), tostring(profile.profile_id),
+        tostring(profile.magnification_mode), mags,
+        tostring(profile.eye_coupling),
+        tostring(profile.config_generation))
+    local sources = profile.sources
+    if type(sources) == "table" then
+        printf("%s objective_offset source=%s", TAG,
+            tostring(sources.objective_offset or "absent"))
+    end
+end
+
+-- Validate authored data without publishing. svp_validate_optic_fields checks
+-- a fragment containing only the fields a mod authors; the full-table
+-- counterpart svp_validate_optic_profile is what the publisher uses. A failed
+-- result is structured: ok=false plus code, path, message, and, when known,
+-- expected and actual. Nothing is applied either way.
+local function validate_example()
+    local c = connect()
+    if not (c and c.validation) then
+        return
+    end
+    local validate_fn = rawget(_G, "svp_validate_optic_fields")
+    if type(validate_fn) ~= "function" then
+        return
+    end
+    local fragment = {
+        objective_offset = { x = 0, y = 0, z = 13.3, radius = 0.73 },
+        magnification_mode = "continuous",
+        magnifications = { 1, 6 },
+    }
+    local ok, result = pcall(validate_fn, fragment)
+    if not ok or type(result) ~= "table" then
+        return
+    end
+    if result.ok then
+        printf("%s fragment valid", TAG)
+    else
+        printf("%s fragment rejected code=%s path=%s message=%s", TAG,
+            tostring(result.code), tostring(result.path), tostring(result.message))
+    end
+end
+
+-- One-shot inspection of everything above. Call it from any script, a debug
+-- executor, or a keybind while aimed through an optic.
+function dump()
+    local c = connect()
+    if not c then
+        printf("%s typed api unavailable on this engine", TAG)
+        return
+    end
+    local mags_field = describe_field("magnifications")
+    if mags_field then
+        printf("%s magnifications bounds: items %s-%s values %s-%s", TAG,
+            tostring(mags_field.minimum_items), tostring(mags_field.maximum_items),
+            tostring(mags_field.element_minimum), tostring(mags_field.element_maximum))
+    end
+    validate_example()
+    log_active_optic("dump")
+end
+
+-- The aim hook. The publisher also runs on this event and script order is not
+-- guaranteed, so the read is deferred one tick window; reading immediately can
+-- still see the previous weapon. Silent unless diagnostics are on.
+local EV = "pip_api_example"
+
+local function on_zoom_in()
+    if not diag_enabled() then
+        return
+    end
+    RemoveTimeEvent(EV, "read")
+    CreateTimeEvent(EV, "read", 0.5, function()
+        log_active_optic("zoom_in")
+        return true
+    end)
+end
+
+local function on_zoom_out()
+    RemoveTimeEvent(EV, "read")
+end
+
+function on_game_start()
+    RegisterScriptCallback("actor_on_weapon_zoom_in", on_zoom_in)
+    RegisterScriptCallback("actor_on_weapon_zoom_out", on_zoom_out)
+end

@@ -5,6 +5,7 @@
 #include	"dxRenderDeviceRender.h"
 
 #include "../../build_config_defines.h"
+#include "Debug/renderdoc_app.h" // r__rdc_capture
 
 u32 ps_Preset = 2;
 xr_token qpreset_token [ ] = {
@@ -129,6 +130,12 @@ float ps_r__Detail_l_ambient = 0.9f;
 float ps_r__Detail_l_aniso = 0.25f;
 float ps_r__Detail_density = 0.3f;
 float ps_r__Detail_height = 1.0f;
+// radius-relative grass density falloff, full density inside 'knee' then a power curve to zero at
+// the radius edge, knee >= 1 disables it
+float ps_r__Detail_density_knee = 1.00f;
+float ps_r__Detail_density_curve = 2.00f;
+// dx11 hardware instancing for grass, read once at level load, 0 keeps the baked-copies path
+int ps_r__detail_instancing = 1;
 float ps_r__Detail_rainbow_hemi = 0.75f;
 
 float ps_r__Tree_w_rot = 10.0f;
@@ -136,6 +143,8 @@ float ps_r__Tree_w_speed = 1.00f;
 float ps_r__Tree_w_amp = 0.005f;
 Fvector ps_r__Tree_Wave = {.1f, .01f, .11f};
 float ps_r__Tree_SBC = 1.5f; // scale bias correct
+// vertex cache plus overdraw reorder of the tree index ranges, read once at level load
+int ps_r__tree_ib_reorder = 1;
 
 float ps_r__WallmarkTTL = 50.f;
 float ps_r__WallmarkSHIFT = 0.0001f;
@@ -291,11 +300,9 @@ Fvector4 heat_vision_args_2 = { .0f, .0f, .0f, .0f };
 //crookr
 int scope_fake_enabled = 1;
 int scope_3D_fake_enabled = 0; // Redotix99: for 3D Shader Based Scopes
-int scope_svp_enabled = 0;
-float ps_r__svp_scale = 0.5f;
-int ps_r__svp_quality = 0;
 Fvector4 scope_objective_lens_offset = { .0f, .0f, .0f, .0f };
-int scope_debug = 0;
+int r__gpu_markers = 0;
+int r__shader_debug = 0;
 //string32 scope_fake_texture = "wpn\\wpn_crosshair_pso1";
 
 float ps_r2_ss_sunshafts_length = 1.f;
@@ -413,8 +420,11 @@ Fvector4 ps_s3ds_param_1 = { 0, 0, 0, 0 };
 Fvector4 ps_s3ds_param_2 = { 0, 0, 0, 0 };
 Fvector4 ps_s3ds_param_3 = { 0, 0, 0, 0 };
 Fvector4 ps_s3ds_param_4 = { 0, 0, 0, 0 };
-
-Fvector4 ps_shader_scope_params = { 0, 0, 0, 0 };
+Fvector4 ps_shader_scope_params = { 0, 0, 0, 0 }; // scope magnification (curMag/minMag/maxMag/fov), set by the 3DSS Lua
+float g_pip_scope_magnification = 0.f; // engine fallback magnification when the Lua has not set the cvar
+float g_pip_scope_min_mag = 0.f; // fallback min magnification (least zoom, widest fov) from hud_fov_params
+float g_pip_scope_max_mag = 0.f; // fallback max magnification (most zoom, narrowest fov)
+float g_pip_scope_ratio = 1.f; // eyepiece-fit factor, effective on-screen magnification = ratio * scope mag
 
 // Reflex Sights
 Fvector4 ps_reflex_param = { 0, 0, 0, 0 };
@@ -524,6 +534,21 @@ int ps_r__tex_evict_enabled    = 0;
 int ps_r__tex_evict_age_frames = 1800;
 int ps_r__tex_evict_batch_size = 200;
 int ps_r__tex_evict_interval   = 600;
+
+int ps_r__swapchain_buffers = 2;
+int ps_r__max_frame_latency = 0;
+int ps_r__sun_minmax_lean = 1;
+int ps_r__dsgraph_sort_memo = 1;
+int ps_r__dx11_layout_memo = 1;
+int ps_r__light_scissor = 0;
+int ps_r__light_lean = 0;
+int ps_r__device_state_interval = 1;
+int ps_r__smap_null_ps = 1;
+int ps_r__sun_lod_skip = 1;
+int ps_r__sun_grass_runs = 1;
+int ps_r__sun_grass_cull = 1;
+int ps_r__grass_smap_element = 1;
+int ps_r__cb_dirty_list = 1;
 
 //AVO: detail draw radius
 Flags32 ps_common_flags = {0}; // r1-only
@@ -738,6 +763,46 @@ public:
 				Msg("* material set to [%s]-[%s], with lerp of [%f]", name[m0], name[m1], frc);
 			}
 		}
+	}
+};
+
+// RenderDoc in-application capture trigger, no-op when RenderDoc is not attached
+// renderdoc.dll is only present in the process when the game is launched under RenderDoc
+static void rdc_trigger_capture(u32 frames)
+{
+	HMODULE mod = GetModuleHandleA("renderdoc.dll");
+	if (!mod)
+	{
+		Msg("~ r__rdc_capture: RenderDoc not attached (renderdoc.dll not loaded)");
+		return;
+	}
+
+	pRENDERDOC_GetAPI getApi = (pRENDERDOC_GetAPI)GetProcAddress(mod, "RENDERDOC_GetAPI");
+	if (!getApi)
+		return;
+
+	RENDERDOC_API_1_1_2* api = nullptr;
+	if (getApi(eRENDERDOC_API_Version_1_1_2, (void**)&api) != 1 || !api)
+		return;
+
+	if (frames > 1)
+		api->TriggerMultiFrameCapture(frames);
+	else
+		api->TriggerCapture();
+
+	Msg("~ r__rdc_capture: queued capture of %u frame(s)", frames > 1 ? frames : 1);
+}
+
+class CCC_RdcCapture : public IConsole_Command
+{
+public:
+	CCC_RdcCapture(LPCSTR N) : IConsole_Command(N) { bEmptyArgsHandled = TRUE; };
+
+	virtual void Execute(LPCSTR args)
+	{
+		u32 frames = 0;
+		sscanf(args, "%u", &frames);
+		rdc_trigger_capture(frames);
 	}
 };
 
@@ -1377,6 +1442,7 @@ void xrRender_initconsole()
 
 	// Common
 	CMD1(CCC_Screenshot, "screenshot");
+	CMD1(CCC_RdcCapture, "r__rdc_capture"); // trigger a RenderDoc frame capture, no-op without RenderDoc
 
 	//	Igor: just to test bug with rain/particles corruption
 	CMD1(CCC_RestoreQuadIBData, "r_restore_quad_ib_data");
@@ -1408,6 +1474,10 @@ void xrRender_initconsole()
 	CMD4(CCC_Float, "r__detail_density", &ps_current_detail_density/*&ps_r__Detail_density*/, 0.04f/*.2f*/, 1.f);
 	//AVO: extended from 0.2 to 0.04 and replaced variable
 	CMD4(CCC_Float, "r__detail_height", &ps_current_detail_height, 0.5f, 2.0f);
+	CMD4(CCC_Float, "r__detail_density_knee", &ps_r__Detail_density_knee, 0.0f, 1.0f);
+	CMD4(CCC_Float, "r__detail_density_curve", &ps_r__Detail_density_curve, 0.25f, 12.0f);
+	CMD4(CCC_Integer, "r__detail_instancing", &ps_r__detail_instancing, 0, 1);
+	CMD4(CCC_Integer, "r__tree_ib_reorder", &ps_r__tree_ib_reorder, 0, 1);
 
 #ifdef DEBUG
 	CMD4(CCC_Float,		"r__detail_l_ambient",	&ps_r__Detail_l_ambient,	.5f,	.95f	);
@@ -1612,17 +1682,16 @@ void xrRender_initconsole()
 	CMD4(CCC_Vector4, "r__bloom_thresh", &ps_pp_bloom_thresh, twb_min, twb_max);
 	CMD4(CCC_Integer, "r__nightvision", &ps_r2_nightvision, 0, 3); //For beef's nightvision shader or other stuff
 
-	CMD4(CCC_Integer, "r__fakescope", &scope_fake_enabled, 0, 0); //crookr for fake scope
+	CMD4(CCC_Integer, "r__fakescope", &scope_fake_enabled, 0, 1); //crookr for fake scope
 	CMD4(CCC_Integer, "r__3Dfakescope", &scope_3D_fake_enabled, 1, 1); // Redotix99: for 3D Shader Based Scopes
-	CMD4(CCC_Integer, "r__svpscope", &scope_svp_enabled, 0, 2);
-	CMD4(CCC_Float, "r__svp_scale", &ps_r__svp_scale, 0.25f, 1.0f);
-	CMD4(CCC_Integer, "r__svp_quality", &ps_r__svp_quality, 0, 1);
+	svp_console_init();
 	CMD4(CCC_Integer, "r4_cbuffer_skip_unchanged", &ps_r4_cbuffer_skip_unchanged, 0, 1);
 	CMD4(CCC_Integer, "r4_post_pingpong", &ps_r4_post_pingpong, 0, 1);
 	CMD4(CCC_Integer, "r4_sun_cascade_cache", &ps_r4_sun_cascade_cache, 0, 8);
 	CMD4(CCC_Integer, "r__mt_details", &ps_r__mt_details, 0, 1);
 	CMD4(CCC_Integer, "r4_parallel_cull", &ps_r4_parallel_cull, 0, 1);
-	CMD4(CCC_Integer, "r__scope_debug", &scope_debug, 0, 4);
+	CMD4(CCC_Integer, "r__gpu_markers", &r__gpu_markers, 0, 1);
+	CMD4(CCC_Integer, "r__shader_debug", &r__shader_debug, 0, 1);
 
 	CMD4(CCC_Integer, "r__heatvision", &ps_r2_heatvision, 0, 1); //--DSR-- HeatVision
 	CMD3(CCC_Mask, "r2_terrain_z_prepass", &ps_r2_ls_flags, R2FLAG_TERRAIN_PREPASS); //Terrain Z Prepass @Zagolski
@@ -1664,12 +1733,15 @@ void xrRender_initconsole()
 	CMD4(CCC_Vector4, "markswitch_color", &ps_markswitch_color, Fvector4().set(0.0, 0.0, 0.0, 0.0), Fvector4().set(1.0, 1.0, 1.0, 1.0));
 
 	// Shader 3D Scopes
-    CMD4(CCC_Vector4, "s3ds_param_1", &ps_s3ds_param_1, tw2_min, tw2_max);
-    CMD4(CCC_Vector4, "s3ds_param_2", &ps_s3ds_param_2, tw2_min, tw2_max);
-    CMD4(CCC_Vector4, "s3ds_param_3", &ps_s3ds_param_3, tw2_min, tw2_max);
-    CMD4(CCC_Vector4, "s3ds_param_4", &ps_s3ds_param_4, tw2_min, tw2_max);
+	CMD4(CCC_Vector4, "s3ds_param_1", &ps_s3ds_param_1, tw2_min, tw2_max);
+	CMD4(CCC_Vector4, "s3ds_param_2", &ps_s3ds_param_2, tw2_min, tw2_max);
+	CMD4(CCC_Vector4, "s3ds_param_3", &ps_s3ds_param_3, tw2_min, tw2_max);
+	CMD4(CCC_Vector4, "s3ds_param_4", &ps_s3ds_param_4, tw2_min, tw2_max);
 
 	CMD4(CCC_Vector4, "shader_scope_params", &ps_shader_scope_params, tw2_min, tw2_max);
+	Fvector4 sol_min = { -8.f, -8.f, -8.f, -8.f };
+	Fvector4 sol_max = { 64.f, 64.f, 64.f, 64.f };
+	CMD4(CCC_Vector4, "scope_objective_lens_offset", &scope_objective_lens_offset, sol_min, sol_max);
 
 	CMD1(CCC_BusList, "bus_list");
 	CMD1(CCC_BusGet, "bus_get");
@@ -1885,7 +1957,7 @@ void xrRender_initconsole()
 	CMD3(CCC_Token, "r3_msaa_alphatest", &ps_r3_msaa_atest, qmsaa__atest_token);
 	CMD3(CCC_Token, "r3_minmax_sm", &ps_r3_minmax_sm, qminmax_sm_token);
 
-	CMD3(CCC_Mask, "r__fast_details_update" ,&ps_r2_ls_flags, R2FLAG_FAST_DETAILS_UPDATE);
+	CMD3(CCC_Mask, "r__fast_details_update", &ps_r2_ls_flags_ext, R2FLAGEXT_FAST_DETAILS_UPDATE);
 
 #ifdef DETAIL_RADIUS
 	CMD4(CCC_detail_radius, "r__detail_radius", &ps_r__detail_radius, 0, 250);
@@ -1895,6 +1967,20 @@ void xrRender_initconsole()
 	CMD4(CCC_Integer, "r__tex_evict_age_frames", &ps_r__tex_evict_age_frames, 300, 36000);
 	CMD4(CCC_Integer, "r__tex_evict_batch_size", &ps_r__tex_evict_batch_size, 10,  1000 );
 	CMD4(CCC_Integer, "r__tex_evict_interval",   &ps_r__tex_evict_interval,   60,  3600 );
+	CMD4(CCC_Integer, "r__swapchain_buffers", &ps_r__swapchain_buffers, 2, 3);
+	CMD4(CCC_Integer, "r__max_frame_latency", &ps_r__max_frame_latency, 0, 4);
+	CMD4(CCC_Integer, "r__sun_minmax_lean", &ps_r__sun_minmax_lean, 0, 1);
+	CMD4(CCC_Integer, "r__dsgraph_sort_memo", &ps_r__dsgraph_sort_memo, 0, 1);
+	CMD4(CCC_Integer, "r__dx11_layout_memo", &ps_r__dx11_layout_memo, 0, 1);
+	CMD4(CCC_Integer, "r__light_scissor", &ps_r__light_scissor, 0, 1);
+	CMD4(CCC_Integer, "r__light_lean", &ps_r__light_lean, 0, 1);
+	CMD4(CCC_Integer, "r__device_state_interval", &ps_r__device_state_interval, 1, 30);
+	CMD4(CCC_Integer, "r__smap_null_ps", &ps_r__smap_null_ps, 0, 1);
+	CMD4(CCC_Integer, "r__sun_lod_skip", &ps_r__sun_lod_skip, 0, 1);
+	CMD4(CCC_Integer, "r__sun_grass_runs", &ps_r__sun_grass_runs, 0, 1);
+	CMD4(CCC_Integer, "r__sun_grass_cull", &ps_r__sun_grass_cull, 0, 1);
+	CMD4(CCC_Integer, "r__grass_smap_element", &ps_r__grass_smap_element, 0, 1);
+	CMD4(CCC_Integer, "r__cb_dirty_list", &ps_r__cb_dirty_list, 0, 2);
 	CMD3(CCC_Mask, "r__use_precompiled_shaders", &psDeviceFlags2, rsPrecompiledShaders); //Alundaio
 	CMD3(CCC_Mask, "r__enable_grass_shadow", &psDeviceFlags2, rsGrassShadow); //Alundaio
 	CMD3(CCC_Mask, "r__no_scale_on_fade", &psDeviceFlags2, rsNoScale); //Alundaio

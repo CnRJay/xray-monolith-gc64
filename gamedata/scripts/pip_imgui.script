@@ -1,0 +1,369 @@
+local show_window = false
+local console
+
+local groups = {
+    general = {
+        { "r__svpscope", "Picture in Picture", "bool" },
+        { "g_zoom_smooth", "Zoom Smoothing", "float", 0.1 },
+        { "g_zoom_analog", "Analog Zoom Steps", "float", 1.0 },
+        { "g_svp_sens", "Scoped Sensitivity", "float", 0.01 },
+        { "g_svp_sens_curve", "Sensitivity Curve", "float", 0.01 },
+    },
+    optics = {
+        { "r__svp_local_exposure", "Local Scope Exposure", "bool" },
+        { "r__svp_light_capture", "Scope Light Capture", "bool" },
+        { "r__svp_twilight", "Twilight Dimming", "float", 0.01 },
+        { "r__svp_reflex_capture", "Hybrid Reflex Capture", "bool" },
+        { "r__svp_field_stop", "Physical Field Stop", "bool" },
+        { "r__svp_cull", "Scope Frustum Culling", "bool" },
+        { "r__svp_skip_hud_distort", "Exclude HUD Distortion", "bool" },
+        { "r__svp_wpn_dof", "Weapon Depth of Field", "bool" },
+        { "r__svp_emissive", "Scope Emissive Replay", "bool" },
+        { "r__svp_light_cull", "Scope Light Culling", "bool" },
+        { "r__svp_roll_stabilize", "Roll Stabilization", "bool" },
+        { "r__svp_near_blur", "Near Field Blur", "float", 0.01 },
+        { "r__svp_thermal_sim", "Thermal Sensor Simulation", "bool" },
+        { "r__svp_chroma", "Chromatic Aberration", "bool" },
+        { "r__svp_sharpen", "Scope Sharpening", "float", 0.01 },
+        { "r__svp_rain_optic", "Objective Rain", "float", 0.01 },
+    },
+    quality = {
+        { "r__svp_supersample", "Supersampling", "float", 0.01 },
+        { "r__svp_adaptive_res", "Adaptive Resolution", "float", 0.01 },
+        { "r__svp_lod", "LOD Reduction", "float", 0.01 },
+        { "r__svp_cull_ssa", "Small Object Culling", "float", 0.05 },
+        { "r__svp_adaptive_grow", "Allow Adaptive Growth", "bool" },
+        { "r__svp_bloom", "Scope Bloom", "bool" },
+        { "r__svp_skip_motionblur", "Skip Motion Blur", "bool" },
+        { "r__svp_skip_ssr", "Reflection Cost", "integer", 1.0 },
+        { "r__svp_skip_volumetric", "Skip Volumetric Lighting", "bool" },
+        { "r__svp_skip_grass", "Skip Grass", "bool" },
+        { "r__svp_sss_sun", "SSS Sun Contact Shadows", "bool" },
+    },
+}
+
+local descriptions = {
+    r__svpscope = "Enable objective-camera true PiP. Zero keeps the stock path.",
+    g_zoom_smooth = "Magnification transition speed. Zero changes zoom immediately.",
+    g_zoom_analog = "Analog zoom granularity. Zero keeps authored zoom steps.",
+    g_svp_sens = "Mouse sensitivity multiplier while the scope viewport is active.",
+    g_svp_sens_curve = "Magnification response applied to scoped sensitivity.",
+    r__svp_local_exposure = "Adapt scope exposure separately from the main view.",
+    r__svp_light_capture = "Capture lights visible through the objective outside the main frustum.",
+    r__svp_twilight = "Low-light brightness loss from a small exit pupil.",
+    r__svp_reflex_capture = "Render the reflex element correctly through hybrid magnifiers.",
+    r__svp_field_stop = "Apply the physical ocular field stop.",
+    r__svp_cull = "Restrict world submission to the objective frustum.",
+    r__svp_skip_hud_distort = "Keep HUD distortion out of the objective image.",
+    r__svp_wpn_dof = "Supply weapon depth-of-field data to the scope pass.",
+    r__svp_emissive = "Replay self-illuminated geometry in the scope image.",
+    r__svp_light_cull = "Cull mirrored scope lights to the objective cone.",
+    r__svp_roll_stabilize = "Keep the scope image level instead of following weapon cant.",
+    r__svp_near_blur = "Defocus geometry close to the objective.",
+    r__svp_thermal_sim = "Apply the authored digital sensor response to thermal displays.",
+    r__svp_chroma = "Apply authored chromatic aberration on supported scope glass.",
+    r__svp_sharpen = "Contrast-adaptive sharpening inside the lens.",
+    r__svp_rain_optic = "Render rain droplets on the objective.",
+    r__svp_supersample = "Render the scope above its target resolution before downsampling.",
+    r__svp_adaptive_res = "Size the target from the visible lens footprint and safety margin.",
+    r__svp_lod = "Reduce distant detail in the scope pass.",
+    r__svp_cull_ssa = "Cull objects below a scope-space screen-area threshold.",
+    r__svp_adaptive_grow = "Allow adaptive resolution to exceed the base target size.",
+    r__svp_bloom = "Enable bloom in the scope render.",
+    r__svp_skip_motionblur = "Omit motion blur from the scope pass.",
+    r__svp_skip_ssr = "Select scope reflection cost. Zero is expensive and two is cheapest.",
+    r__svp_skip_volumetric = "Omit volumetric lighting from the scope pass.",
+    r__svp_skip_grass = "Omit grass and detail rendering from the scope pass.",
+    r__svp_sss_sun = "Enable SSS sun contact shadows in the scope.",
+}
+
+local profile_labels = {
+    reticle_type = "Reticle Type",
+    hybrid_reflex = "Hybrid Reflex",
+    objective_offset = "Objective Offset",
+    objective_mm = "Objective Diameter",
+    middle_grey = "Middle Grey",
+    adapt_speed = "Adaptation Speed",
+    convergence_limit_m = "Convergence Limit",
+    tunneling_parallax = "Tube Parallax",
+    tunneling_min = "Minimum Zoom Tunneling",
+    tunneling_max = "Maximum Zoom Tunneling",
+    tracking_speed = "Eye Tracking Speed",
+    tracking_accel_mm_s2 = "Eye Tracking Acceleration",
+    tracking_limit_mm = "Eye Tracking Travel",
+    eye_relief_low_mm = "Low Zoom Eye Relief",
+    eye_relief_high_mm = "High Zoom Eye Relief",
+    exit_pupil_low_mm = "Low Zoom Exit Pupil",
+    exit_pupil_high_mm = "High Zoom Exit Pupil",
+    pupil_parity = "Pupil Parity",
+    pupil_field_low = "Low Zoom Pupil Field",
+    pupil_field_high = "High Zoom Pupil Field",
+    transmission = "Light Transmission",
+    twilight_strength = "Twilight Strength",
+    physical_min = "Physical Minimum Magnification",
+    physical_max = "Physical Maximum Magnification",
+    eye_coupling = "Eye Coupling",
+    reticle_illum = "Reticle Illumination",
+    magnification_mode = "Magnification Mode",
+    magnifications = "Magnifications",
+    mod_lane = "Mod Lane",
+}
+local profile_descriptors
+
+local function get_console()
+    console = console or _G.get_console()
+    return console
+end
+
+local function get_bounds(name)
+    local ok, bounds = pcall(function()
+        return get_console():get_variable_bounds(name)
+    end)
+    if not ok or not bounds or bounds.min == nil or bounds.max == nil then
+        return
+    end
+    return bounds
+end
+
+local function get_float(name)
+    local ok, value = pcall(function() return get_console():get_float(name) end)
+    return ok and value or 0
+end
+
+local function get_integer(name)
+    local ok, value = pcall(function() return get_console():get_integer(name) end)
+    return ok and value or 0
+end
+
+local function get_bool(name)
+    local ok, value = pcall(function() return get_console():get_bool(name) end)
+    return ok and value or false
+end
+
+local function set_number(name, value, integer)
+    if integer then
+        get_console():execute(string.format("%s %d", name, math.floor(value + 0.5)))
+    else
+        get_console():execute(string.format("%s %.6f", name, value))
+    end
+end
+
+local function show_tooltip(name, bounds)
+    if not ImGui.BeginItemTooltip() then
+        return
+    end
+    ImGui.PushTextWrapPos(460)
+    ImGui.TextWrapped(descriptions[name] or "PiP runtime setting.")
+    ImGui.PopTextWrapPos()
+    ImGui.Separator()
+    ImGui.TextDisabled("Console  " .. name)
+    if bounds then
+        ImGui.Text(string.format("Minimum %g    Maximum %g", bounds.min, bounds.max))
+    end
+    ImGui.EndTooltip()
+end
+
+local function draw_setting(setting)
+    local name, label, kind, speed = unpack(setting)
+    local bounds = get_bounds(name)
+    if not bounds then
+        return
+    end
+    if kind == "bool" then
+        local changed, value = ImGui.Checkbox(label .. "##" .. name, get_bool(name))
+        show_tooltip(name, bounds)
+        if changed then
+            set_number(name, value and 1 or 0, true)
+        end
+        return
+    end
+    local integer = kind == "integer"
+    local current = integer and get_integer(name) or get_float(name)
+    local changed, value = ImGui.DragFloat(label .. "##" .. name, current, speed or 0.01,
+        bounds.min, bounds.max, integer and "%.0f" or "%.3f", ImGuiSliderFlags.AlwaysClamp)
+    show_tooltip(name, bounds)
+    if changed then
+        set_number(name, value, integer)
+    end
+end
+
+local function draw_group(settings)
+    for _, setting in ipairs(settings) do
+        draw_setting(setting)
+    end
+end
+
+local function current_profile()
+    local getter = rawget(_G, "svp_current_optic_profile")
+    if type(getter) ~= "function" then
+        return
+    end
+    local ok, profile = pcall(getter)
+    if ok and type(profile) == "table" then
+        return profile
+    end
+end
+
+local function current_profile_descriptors()
+    if profile_descriptors then
+        return profile_descriptors
+    end
+    local describe = rawget(_G, "svp_optic_api_describe")
+    if type(describe) ~= "function" then
+        return {}
+    end
+    local ok, result = pcall(describe)
+    if not ok or type(result) ~= "table" or type(result.fields) ~= "table" then
+        return {}
+    end
+    local values = {}
+    for name, descriptor in pairs(result.fields) do
+        if type(name) == "string" and type(descriptor) == "table"
+            and descriptor.source_required == true then
+            values[#values + 1] = {
+                name = name,
+                descriptor = descriptor,
+                index = tonumber(descriptor.index) or math.huge,
+            }
+        end
+    end
+    table.sort(values, function(left, right)
+        return left.index < right.index
+    end)
+    profile_descriptors = values
+    return values
+end
+
+local function profile_value_text(value, descriptor)
+    if value == nil then
+        return "none"
+    end
+    if type(value) == "boolean" then
+        return value and "true" or "false"
+    end
+    if type(value) == "number" then
+        return string.format("%.5g", value)
+    end
+    if type(value) ~= "table" then
+        return tostring(value)
+    end
+    if descriptor.type == "array" then
+        local parts = {}
+        for index, entry in ipairs(value) do
+            parts[index] = tostring(entry)
+        end
+        return table.concat(parts, ", ")
+    end
+    local parts = {}
+    for _, key in ipairs(descriptor.allowed_keys or {}) do
+        parts[#parts + 1] = tostring(key) .. "=" .. tostring(value[key])
+    end
+    return #parts > 0 and table.concat(parts, ", ") or "none"
+end
+
+local function profile_text(label, value)
+    ImGui.Text(label)
+    ImGui.SameLine(250)
+    ImGui.TextWrapped(tostring(value or "none"))
+end
+
+local function draw_profile()
+    local profile = current_profile()
+    if not profile or not profile.valid then
+        ImGui.TextDisabled("No active scope profile")
+        return
+    end
+    profile_text("Route", profile.route)
+    profile_text("Weapon", profile.weapon)
+    profile_text("Scope", profile.scope)
+    profile_text("Diagnostic Scope", profile.diagnostic_scope)
+    profile_text("Identity", profile.identity_source)
+    profile_text("Profile", profile.profile_id)
+    profile_text("Physical Spec", profile.spec_section)
+    profile_text("Physical Model", profile.model)
+    profile_text("Binding", profile.binding)
+    profile_text("Binding Section", profile.binding_section)
+    ImGui.Separator()
+    for _, field in ipairs(current_profile_descriptors()) do
+        local name = field.name
+        ImGui.Text(profile_labels[name] or name)
+        ImGui.SameLine(250)
+        ImGui.TextWrapped(profile_value_text(profile[name], field.descriptor))
+        ImGui.TextDisabled("Source  " .. tostring(
+            profile.sources and profile.sources[name] or "none"))
+    end
+end
+
+local fixture_status
+
+-- runs the packed api fixture, per case results land in the log as [SVP-API-FIXTURE] lines
+local function draw_fixture()
+    ImGui.Separator()
+    if ImGui.Button("Run API Fixture", vector2():set(160, 0)) then
+        local fixture = rawget(_G, "pip_optic_api_fixture")
+        if type(fixture) == "table" and type(fixture.run) == "function" then
+            local ok, passed = pcall(fixture.run)
+            fixture_status = not ok and "error"
+                or (passed and "pass" or "refused or fail, see log")
+        else
+            fixture_status = "unavailable"
+        end
+    end
+    if fixture_status then
+        ImGui.SameLine(250)
+        ImGui.Text("fixture " .. fixture_status)
+    end
+end
+
+local function draw_workbench()
+    local workbench = rawget(_G, "pip_optic_workbench")
+    if type(workbench) == "table" and type(workbench.draw) == "function" then
+        workbench.draw()
+        return
+    end
+    ImGui.TextDisabled("Optics workbench module not installed")
+end
+
+local function render_window()
+    ImGui.SetNextWindowSize(vector2():set(900, 760), ImGuiCond.FirstUseEver)
+    local expanded, visible = ImGui.Begin(
+        "Picture in Picture Settings", show_window, 0)
+    show_window = not not visible
+    if expanded and ImGui.BeginTabBar("pip_settings_tabs", 0) then
+        if ImGui.BeginTabItem("General", true, 0) then
+            draw_group(groups.general)
+            ImGui.EndTabItem()
+        end
+        if ImGui.BeginTabItem("Optics", true, 0) then
+            draw_group(groups.optics)
+            ImGui.EndTabItem()
+        end
+        if ImGui.BeginTabItem("Quality", true, 0) then
+            draw_group(groups.quality)
+            ImGui.EndTabItem()
+        end
+        if ImGui.BeginTabItem("Current Scope Profile", true, 0) then
+            draw_profile()
+            draw_fixture()
+            ImGui.EndTabItem()
+        end
+        if ImGui.BeginTabItem("Optics Workbench", true, 0) then
+            draw_workbench()
+            ImGui.EndTabItem()
+        end
+        ImGui.EndTabBar()
+    end
+    ImGui.End()
+end
+
+if ImGui and ImGui.Groups and ImGui.Groups.Main and ImGui.Groups.Mods then
+    ImGui.Groups.Main.Widget(function()
+        if show_window then
+            render_window()
+        end
+    end)
+    ImGui.Groups.Mods.Widget(function()
+        local _, selected = ImGui.MenuItem("Picture in Picture", nil, show_window, true)
+        show_window = not not selected
+    end)
+end

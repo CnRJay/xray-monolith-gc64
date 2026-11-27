@@ -302,6 +302,38 @@
 		<text>Fog Max Travel Distance (scope_fog_travel)</text>
 	</string>
 
+	<!-- Picture in Picture -->
+	<string id="ui_mm_menu_pip">
+		<text>Picture in Picture</text>
+	</string>
+	<string id="ui_mm_pip_modded_exes">
+		<text>Picture in Picture</text>
+	</string>
+	<string id="ui_mm_modded_exes_visual_pip_r__svpscope">
+		<text>Picture in Picture (r__svpscope)</text>
+	</string>
+	<string id="ui_mm_modded_exes_visual_pip_r__svpscope_desc">
+		<text>Renders the scene through the scope objective with a real second viewport. Off keeps the original non-PiP path</text>
+	</string>
+	<string id="ui_mm_modded_exes_visual_pip_g_zoom_smooth">
+		<text>Zoom Smoothing Rate (g_zoom_smooth)</text>
+	</string>
+	<string id="ui_mm_modded_exes_visual_pip_g_zoom_smooth_desc">
+		<text>Lerp speed of the dynamic zoom transition, higher is faster, 0 is instant stepped</text>
+	</string>
+	<string id="ui_mm_modded_exes_visual_pip_g_zoom_analog">
+		<text>Analog Zoom Steps (g_zoom_analog)</text>
+	</string>
+	<string id="ui_mm_modded_exes_visual_pip_g_zoom_analog_desc">
+		<text>0 uses the scope's configured zoom steps, higher gives finer continuous zoom across the range</text>
+	</string>
+	<string id="ui_mm_lst_Eyepiece">
+		<text>Eyepiece</text>
+	</string>
+	<string id="ui_mm_lst_Objective">
+		<text>Objective</text>
+	</string>
+
 	<!-- Particles -->
 	<string id="ui_mm_particles_modded_exes">
 		<text>Particles</text>

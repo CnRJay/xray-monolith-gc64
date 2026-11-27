@@ -143,6 +143,7 @@ void ScriptImGui::script_register(::lua_State* L)
 		def("DragFloat3", &ImGui_DragFloat3, out_value<2>()),
 		def("DragFloat4", &ImGui_DragFloat4, out_value<2>()),
 		def("DragFloatRange2", &ImGui::DragFloatRange2, out_value<2>() + out_value<3>()),
+		def("MagnificationCurve", &ImGui_MagnificationCurve, out_value<2>() + out_value<3>()),
 
 		def("SliderFloat", &ImGui::SliderFloat, out_value<2>()),
 		def("SliderFloat2", &ImGui_SliderFloat2, out_value<2>()),

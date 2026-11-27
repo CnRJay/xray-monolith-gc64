@@ -26,6 +26,8 @@
         scope_zoom_factor_alt - alternative sight zoom factor
         scope_dynamic_zoom_alt - enable adjustable scope for alt. sight
         min_scope_zoom_factor - Minimal zoom factor
+        svp_magnifications - true PiP magnification override using N, M-N, or M,N
+        svp_hybrid_reflex - marks an engaged magnifier reflex for objective-camera capture
         snd_shoot_actor_first - custom sound for the first shot
         snd_silncer_shoot_actor_first - custom sound for the first shot with silencer
         base_hud_offset_pos - Editable variables that allow weapon position adjustements that don't require aim tweaks

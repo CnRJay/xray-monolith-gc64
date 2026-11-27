@@ -199,7 +199,7 @@ void CDetailManager::cache_Decompress(Slot* S)
 			float y = D.vis.box.min.y - 5;
 			Fvector dir;
 			dir.set(0, -1, 0);
-			Fvector3 terrain_normal;
+			Fvector3 terrain_normal = {0.f, 1.f, 0.f};
 
 			float r_u, r_v, r_range;
 			bool no_push = false;

@@ -205,6 +205,16 @@ public:
 class ENGINE_API IDSGraphManager
 {
 public:
+	enum EHudVisualRole : u8
+	{
+		hud_unknown,
+		hud_hands,
+		hud_primary_item,
+		hud_offhand_item,
+		hud_optic,
+		hud_prop,
+	};
+
 	enum
 	{
 		fl_deffered,
@@ -226,6 +236,7 @@ public:
 	void set_CustomFOV(float value) { val_fCustomFOV = value; }
 	float get_CustomFOV() const { return val_fCustomFOV; }
 	bool i_mask[fl_max]{};//deffered,forward,wmarks,normal,shmap,val_invisible,val_hud,val_cam_attached
+	EHudVisualRole val_hud_role = hud_unknown;
 
 	virtual void add_Static(IRenderVisual* pVisual, CFrustum& frustum, u32 planes) = 0;
 	virtual void add_Dynamic(IRenderVisual* piVisual, Fmatrix* xform) = 0;
@@ -236,6 +247,8 @@ public:
 
 	virtual void set_HUD(bool V = false) { i_mask[fl_hud]=V; }
 	virtual bool get_HUD() { return i_mask[fl_hud]; }
+	virtual void set_HUD_Role(EHudVisualRole role = hud_unknown) { val_hud_role = role; }
+	virtual EHudVisualRole get_HUD_Role() { return val_hud_role; }
 
 	// Anomaly
 	virtual void set_CamAttached(bool V) { i_mask[fl_cam] = V; }

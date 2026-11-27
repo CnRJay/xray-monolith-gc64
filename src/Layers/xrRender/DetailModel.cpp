@@ -86,6 +86,7 @@ void CDetail::Load(IReader* S)
 	S->r_stringZ(fnS, sizeof(fnS));
 	S->r_stringZ(fnT, sizeof(fnT));
 	shader.create(fnS, fnT);
+	shader_name = fnS;
 
 	// Params
 	m_Flags.assign(S->r_u32());

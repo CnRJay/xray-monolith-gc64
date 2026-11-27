@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "../../xrEngine/svp_gameplay_cvars.h"
 
 #pragma pack(push,4)
 struct v_build
@@ -148,11 +149,19 @@ void CRenderTarget::phase_luminance()
 		pv++;
 		RCache.Vertex.Unlock(4, g_bloom_filter->vb_stride);
 
-		f_luminance_adapt = .9f * f_luminance_adapt + .1f * Device.fTimeDelta * ps_r2_tonemap_adaptation;
+		// per-scope SVP tonemapper override: authored middle-grey / adaption slow the scope's own
+		// adaptation so a bright sky or NVG source does not blow the disc, main view is untouched
+		const bool svp_tm = Device.true_pip_on && Device.m_SecondViewport.m_render_pass_is_svp;
+		const auto& optic_config = Device.m_SecondViewport.RenderOpticConfig();
+		const float optic_adapt = optic_config.typed_route ? optic_config.adapt_speed : ps_s3ds_adapt_speed;
+		const float optic_mgrey = optic_config.typed_route ? optic_config.middle_grey : ps_s3ds_middle_grey;
+		const float tm_adapt = (svp_tm && optic_adapt > 0.f) ? optic_adapt : ps_r2_tonemap_adaptation;
+		const float tm_mgrey = (svp_tm && optic_mgrey > 0.f) ? optic_mgrey : ps_r2_tonemap_middlegray;
+		f_luminance_adapt = .9f * f_luminance_adapt + .1f * Device.fTimeDelta * tm_adapt;
 		float amount = ps_r2_ls_flags.test(R2FLAG_TONEMAP) ? ps_r2_tonemap_amount : 0;
 		Fvector3 _none, _full, _result;
 		_none.set(1, 0, 1);
-		_full.set(ps_r2_tonemap_middlegray, 1.f, ps_r2_tonemap_low_lum);
+		_full.set(tm_mgrey, 1.f, ps_r2_tonemap_low_lum);
 		_result.lerp(_none, _full, amount);
 
 		RCache.set_Element(s_luminance->E[2]);

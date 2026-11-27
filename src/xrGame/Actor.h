@@ -96,6 +96,7 @@ public:
 public:
 	void initFPCam();
 	void removeFPCam();
+	void OnFPCamReleased();
 
 public:
 	virtual BOOL AlwaysTheCrow() { return TRUE; }
@@ -377,7 +378,7 @@ protected:
 	void cam_SetFreelook();
 	void cam_UnsetFreelook();
 	bool CanUseFreelook();
-	float currentFOV(bool wantSVPFov);
+	float currentFOV(bool wantSVPFov = false);
 
 	// Cameras
 	CCameraBase* cameras[eacMaxCam];

@@ -331,8 +331,10 @@ void execUserScript()
 {
 	Console->Execute("default_controls");
 	Console->ExecuteScript(Console->ConfigFile);
-    if (Console->GetBool("dump_cvar_enable"))
-	    Console->Execute("dump_cvar");
+	if (strstr(Core.Params, "-gpu_markers")) Console->Execute("r__gpu_markers 1");
+	if (strstr(Core.Params, "-shader_debug")) Console->Execute("r__shader_debug 1");
+	if (Console->GetBool("dump_cvar_enable"))
+		Console->Execute("dump_cvar");
 }
 
 void slowdownthread(void*)

@@ -49,6 +49,10 @@ dx10State* dx10State::Create(SimulatorStates& state_code)
 
 HRESULT dx10State::Apply()
 {
+	extern int ps_r__svp_stats;
+	extern u32 svp_stats_state_apply;
+	if (ps_r__svp_stats) ++svp_stats_state_apply;
+
 	VERIFY(m_pRasterizerState);
 	StateManager.SetRasterizerState(m_pRasterizerState);
 	VERIFY(m_pDepthStencilState);

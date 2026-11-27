@@ -17,6 +17,7 @@
 #include "game_cl_base.h"
 #include "object_factory.h"
 #include "../Include/xrRender/Kinematics.h"
+#include "../Include/xrRender/KinematicsAnimated.h"
 #include "ai_object_location_impl.h"
 #include "game_graph.h"
 #include "ai_debug.h"
@@ -293,6 +294,15 @@ BOOL CGameObject::net_Spawn(CSE_Abstract* DC)
 		// Otherwise... proceed as normal (will CTD if model doesn't exist)
 		else {
 			cNameVisual_set(visualName);
+		}
+
+		// a visual whose motions never bound cannot enter the world, the spawn
+		// driver destroys the object and the exit prompt owns the session
+		IKinematicsAnimated* KA = smart_cast<IKinematicsAnimated*>(Visual());
+		if (KA && 0 == KA->LL_MotionsSlotCount())
+		{
+			Msg("! [MODEL-FATAL] refusing spawn of '%s', visual '%s' has no motions", *E->s_name, *cNameVisual());
+			return FALSE;
 		}
 
 		if (visual->flags.test(CSE_Visual::flObstacle))

@@ -331,6 +331,39 @@ IC void CBackend::Render(D3DPRIMITIVETYPE T, u32 baseV, u32 startV, u32 countV, 
 	PGO(Msg("PGO:DIP:%dv/%df",countV,PC));
 }
 
+IC void CBackend::RenderInstanced(D3DPRIMITIVETYPE T, u32 instanceCount, u32 baseV, u32 startV, u32 countV, u32 startI,
+                                  u32 PC, u32 startInstance)
+{
+	PROF_EVENT("RCache.RenderInstanced");
+	D3D_PRIMITIVE_TOPOLOGY Topology = TranslateTopology(T);
+	u32 iIndexCount = GetIndexCount(T, PC);
+
+	//!!! HACK !!! (mirror of CBackend::Render - tessellation patch list)
+#ifdef USE_DX11
+	if (hs != 0 || ds != 0)
+	{
+		R_ASSERT(Topology == D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		Topology = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+	}
+#endif
+
+	stat.calls++;
+	stat.verts += countV * instanceCount;
+	stat.polys += PC * instanceCount;
+
+	ApplyPrimitieTopology(Topology);
+	SRVSManager.Apply();
+	ApplyRTandZB();
+	ApplyVertexLayout();
+	StateManager.Apply();
+	//	State manager may alter constants
+	constants.flush();
+
+	HW.pContext->DrawIndexedInstanced(iIndexCount, instanceCount, startI, baseV, startInstance);
+
+	PGO(Msg("PGO:DIPInst:%dv/%df x%d",countV,PC,instanceCount));
+}
+
 IC void CBackend::Render(D3DPRIMITIVETYPE T, u32 startV, u32 PC)
 {
 	//	TODO: DX10: Remove triangle fan usage from the engine
@@ -463,6 +496,21 @@ IC void CBackend::ApplyVertexLayout()
 	VERIFY(decl);
 	VERIFY(m_pInputSignature);
 
+	extern int ps_r__dx11_layout_memo;
+	extern int ps_r__svp_stats;
+	extern u32 svp_stats_layout_hit;
+	extern u32 svp_stats_layout_miss;
+
+	// the pair only moves at a packet boundary, so an unchanged one already has its layout bound
+	const bool memo_hit = m_layout_cached && m_layout_decl == decl && m_layout_sig == m_pInputSignature;
+	if (ps_r__svp_stats)
+	{
+		if (memo_hit) ++svp_stats_layout_hit;
+		else ++svp_stats_layout_miss;
+	}
+	if (memo_hit && ps_r__dx11_layout_memo)
+		return;
+
 	xr_map<ID3DBlob*, ID3DInputLayout*>::iterator it;
 
 	it = decl->vs_to_layout.find(m_pInputSignature);
@@ -488,6 +536,10 @@ IC void CBackend::ApplyVertexLayout()
 		m_pInputLayout = it->second;
 		HW.pContext->IASetInputLayout(m_pInputLayout);
 	}
+
+	m_layout_decl = decl;
+	m_layout_sig = m_pInputSignature;
+	m_layout_cached = true;
 }
 
 ICF void CBackend::set_VS(ref_vs& _vs)
@@ -529,6 +581,7 @@ IC void CBackend::set_Constants(R_constant_table* C)
 	// caching
 	if (ctable == C) return;
 	ctable = C;
+	m_sbase_known = false;
 	xforms.unmap();
 	hemi.unmap();
 	bus_object.unmap();
@@ -575,6 +628,9 @@ IC void CBackend::set_Constants(R_constant_table* C)
 			m_aComputeConstants[i] = 0;
 #endif
 		}
+		for (int s = 0; s < MaxCBStages; ++s)
+			m_cb_slot_count[s] = 0;
+
 		R_constant_table::cb_table::iterator it = C->m_CBTable.begin();
 		R_constant_table::cb_table::iterator end = C->m_CBTable.end();
 		for (; it != end; ++it)
@@ -586,32 +642,38 @@ IC void CBackend::set_Constants(R_constant_table* C)
 			{
 				VERIFY((uiBufferIndex&CB_BufferIndexMask)<MaxCBuffers);
 				m_aPixelConstants[uiBufferIndex & CB_BufferIndexMask] = it->second;
+				cb_slot_push(CBStage_Pixel, uiBufferIndex & CB_BufferIndexMask);
 			}
 			else if ((uiBufferIndex & CB_BufferTypeMask) == CB_BufferVertexShader)
 			{
 				VERIFY((uiBufferIndex&CB_BufferIndexMask)<MaxCBuffers);
 				m_aVertexConstants[uiBufferIndex & CB_BufferIndexMask] = it->second;
+				cb_slot_push(CBStage_Vertex, uiBufferIndex & CB_BufferIndexMask);
 			}
 			else if ((uiBufferIndex & CB_BufferTypeMask) == CB_BufferGeometryShader)
 			{
 				VERIFY((uiBufferIndex&CB_BufferIndexMask)<MaxCBuffers);
 				m_aGeometryConstants[uiBufferIndex & CB_BufferIndexMask] = it->second;
+				cb_slot_push(CBStage_Geometry, uiBufferIndex & CB_BufferIndexMask);
 			}
 #ifdef USE_DX11
 			else if ( (uiBufferIndex&CB_BufferTypeMask) == CB_BufferHullShader)
 			{
 				VERIFY((uiBufferIndex&CB_BufferIndexMask)<MaxCBuffers);
 				m_aHullConstants[uiBufferIndex&CB_BufferIndexMask] = it->second;
+				cb_slot_push(CBStage_Hull, uiBufferIndex&CB_BufferIndexMask);
 			}
 			else if ( (uiBufferIndex&CB_BufferTypeMask) == CB_BufferDomainShader)
 			{
 				VERIFY((uiBufferIndex&CB_BufferIndexMask)<MaxCBuffers);
 				m_aDomainConstants[uiBufferIndex&CB_BufferIndexMask] = it->second;
+				cb_slot_push(CBStage_Domain, uiBufferIndex&CB_BufferIndexMask);
 			}
 			else if ( (uiBufferIndex&CB_BufferTypeMask) == CB_BufferComputeShader)
 			{
 				VERIFY((uiBufferIndex&CB_BufferIndexMask)<MaxCBuffers);
 				m_aComputeConstants[uiBufferIndex&CB_BufferIndexMask] = it->second;
+				cb_slot_push(CBStage_Compute, uiBufferIndex&CB_BufferIndexMask);
 			}
 #endif
 			else

@@ -28,3 +28,18 @@ public:
     dxPixEventWrapper(LPCWSTR wszName, u32 color = 0);
     ~dxPixEventWrapper();
 };
+#define PIX_EVENT_F_CAT_(a, b) a##b
+#define PIX_EVENT_F_CAT(a, b) PIX_EVENT_F_CAT_(a, b)
+#define PIX_EVENT_F(...) dxPixEventScope PIX_EVENT_F_CAT(pixScope_, __LINE__)(__VA_ARGS__)
+
+class dxPixEventScope
+{
+    bool active;
+
+public:
+    explicit dxPixEventScope(const char* fmt, ...);
+    ~dxPixEventScope();
+};
+
+struct ID3D11DeviceChild;
+void dx10_set_debug_name(ID3D11DeviceChild* res, const char* name);

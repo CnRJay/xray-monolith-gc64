@@ -126,7 +126,7 @@ protected:
 	SkeletonWMVec wallmarks;
 	u32 wm_frame;
 	u32 CurrentFrame;
-	Fmatrix	Matrix_Prev[2];
+	Fmatrix	Matrix_Prev[2]; // per viewport (main, SVP)
 	Fmatrix Matrix_Temp[2];
 
 	// Globals
@@ -178,6 +178,7 @@ public:
 	bool PickBone(const Fmatrix& parent_xform, IKinematics::pick_result& r, float dist, const Fvector& start,
 	              const Fvector& dir, u16 bone_id);
 	virtual void EnumBoneVertices(SEnumVerticesCallback& C, u16 bone_id);
+	virtual bool GetLensDetection(SLensDetection& out);
 public:
 	CKinematics();
 	virtual ~CKinematics();
@@ -271,15 +272,12 @@ public:
 
 		Fbox Box;
 		Box.invalidate();
-		bool has_geometry = false;
 		for (u32 b = 0; b < bones->size(); b++)
 		{
 			if (!LL_GetBoneVisible(u16(b)))
 				continue;
 
 			Fobb& obb = (*bones)[b]->obb;
-			if (fis_zero(obb.m_halfsize.square_magnitude())) continue;
-			has_geometry = true;
 			Fmatrix& Mbone = LL_GetBoneInstance((u16)b).mTransform;
 			Fmatrix Mbox;
 			obb.xform_get(Mbox);
@@ -298,7 +296,7 @@ public:
 			A.set(S.x, S.y, -S.z); X.transform_tiny(P, A); Box.modify(P);
 		}
 
-		if (has_geometry)
+		if (bones->size())
 		{
 			vis.box.min = (Box.min);
 			vis.box.max = (Box.max);
