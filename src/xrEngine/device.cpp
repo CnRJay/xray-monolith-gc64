@@ -521,6 +521,9 @@ void CRenderDevice::on_idle()
 	mView_saved = mView;
 	mProject_saved = mProject;
 
+	vCameraPosition_bones = vCameraPosition;
+	mFullTransform_bones = mFullTransform;
+
 	STOP_PROFILE;
 
     // TODO: Try to move this upper

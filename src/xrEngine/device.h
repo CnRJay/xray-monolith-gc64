@@ -118,6 +118,10 @@ public:
 	Fmatrix mProject_saved;
 	Fmatrix mFullTransform_saved;
 
+	// Dedicated camera snapshot for CalculateBonesThread so same-frame SVP SetActive flips cannot race with it.
+	Fvector vCameraPosition_bones;
+	Fmatrix mFullTransform_bones;
+
 	float fFOV;
 	float fASPECT;
 	float ViewportNear = 0.2f;

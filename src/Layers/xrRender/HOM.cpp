@@ -376,8 +376,8 @@ BOOL CHOM::visible(vis_data& vis)
 	u32 delay = 1;
 	if (result)
 	{
-		// visible	- delay next test
-		delay = ::Random.randI(5 * 2, 5 * 5);
+		// Deterministic delay avoids mutating global ::Random from parallel culling workers.
+		delay = 10u + ((u32(uintptr_t(&vis) >> 4) ^ frame_current) % 15u);
 	}
 	else
 	{

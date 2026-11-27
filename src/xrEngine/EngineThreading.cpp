@@ -88,7 +88,7 @@ void XRay::Engine::CalculateBonesThread()
 	if (!g_pGameLevel->CurrentEntity()) return;
 
 	static CFrustum ViewBase;
-	ViewBase.CreateFromMatrix(Device.mFullTransform_saved, FRUSTUM_P_LRTB | FRUSTUM_P_FAR);
+	ViewBase.CreateFromMatrix(Device.mFullTransform_bones, FRUSTUM_P_LRTB | FRUSTUM_P_FAR);
 
 	static xr_vector<ISpatialShared> spatials = {};
     spatials.clear();
@@ -96,7 +96,7 @@ void XRay::Engine::CalculateBonesThread()
 		spatials,
 		ISpatial_DB::O_ORDERED,
 		STYPE_RENDERABLE + STYPE_RENDERABLESHADOW + STYPE_PARTICLE + STYPE_LIGHTSOURCE,
-		Device.vCameraPosition_saved,
+		Device.vCameraPosition_bones,
 		g_pGamePersistent->Environment().CurrentEnv->fog_distance
 	);
 
@@ -108,7 +108,7 @@ void XRay::Engine::CalculateBonesThread()
 			if (!spatial)
 				continue;
 
-            float distSq = Device.vCameraPosition_saved.distance_to_sqr(spatial->spatial.sphere.P);
+            float distSq = Device.vCameraPosition_bones.distance_to_sqr(spatial->spatial.sphere.P);
 			if (!ViewBase.testSphere_dirty(spatial->spatial.sphere.P, spatial->spatial.sphere.R))
 			{
 				if (distSq > 62500.f)//250 m

@@ -45,6 +45,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Disabled unused renderers in single-renderer configurations in `src/engine-vs2026.sln`.
 
 ### Fixed
+- **Multithreading Thread-Safety Fixes**:
+  - Gave `CalculateBonesThread` its own `vCameraPosition_bones` / `mFullTransform_bones` camera snapshot so same-frame SVP `SetActive` viewport flips cannot race with bone visibility queries.
+  - Replaced global `::Random.randI` inside `CHOM::visible(vis_data&)` with a deterministic hash delay so parallel grass and static culling workers never contend on the global RNG state.
 - **True PIP Scope Fixes**:
   - Fixed distant grass popping out inside magnified scopes by adding SVP frustum visibility and magnification SSA scaling to `CDetailManager::UpdateVisibleM()`.
   - Fixed fake-3DSS (`r__svpscope 0`) reticle warping when merging scope color passes by tracking per-stage `scope_active_phase`, moved `JITTERFIX` early-out before `new_Scope(I)`, and fixed aspect correction to use `output_res`.
