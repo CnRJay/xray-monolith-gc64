@@ -1,0 +1,1256 @@
+-- live optics editor, layers a user file and session edits onto the published optic profile
+-- the publisher calls overlay_apply just before it applies the typed table
+
+local USER_FILE = "pip_optics_user.ltx"
+local SNIPPET_FILE = "pip_optics_user_snippets.txt"
+local USER_TAG = "user:pip_optics_user.ltx"
+local EDIT_TAG = "editor:live"
+local FIXTURE_PREFIX = "^pip_api_fixture"
+local TABLE_FLAGS = ImGuiTableFlags and
+    (ImGuiTableFlags.RowBg + ImGuiTableFlags.BordersInnerV) or 0
+local FIXED_COLUMN = ImGuiTableColumnFlags and ImGuiTableColumnFlags.WidthFixed or 0
+local STRETCH_COLUMN = ImGuiTableColumnFlags and ImGuiTableColumnFlags.WidthStretch or 0
+local CLAMP_SLIDER = ImGuiSliderFlags and ImGuiSliderFlags.AlwaysClamp or 0
+
+local labels = {
+    reticle_type = "Reticle Type",
+    hybrid_reflex = "Hybrid Reflex",
+    objective_offset = "Objective Offset",
+    objective_mm = "Objective Diameter",
+    middle_grey = "Middle Grey",
+    adapt_speed = "Adaptation Speed",
+    convergence_limit_m = "Convergence Limit",
+    tunneling_parallax = "Tube Parallax",
+    tunneling_min = "Minimum Zoom Tunneling",
+    tunneling_max = "Maximum Zoom Tunneling",
+    tracking_speed = "Eye Tracking Speed",
+    tracking_accel_mm_s2 = "Eye Tracking Acceleration",
+    tracking_limit_mm = "Eye Tracking Travel",
+    eye_relief_low_mm = "Low Zoom Eye Relief",
+    eye_relief_high_mm = "High Zoom Eye Relief",
+    exit_pupil_low_mm = "Low Zoom Exit Pupil",
+    exit_pupil_high_mm = "High Zoom Exit Pupil",
+    pupil_parity = "Pupil Parity",
+    pupil_field_low = "Low Zoom Pupil Field",
+    pupil_field_high = "High Zoom Pupil Field",
+    transmission = "Light Transmission",
+    twilight_strength = "Twilight Strength",
+    physical_min = "Physical Minimum Magnification",
+    physical_max = "Physical Maximum Magnification",
+    eye_coupling = "Eye Coupling",
+    reticle_illum = "Reticle Illumination",
+    magnification_mode = "Magnification Mode",
+    magnifications = "Magnifications",
+    mod_lane = "Mod Lane",
+}
+
+local groups = {
+    { "Objective and geometry",
+        { "objective_offset", "objective_mm", "convergence_limit_m", "reticle_type" } },
+    { "Pupil and eye relief",
+        { "eye_relief_low_mm", "eye_relief_high_mm", "exit_pupil_low_mm",
+          "exit_pupil_high_mm", "pupil_parity", "pupil_field_low", "pupil_field_high",
+          "eye_coupling" } },
+    { "Eye tracking and tunneling",
+        { "tracking_speed", "tracking_accel_mm_s2", "tracking_limit_mm",
+          "tunneling_parallax", "tunneling_min", "tunneling_max" } },
+    { "Rendering behavior",
+        { "transmission", "twilight_strength", "middle_grey", "adapt_speed",
+          "reticle_illum", "hybrid_reflex", "mod_lane" } },
+}
+
+local pairs_of = {
+    physical_min = "physical_max",
+    physical_max = "physical_min",
+    magnification_mode = "magnifications",
+    magnifications = "magnification_mode",
+}
+
+local BUMP_MS = 120
+local MAGNIFICATION_FIELDS = {
+    physical_min = true,
+    physical_max = true,
+    magnification_mode = true,
+    magnifications = true,
+}
+
+local epoch = 0
+local pending_bump
+local next_bump_ms = 0
+local descriptor_list
+local descriptor_map
+local user_values
+local user_cache
+local session
+local suspended = false
+local no_profile_ms
+local last_profile
+local auto_apply = true
+local status_text = "idle"
+local field_error
+local draw_failed
+
+local function trim(value)
+    return string.match(tostring(value or ""), "^%s*(.-)%s*$")
+end
+
+local function finite(value)
+    return type(value) == "number" and value == value
+        and value < math.huge and value > -math.huge
+end
+
+local function copy_value(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for key, entry in pairs(value) do
+        result[key] = copy_value(entry)
+    end
+    return result
+end
+
+-- engine storage is single precision so compare with a relative tolerance
+local function numbers_equal(left, right)
+    local scale = math.abs(left)
+    if math.abs(right) > scale then
+        scale = math.abs(right)
+    end
+    if scale < 1 then
+        scale = 1
+    end
+    return math.abs(left - right) <= scale * 1e-5
+end
+
+local function values_equal(left, right)
+    if type(left) ~= type(right) then
+        return false
+    end
+    if type(left) == "number" then
+        return numbers_equal(left, right)
+    end
+    if type(left) ~= "table" then
+        return left == right
+    end
+    for key, value in pairs(left) do
+        if not values_equal(value, right[key]) then
+            return false
+        end
+    end
+    for key in pairs(right) do
+        if left[key] == nil then
+            return false
+        end
+    end
+    return true
+end
+
+local function number_text(value)
+    return string.format("%.5g", value)
+end
+
+local function bump(reason)
+    epoch = epoch + 1
+    pending_bump = nil
+    next_bump_ms = time_global() + BUMP_MS
+    printf("[SVP-EDIT] epoch=%s reason=%s", tostring(epoch), tostring(reason))
+end
+
+-- drags fire every frame so slide the republish into a short window
+local function bump_soon(reason)
+    pending_bump = reason
+    if time_global() >= next_bump_ms then
+        bump(reason)
+    end
+end
+
+local function flush_bump()
+    if pending_bump and time_global() >= next_bump_ms then
+        bump(pending_bump)
+    end
+end
+
+function editor_epoch()
+    return epoch
+end
+
+local function ensure_descriptors()
+    if descriptor_list then
+        return descriptor_list
+    end
+    local describe = rawget(_G, "svp_optic_api_describe")
+    if type(describe) ~= "function" then
+        return {}
+    end
+    local ok, result = pcall(describe)
+    if not ok or type(result) ~= "table" or type(result.fields) ~= "table" then
+        return {}
+    end
+    local list = {}
+    local map = {}
+    for name, descriptor in pairs(result.fields) do
+        if type(name) == "string" and type(descriptor) == "table"
+            and descriptor.source_required == true then
+            list[#list + 1] = {
+                name = name,
+                descriptor = descriptor,
+                index = tonumber(descriptor.index) or math.huge,
+            }
+            map[name] = descriptor
+        end
+    end
+    table.sort(list, function(left, right)
+        return left.index < right.index
+    end)
+    descriptor_list = list
+    descriptor_map = map
+    return list
+end
+
+local function current_profile()
+    local getter = rawget(_G, "svp_current_optic_profile")
+    if type(getter) ~= "function" then
+        return
+    end
+    local ok, profile = pcall(getter)
+    if ok and type(profile) == "table" then
+        return profile
+    end
+end
+
+local function is_fixture(context)
+    return type(context) == "string" and string.find(context, FIXTURE_PREFIX) ~= nil
+end
+
+-- persistent key for the user file, the scope section when one is attached
+local function identity_key(config)
+    local scope = config and config.scope
+    if type(scope) == "string" and scope ~= "" then
+        return scope
+    end
+    local weapon = config and config.weapon
+    if type(weapon) == "string" and weapon ~= "" then
+        return weapon
+    end
+end
+
+local function user_path()
+    local ok, path = pcall(function()
+        return getFS():update_path("$game_config$", USER_FILE)
+    end)
+    if ok and type(path) == "string" and path ~= "" then
+        return path
+    end
+    return USER_FILE
+end
+
+local function snippet_path()
+    local ok, path = pcall(function()
+        return getFS():update_path("$game_config$", SNIPPET_FILE)
+    end)
+    if ok and type(path) == "string" and path ~= "" then
+        return path
+    end
+    return SNIPPET_FILE
+end
+
+local function split_numbers(raw)
+    local values = {}
+    for item in string.gmatch(raw, "[^,]+") do
+        local number = tonumber(trim(item))
+        if not finite(number) then
+            return
+        end
+        values[#values + 1] = number
+    end
+    return values
+end
+
+local function coerce(name, raw)
+    local descriptor = descriptor_map and descriptor_map[name]
+    if not descriptor or type(raw) ~= "string" then
+        return
+    end
+    local kind = descriptor.type
+    if kind == "number" or kind == "integer" then
+        local number = tonumber(raw)
+        if not finite(number) then
+            return
+        end
+        if kind == "integer" then
+            return math.floor(number + 0.5)
+        end
+        return number
+    end
+    if kind == "boolean" then
+        if raw == "true" then
+            return true
+        end
+        if raw == "false" then
+            return false
+        end
+        return
+    end
+    if kind == "enum" then
+        for _, allowed in ipairs(descriptor.values or {}) do
+            if raw == allowed then
+                return raw
+            end
+        end
+        return
+    end
+    if kind == "array" then
+        local values = split_numbers(raw)
+        if not values or #values == 0 then
+            return
+        end
+        return values
+    end
+    if kind == "object" then
+        local keys = descriptor.allowed_keys or {}
+        local values = split_numbers(raw)
+        if not values or #values ~= #keys then
+            return
+        end
+        local result = {}
+        for index, key in ipairs(keys) do
+            result[key] = values[index]
+        end
+        return result
+    end
+end
+
+local function format_value(name, value)
+    local descriptor = descriptor_map and descriptor_map[name]
+    if not descriptor then
+        return
+    end
+    local kind = descriptor.type
+    if kind == "number" then
+        return string.format("%.6g", value)
+    end
+    if kind == "integer" then
+        return string.format("%d", math.floor(value + 0.5))
+    end
+    if kind == "boolean" then
+        return value and "true" or "false"
+    end
+    if kind == "enum" then
+        return tostring(value)
+    end
+    if kind == "array" then
+        local parts = {}
+        for index, entry in ipairs(value) do
+            parts[index] = string.format("%.6g", entry)
+        end
+        return table.concat(parts, ", ")
+    end
+    if kind == "object" then
+        local parts = {}
+        for _, key in ipairs(descriptor.allowed_keys or {}) do
+            parts[#parts + 1] = string.format("%.6g", value[key] or 0)
+        end
+        return table.concat(parts, ", ")
+    end
+end
+
+local function load_user_file()
+    user_values = {}
+    user_cache = {}
+    local path = user_path()
+    local handle = io.open(path, "r")
+    if not handle then
+        return
+    end
+    local section
+    local skipped = 0
+    local first
+    local number = 0
+    for line in handle:lines() do
+        number = number + 1
+        local text = trim(string.gsub(string.gsub(line, ";.*$", ""), "%-%-.*$", ""))
+        if text ~= "" then
+            local name = string.match(text, "^%[([^%]]+)%]$")
+            if name then
+                section = trim(name)
+                user_values[section] = user_values[section] or {}
+            else
+                local key, value = string.match(text, "^([%w_]+)%s*=%s*(.*)$")
+                if section and key then
+                    user_values[section][key] = trim(value)
+                else
+                    skipped = skipped + 1
+                    first = first or number
+                end
+            end
+        end
+    end
+    handle:close()
+    if skipped > 0 then
+        printf("![SVP-EDIT] user file malformed lines=%s first=%s path=%s",
+            skipped, first, path)
+    end
+end
+
+local function ensure_user_file()
+    if not user_values then
+        load_user_file()
+    end
+end
+
+local function user_entries(key)
+    if not key then
+        return
+    end
+    ensure_user_file()
+    ensure_descriptors()
+    if user_cache[key] ~= nil then
+        return user_cache[key] or nil
+    end
+    local raw = user_values[key]
+    if not raw then
+        user_cache[key] = false
+        return
+    end
+    local entries = {}
+    local rejected
+    for name, text in pairs(raw) do
+        local value = coerce(name, text)
+        if value == nil then
+            rejected = rejected or name
+        else
+            entries[name] = value
+        end
+    end
+    if (entries.magnification_mode == nil) ~= (entries.magnifications == nil) then
+        entries.magnification_mode = nil
+        entries.magnifications = nil
+        rejected = rejected or "magnification_pair"
+    end
+    if rejected then
+        printf("![SVP-EDIT] user entry ignored section=%s field=%s", key, tostring(rejected))
+    end
+    user_cache[key] = entries
+    return entries
+end
+
+local function write_field(config, name, value, tag)
+    local descriptor = descriptor_map and descriptor_map[name]
+    if not descriptor or config[name] == nil then
+        return false
+    end
+    config[name] = copy_value(value)
+    config.sources[name] = tag
+    return true
+end
+
+-- publisher choke point, runs on the composed typed table before apply
+function overlay_apply(config)
+    if type(config) ~= "table" then
+        return config
+    end
+    if is_fixture(config.context) then
+        return config
+    end
+    if #ensure_descriptors() == 0 then
+        return config
+    end
+    if type(config.sources) ~= "table" then
+        config.sources = {}
+    end
+    local entries = user_entries(identity_key(config))
+    if entries then
+        for name, value in pairs(entries) do
+            write_field(config, name, value, USER_TAG)
+        end
+    end
+    if session and not suspended and session.context == config.context then
+        for name, value in pairs(session.overlay) do
+            write_field(config, name, value, EDIT_TAG)
+        end
+    end
+    return config
+end
+
+local function validate_subset(names, source)
+    local validate = rawget(_G, "svp_validate_optic_fields")
+    if type(validate) ~= "function" then
+        return true
+    end
+    local subset = {}
+    for _, name in ipairs(names) do
+        if source[name] ~= nil then
+            subset[name] = copy_value(source[name])
+        end
+    end
+    local ok, result = pcall(validate, subset)
+    if not ok or type(result) ~= "table" then
+        return false, { path = "table", code = "call_failed", message = tostring(result) }
+    end
+    if result.ok == true then
+        return true
+    end
+    return false, {
+        path = tostring(result.path or "table"),
+        code = tostring(result.code or "invalid"),
+        message = tostring(result.message or "rejected"),
+    }
+end
+
+local function failure_of(failure)
+    if type(failure) == "table" then
+        return failure
+    end
+    return { path = "table", code = "unknown", message = "rejected" }
+end
+
+local function change_set(name)
+    local names = { name }
+    local partner = pairs_of[name]
+    if partner then
+        names[#names + 1] = partner
+    end
+    return names
+end
+
+local function commit(name)
+    if not session then
+        return
+    end
+    local names = change_set(name)
+    local ok, failure = validate_subset(names, session.draft)
+    if not ok then
+        field_error = failure_of(failure)
+        status_text = "invalid " .. field_error.path .. " " .. field_error.code
+        return
+    end
+    field_error = nil
+    if not auto_apply then
+        status_text = "edited, apply pending"
+        return
+    end
+    for _, entry in ipairs(names) do
+        if session.draft[entry] ~= nil then
+            session.overlay[entry] = copy_value(session.draft[entry])
+        end
+    end
+    bump_soon("edit " .. name)
+    status_text = "applied " .. name
+end
+
+local function apply_draft()
+    if not session then
+        return
+    end
+    local names = {}
+    for _, field in ipairs(ensure_descriptors()) do
+        local name = field.name
+        if session.draft[name] ~= nil
+            and not values_equal(session.draft[name], session.baseline[name]) then
+            names[#names + 1] = name
+        end
+    end
+    if #names == 0 then
+        status_text = "nothing to apply"
+        return
+    end
+    local ok, failure = validate_subset(names, session.draft)
+    if not ok then
+        field_error = failure_of(failure)
+        status_text = "invalid " .. field_error.path .. " " .. field_error.code
+        return
+    end
+    field_error = nil
+    for _, name in ipairs(names) do
+        session.overlay[name] = copy_value(session.draft[name])
+    end
+    bump("apply")
+    printf("[SVP-EDIT] apply context=%s fields=%s", tostring(session.context), tostring(#names))
+    status_text = string.format("applied %d fields", #names)
+end
+
+local function reset_field(name)
+    if not session then
+        return
+    end
+    for _, entry in ipairs(change_set(name)) do
+        session.overlay[entry] = nil
+        session.draft[entry] = copy_value(session.baseline[entry])
+    end
+    field_error = nil
+    bump("reset " .. name)
+    status_text = "reset " .. name
+end
+
+local function revert_all()
+    if not session then
+        return
+    end
+    session.overlay = {}
+    session.draft = copy_value(session.baseline)
+    field_error = nil
+    bump("revert")
+    printf("[SVP-EDIT] revert context=%s", tostring(session.context))
+    status_text = "overlay cleared"
+end
+
+local function start_session(profile)
+    local baseline = {}
+    for _, field in ipairs(ensure_descriptors()) do
+        if profile[field.name] ~= nil then
+            baseline[field.name] = copy_value(profile[field.name])
+        end
+    end
+    session = {
+        context = profile.context,
+        key = identity_key(profile),
+        baseline = baseline,
+        draft = copy_value(baseline),
+        overlay = {},
+    }
+    suspended = false
+    field_error = nil
+    status_text = "session open"
+    printf("[SVP-EDIT] session start context=%s key=%s fingerprint=%s",
+        tostring(profile.context), tostring(session.key),
+        tostring(profile.profile_fingerprint))
+end
+
+local function stop_session(reason)
+    if not session then
+        return
+    end
+    printf("[SVP-EDIT] session end context=%s reason=%s",
+        tostring(session.context), tostring(reason))
+    local published = next(session.overlay) ~= nil
+    session = nil
+    suspended = false
+    field_error = nil
+    if published then
+        bump("session end")
+    end
+    status_text = "session closed " .. tostring(reason)
+end
+
+local function sorted_sections()
+    local names = {}
+    for name in pairs(user_values) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    return names
+end
+
+local function sorted_keys(values)
+    local names = {}
+    for name in pairs(values) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    return names
+end
+
+local function write_user_file()
+    local path = user_path()
+    local handle = io.open(path, "w")
+    if not handle then
+        printf("![SVP-EDIT] user file write failed path=%s", path)
+        return false
+    end
+    handle:write("; pip optics workbench overrides, written by the in game editor\n")
+    for _, section in ipairs(sorted_sections()) do
+        local values = user_values[section]
+        if next(values) then
+            handle:write(string.format("\n[%s]\n", section))
+            for _, key in ipairs(sorted_keys(values)) do
+                handle:write(string.format("%s = %s\n", key, values[key]))
+            end
+        end
+    end
+    handle:close()
+    return true
+end
+
+local function save_session()
+    if not session or not session.key then
+        status_text = "no identity to save"
+        return
+    end
+    ensure_user_file()
+    local target = user_values[session.key] or {}
+    user_values[session.key] = target
+    local written = 0
+    for name, value in pairs(session.overlay) do
+        if not values_equal(value, session.baseline[name]) then
+            local text = format_value(name, value)
+            if text then
+                target[name] = text
+                written = written + 1
+            end
+        end
+    end
+    if written == 0 then
+        status_text = "nothing differs from baseline"
+        return
+    end
+    if not write_user_file() then
+        status_text = "write failed"
+        return
+    end
+    load_user_file()
+    bump("save")
+    printf("[SVP-EDIT] save section=%s fields=%s path=%s",
+        session.key, written, user_path())
+    status_text = string.format("saved %d fields", written)
+end
+
+local function clear_saved()
+    if not session or not session.key then
+        return
+    end
+    ensure_user_file()
+    if not user_values[session.key] then
+        status_text = "no saved section"
+        return
+    end
+    user_values[session.key] = nil
+    if not write_user_file() then
+        status_text = "write failed"
+        return
+    end
+    load_user_file()
+    bump("clear saved")
+    printf("[SVP-EDIT] cleared section=%s path=%s", session.key, user_path())
+    status_text = "saved section cleared"
+end
+
+local function emit_snippet(profile)
+    if not session or not session.key then
+        return
+    end
+    local path = snippet_path()
+    local handle = io.open(path, "a")
+    if not handle then
+        printf("![SVP-EDIT] snippet write failed path=%s", path)
+        status_text = "snippet write failed"
+        return
+    end
+    handle:write("\n; pip optics workbench snippet\n")
+    handle:write(string.format("; weapon %s scope %s spec %s profile %s\n",
+        tostring(profile.weapon), tostring(profile.scope or "none"),
+        tostring(profile.spec_section or "none"), tostring(profile.profile_id or "none")))
+    handle:write(string.format("; fingerprint %s\n",
+        tostring(profile.profile_fingerprint or "none")))
+    handle:write(string.format("[%s]\n", session.key))
+    local names = sorted_keys(session.overlay)
+    for _, name in ipairs(names) do
+        local text = format_value(name, session.overlay[name])
+        if text then
+            handle:write(string.format("%s = %s\n", name, text))
+        end
+    end
+    if #names == 0 then
+        handle:write("; no overlay fields set\n")
+    end
+    handle:close()
+    printf("[SVP-EDIT] snippet fields=%s path=%s", tostring(#names), path)
+    status_text = "snippet appended"
+end
+
+local function tooltip_text(name, descriptor)
+    local parts = { name, "type " .. tostring(descriptor.type) }
+    if descriptor.minimum ~= nil and descriptor.maximum ~= nil then
+        parts[#parts + 1] = string.format("range %.5g to %.5g",
+            descriptor.minimum, descriptor.maximum)
+    end
+    if descriptor.minimum_items ~= nil then
+        parts[#parts + 1] = string.format("entries %d to %d",
+            descriptor.minimum_items, descriptor.maximum_items)
+    end
+    if descriptor.allow_zero == true then
+        parts[#parts + 1] = "zero allowed"
+    end
+    parts[#parts + 1] = descriptor.required == true and "required" or "optional"
+    return table.concat(parts, "\n")
+end
+
+local function show_tooltip(text)
+    if not ImGui.BeginItemTooltip() then
+        return
+    end
+    ImGui.PushTextWrapPos(420)
+    ImGui.TextWrapped(text)
+    ImGui.PopTextWrapPos()
+    ImGui.EndTooltip()
+end
+
+local function source_text(profile, name)
+    if session and session.overlay[name] ~= nil then
+        return EDIT_TAG
+    end
+    return tostring(profile.sources and profile.sources[name] or "none")
+end
+
+local function slider_bounds(descriptor)
+    local low = descriptor.minimum
+    local high = descriptor.maximum
+    if not finite(low) or not finite(high) or high <= low then
+        return
+    end
+    local span = high - low
+    if descriptor.minimum_exclusive == true then
+        low = low + span * 1e-4
+    end
+    if descriptor.maximum_exclusive == true then
+        high = high - span * 1e-4
+    end
+    return low, high
+end
+
+local function draw_number(name, descriptor)
+    local value = session.draft[name]
+    local integer = descriptor.type == "integer"
+    local low, high = slider_bounds(descriptor)
+    local changed, result
+    ImGui.SetNextItemWidth(-1)
+    if low then
+        changed, result = ImGui.SliderFloat("##" .. name, value, low, high,
+            integer and "%.0f" or "%.5g", CLAMP_SLIDER)
+    else
+        changed, result = ImGui.DragFloat("##" .. name, value, integer and 1 or 0.01,
+            0, 0, integer and "%.0f" or "%.5g", 0)
+    end
+    if changed then
+        session.draft[name] = integer and math.floor(result + 0.5) or result
+        commit(name)
+    end
+end
+
+local function draw_boolean(name)
+    local changed, result = ImGui.Checkbox("##" .. name, session.draft[name] == true)
+    if changed then
+        session.draft[name] = result
+        commit(name)
+    end
+end
+
+local function draw_objective(name)
+    local value = session.draft[name]
+    local lateral = vector2():set(value.x or 0, value.y or 0)
+    local changed, result = ImGui.DragFloat2("lateral xy##" .. name, lateral,
+        0.01, -8, 64, "%.4f", CLAMP_SLIDER)
+    show_tooltip("objective offset x and y in eyepiece radius units")
+    if changed then
+        value.x = result.x
+        value.y = result.y
+        commit(name)
+    end
+    ImGui.SetNextItemWidth(180)
+    changed, result = ImGui.DragFloat("forward z##" .. name, value.z or 0,
+        0.01, 0.0001, 64, "%.4f", CLAMP_SLIDER)
+    show_tooltip("distance to the front lens in eyepiece radius units")
+    if changed then
+        value.z = result
+        commit(name)
+    end
+    ImGui.SetNextItemWidth(180)
+    changed, result = ImGui.DragFloat("radius##" .. name, value.radius or 0,
+        0.01, 0.0001, 64, "%.4f", CLAMP_SLIDER)
+    show_tooltip("objective radius in eyepiece radius units")
+    if changed then
+        value.radius = result
+        commit(name)
+    end
+end
+
+local function draw_lane(name, descriptor)
+    local value = session.draft[name]
+    local keys = descriptor.allowed_keys or { "x", "y", "z", "w" }
+    local lane = vector4():set(value[keys[1]] or 0, value[keys[2]] or 0,
+        value[keys[3]] or 0, value[keys[4]] or 0)
+    ImGui.SetNextItemWidth(-1)
+    local changed, result = ImGui.DragFloat4("##" .. name, lane, 0.01, 0, 0, "%.4f", 0)
+    if changed then
+        value[keys[1]] = result.x
+        value[keys[2]] = result.y
+        value[keys[3]] = result.z
+        value[keys[4]] = result.w
+        commit(name)
+    end
+end
+
+local function draw_value(name, descriptor)
+    local kind = descriptor.type
+    if kind == "number" or kind == "integer" then
+        draw_number(name, descriptor)
+    elseif kind == "boolean" then
+        draw_boolean(name)
+    elseif kind == "object" and name == "objective_offset" then
+        draw_objective(name)
+    elseif kind == "object" then
+        draw_lane(name, descriptor)
+    else
+        ImGui.TextDisabled("no editor for type " .. tostring(kind))
+    end
+end
+
+local function draw_row(profile, name, descriptor)
+    ImGui.TableNextRow(0, 0)
+    ImGui.TableNextColumn()
+    ImGui.Text(labels[name] or name)
+    show_tooltip(tooltip_text(name, descriptor))
+    ImGui.TableNextColumn()
+    draw_value(name, descriptor)
+    ImGui.TableNextColumn()
+    ImGui.TextDisabled(source_text(profile, name))
+    ImGui.TableNextColumn()
+    if ImGui.SmallButton("reset##" .. name) then
+        reset_field(name)
+    end
+    if descriptor.allow_zero == true then
+        ImGui.SameLine(0)
+        if ImGui.SmallButton("zero##" .. name) then
+            session.draft[name] = 0
+            commit(name)
+        end
+    end
+end
+
+local function draw_rows(profile, id, names)
+    if not ImGui.BeginTable("rows##" .. id, 4, TABLE_FLAGS, vector2():set(0, 0), 0) then
+        return
+    end
+    ImGui.TableSetupColumn("Field", FIXED_COLUMN, 230, 0)
+    ImGui.TableSetupColumn("Value", FIXED_COLUMN, 300, 0)
+    ImGui.TableSetupColumn("Source", STRETCH_COLUMN, 1, 0)
+    ImGui.TableSetupColumn("Reset", FIXED_COLUMN, 110, 0)
+    ImGui.TableHeadersRow()
+    pcall(function()
+        for _, name in ipairs(names) do
+            local descriptor = descriptor_map[name]
+            if descriptor and session.draft[name] ~= nil then
+                draw_row(profile, name, descriptor)
+            end
+        end
+    end)
+    ImGui.EndTable()
+end
+
+local function ladder_topology(mode)
+    if mode == "fixed" then
+        return 1, 1
+    end
+    if mode == "continuous" then
+        return 2, 2
+    end
+    return 2, 16
+end
+
+local function normalize_ladder(mode)
+    local values = session.draft.magnifications
+    local low, high = ladder_topology(mode)
+    while #values > high do
+        table.remove(values)
+    end
+    while #values < low do
+        local last = values[#values] or 1
+        values[#values + 1] = math.min(last * 1.5, 200)
+    end
+    for index = 2, #values do
+        if values[index] <= values[index - 1] then
+            values[index] = math.min(values[index - 1] * 1.1, 200)
+        end
+    end
+end
+
+-- ladder progression bars, no plot binding exists so ProgressBar carries the shape
+local function draw_ladder_plot(values)
+    local first = values[1] or 0
+    local last = values[#values] or first
+    local span = last - first
+    ImGui.TextDisabled("progression shape, bar length is the position between the ends")
+    for index, value in ipairs(values) do
+        local fraction = span > 0 and (value - first) / span or 1
+        ImGui.Text(string.format("%d", index))
+        ImGui.SameLine(30)
+        ImGui.ProgressBar(fraction, vector2():set(260, 14),
+            string.format("%s x", number_text(value)))
+    end
+end
+
+local function draw_magnifications(profile)
+    local mode = session.draft.magnification_mode
+    local values = session.draft.magnifications
+    if type(mode) ~= "string" or type(values) ~= "table" then
+        ImGui.TextDisabled("Magnification ladder not published for this optic")
+        return
+    end
+    local descriptor = descriptor_map.magnification_mode
+    ImGui.Text("Magnification Mode")
+    for _, allowed in ipairs(descriptor.values or {}) do
+        ImGui.SameLine(0)
+        if ImGui.RadioButton(allowed .. "##mode", mode == allowed) and mode ~= allowed then
+            session.draft.magnification_mode = allowed
+            normalize_ladder(allowed)
+            commit("magnification_mode")
+        end
+    end
+    ImGui.SameLine(0)
+    ImGui.TextDisabled(source_text(profile, "magnification_mode"))
+    draw_ladder_plot(values)
+    local low, high = ladder_topology(session.draft.magnification_mode)
+    local removed
+    for index, value in ipairs(values) do
+        ImGui.SetNextItemWidth(200)
+        local changed, result = ImGui.DragFloat(
+            string.format("entry %d##mag%d", index, index), value,
+            0.05, 0.0001, 200, "%.4g", CLAMP_SLIDER)
+        if changed then
+            values[index] = result
+            commit("magnifications")
+        end
+        if #values > low then
+            ImGui.SameLine(0)
+            if ImGui.SmallButton(string.format("remove##mag%d", index)) then
+                removed = index
+            end
+        end
+    end
+    if removed then
+        table.remove(values, removed)
+        normalize_ladder(session.draft.magnification_mode)
+        commit("magnifications")
+    end
+    if #values < high then
+        if ImGui.SmallButton("add entry##mag") then
+            local last = values[#values] or 1
+            values[#values + 1] = math.min(last * 1.5, 200)
+            commit("magnifications")
+        end
+        ImGui.SameLine(0)
+    end
+    if ImGui.SmallButton("reset ladder##mag") then
+        reset_field("magnifications")
+    end
+    ImGui.SameLine(0)
+    ImGui.TextDisabled(source_text(profile, "magnifications"))
+end
+
+local function draw_identity(profile)
+    ImGui.Text("Weapon")
+    ImGui.SameLine(220)
+    ImGui.TextWrapped(tostring(profile.weapon or "none"))
+    ImGui.Text("Scope")
+    ImGui.SameLine(220)
+    ImGui.TextWrapped(tostring(profile.scope or "none"))
+    ImGui.Text("Physical Spec")
+    ImGui.SameLine(220)
+    ImGui.TextWrapped(tostring(profile.spec_section or "none"))
+    ImGui.Text("Profile")
+    ImGui.SameLine(220)
+    ImGui.TextWrapped(tostring(profile.profile_id or "none"))
+    ImGui.Text("Fingerprint")
+    ImGui.SameLine(220)
+    ImGui.TextWrapped(tostring(profile.profile_fingerprint or "none"))
+    ImGui.Text("User File Section")
+    ImGui.SameLine(220)
+    ImGui.TextWrapped(tostring(identity_key(profile) or "none"))
+end
+
+local function overlay_live(profile)
+    if not session or next(session.overlay) == nil then
+        return true
+    end
+    if suspended or profile.context ~= session.context then
+        return false
+    end
+    for name, value in pairs(session.overlay) do
+        if not values_equal(value, profile[name]) then
+            return false
+        end
+    end
+    return true
+end
+
+local function draw_controls(profile)
+    if not session then
+        if ImGui.Button("Start editing", vector2():set(-1, 0)) then
+            start_session(profile)
+        end
+        return
+    end
+    if ImGui.Button("Stop editing", vector2():set(-1, 0)) then
+        stop_session("user")
+        return
+    end
+    local changed, value = ImGui.Checkbox("Auto apply", auto_apply)
+    if changed then
+        auto_apply = value == true
+    end
+    ImGui.SameLine(0)
+    if ImGui.Button("Apply", vector2():set(100, 0)) then
+        apply_draft()
+    end
+    ImGui.SameLine(0)
+    if ImGui.Button(suspended and "Resume overlay" or "A/B stock", vector2():set(150, 0)) then
+        suspended = not suspended
+        bump(suspended and "suspend" or "resume")
+        status_text = suspended and "overlay suspended" or "overlay resumed"
+    end
+    if ImGui.Button("Save", vector2():set(100, 0)) then
+        save_session()
+    end
+    ImGui.SameLine(0)
+    if ImGui.Button("Revert all", vector2():set(120, 0)) then
+        revert_all()
+    end
+    ImGui.SameLine(0)
+    if ImGui.Button("Clear saved", vector2():set(130, 0)) then
+        clear_saved()
+    end
+    ImGui.SameLine(0)
+    if ImGui.Button("Emit snippet", vector2():set(140, 0)) then
+        emit_snippet(profile)
+    end
+end
+
+local function draw_banner()
+    ImGui.PushTextWrapPos(0)
+    ImGui.TextDisabled(
+        "Saving writes and overwrites the edited scope sections in gamedata configs "
+        .. USER_FILE)
+    ImGui.TextDisabled(
+        "Under Mod Organizer that file physically lands in the overwrite folder")
+    ImGui.PopTextWrapPos()
+    ImGui.Separator()
+end
+
+-- global lens knobs ride cvars, the per scope overlay does not carry them yet
+local function draw_global_optics()
+    if not ImGui.CollapsingHeader("Global lens") then
+        return
+    end
+    local ok, value = pcall(function() return get_console():get_float("r__svp_field_curve") end)
+    if not ok or not value then
+        ImGui.TextDisabled("field curve cvar not available on this build")
+        return
+    end
+    ImGui.Text("field curve")
+    show_tooltip("edge blur strength, the outer eyepiece field defocuses like a real non flat field scope, 0 is flat")
+    ImGui.SameLine(220)
+    ImGui.SetNextItemWidth(-1)
+    local changed, result = ImGui.SliderFloat("##global_field_curve", value, 0.0, 3.0, "%.2f", CLAMP_SLIDER)
+    if changed then
+        get_console():execute(string.format("r__svp_field_curve %.3f", result))
+    end
+end
+
+local function grouped_names()
+    local seen = {}
+    local result = {}
+    for _, group in ipairs(groups) do
+        local names = {}
+        for _, name in ipairs(group[2]) do
+            if descriptor_map[name] then
+                seen[name] = true
+                names[#names + 1] = name
+            end
+        end
+        result[#result + 1] = { group[1], names }
+    end
+    local rest = {}
+    for _, field in ipairs(descriptor_list) do
+        if not seen[field.name] and not MAGNIFICATION_FIELDS[field.name] then
+            rest[#rest + 1] = field.name
+        end
+    end
+    if #rest > 0 then
+        result[#result + 1] = { "Other fields", rest }
+    end
+    return result
+end
+
+local function draw_body()
+    draw_banner()
+    draw_global_optics()
+    if #ensure_descriptors() == 0 then
+        ImGui.TextDisabled("Typed optic API not available on this build")
+        return
+    end
+    local profile = current_profile()
+    if profile and profile.valid then
+        no_profile_ms = nil
+        last_profile = profile
+    elseif session and last_profile and session.context == last_profile.context then
+        -- a republish briefly clears the profile, keep drawing from the cached one
+        no_profile_ms = no_profile_ms or time_global()
+        if time_global() - no_profile_ms > 1500 then
+            stop_session("no profile")
+            last_profile = nil
+            profile = nil
+        else
+            profile = last_profile
+        end
+    end
+    if not profile or not profile.valid then
+        if session then
+            stop_session("no profile")
+        end
+        ImGui.TextDisabled("No active scope profile")
+        ImGui.TextDisabled("Aim through a scope with picture in picture enabled")
+        return
+    end
+    if is_fixture(profile.context) then
+        ImGui.TextDisabled("Fixture context active, editing is disabled")
+        return
+    end
+    if session and session.context ~= profile.context then
+        stop_session("identity changed")
+        ImGui.TextDisabled("Scope identity changed, the edit session was closed")
+    end
+    draw_identity(profile)
+    ImGui.Separator()
+    draw_controls(profile)
+    ImGui.Text("Status")
+    ImGui.SameLine(220)
+    ImGui.TextWrapped(string.format("%s  fingerprint %s  overlay %s",
+        tostring(status_text), tostring(profile.profile_fingerprint or "none"),
+        session and (suspended and "suspended"
+            or (overlay_live(profile) and "live" or "pending")) or "off"))
+    if field_error then
+        ImGui.Text("Rejected")
+        ImGui.SameLine(220)
+        ImGui.TextWrapped(string.format("%s  %s  %s",
+            field_error.path, field_error.code, field_error.message))
+    end
+    if not session then
+        ImGui.Separator()
+        ImGui.TextDisabled("Start an edit session to change published optic fields")
+        return
+    end
+    ImGui.Separator()
+    if ImGui.CollapsingHeader("Magnification") then
+        draw_magnifications(profile)
+        draw_rows(profile, "magnification", { "physical_min", "physical_max" })
+    end
+    for index, group in ipairs(grouped_names()) do
+        if #group[2] > 0 and ImGui.CollapsingHeader(group[1]) then
+            draw_rows(profile, tostring(index), group[2])
+        end
+    end
+    flush_bump()
+end
+
+function draw()
+    if draw_failed then
+        ImGui.TextDisabled("Optics workbench disabled after an error, see the log")
+        return
+    end
+    flush_bump()
+    local ok, err = pcall(draw_body)
+    if not ok then
+        draw_failed = true
+        printf("![SVP-EDIT] draw failed error=%s", tostring(err))
+        ImGui.TextDisabled("Optics workbench error, see the log")
+    end
+end

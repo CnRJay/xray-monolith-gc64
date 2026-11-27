@@ -7,6 +7,7 @@
 #pragma once
 
 #include "../../xrCore/xrpool.h"
+#include "../../xrCDB/Frustum.h"
 #include "detailformat.h"
 #include "detailmodel.h"
 #include "light.h"
@@ -76,12 +77,13 @@ public:
 		// один кустик
 		float scale;
 		Fmatrix mRotY;
-		Fmatrix mRotY_calculated;
+		float scale_calculated; // draw scale for this frame, mRotY stays unscaled
 		u32 vis_ID; // индекс в visibility списке он же тип [не качается, качается1, качается2]
 		float c_hemi;
 		float c_sun;
 		float distance;
 		Fvector position;
+		float radius; // slot sphere radius, position holds the same sphere's centre
 		Fvector normal;
 		float alpha;
 		float alpha_target;
@@ -236,6 +238,52 @@ public:
 	u32 hw_BatchSize;
 	ID3DVertexBuffer* hw_VB;
 	ID3DIndexBuffer* hw_IB;
+#ifdef USE_DX11
+	// one instance record is f32 position and scale, a packed rotation quaternion and octahedral
+	// terrain normal, then unorm alpha, sun and hemi
+	enum { hw_InstanceStride = 32 };
+	ID3DBuffer* hw_instanceVB;
+	ID3DShaderResourceView* hw_instanceSRV;
+	// per var_id per object ranges into the instance buffer, indexed vid * objects.size() + O
+	xr_vector<u32> hw_inst_base;
+	xr_vector<u32> hw_inst_count;
+	u32 hw_frame_filled;
+	u32 hw_instance_cap;
+	bool hw_instancing; // latched from r__detail_instancing at level load
+	bool hw_overflow_logged;
+	void hw_Fill_Instances();
+	enum { hw_probe_ok = 0, hw_probe_no_decode, hw_probe_bad_record };
+	u32 hw_Probe_Instance_Shaders();
+
+	// one slot sphere per visible slot behind the instance ranges, filled in the same walk order
+	struct SlotSphere
+	{
+		Fvector center;
+		float radius;
+		u32 inst_first; // absolute index of this slot's first packed instance
+		u32 inst_count; // instances this slot packed, zero is legal and keeps runs contiguous
+	};
+	xr_vector<SlotSphere> hw_run_slots;
+	// where each var_id and object range sits in hw_run_slots, indexed like hw_inst_base
+	xr_vector<u32> hw_run_base;
+	xr_vector<u32> hw_run_count;
+	// cascade frustum the grass draw measures against, null everywhere else
+	const CFrustum* hw_run_frustum;
+	// which bracket armed the frustum, the walk reads its own cvar and exclusions from this
+	enum { hw_run_site_none = 0, hw_run_site_sun, hw_run_site_svp };
+	u32 hw_run_site;
+	CFrustum hw_run_frustum_own; // built by the matrix form of Begin, hw_run_frustum points at it
+	u32 hw_run_cascade;
+	u32 hw_run_tested;
+	u32 hw_run_kept;
+	u32 hw_run_runs;
+	u32 hw_run_max;
+	u32 hw_run_dropped; // instances the emitter left unsubmitted
+	u32 hw_run_draws;   // sub range draws the emitter issued
+	void hw_Run_Begin(const CFrustum* F, u32 cascade);
+	void hw_Run_Begin_Scope(Fmatrix& full_xform);
+	void hw_Run_End();
+#endif
 	ref_constant hwc_consts;
 	ref_constant hwc_wave;
 	ref_constant hwc_wind;
@@ -279,6 +327,7 @@ public:
 	u32 m_frame_calc;
 	xr_atomic_u32 m_frame_rendered;
 	xrCriticalSection m_mt_calc_guard;
+	u32 m_mt_calc_registration_tid; // thread that queued MT_CALC, a same-thread calc run means it fell back inline
 	void __stdcall MT_CALC();
 
 	CDetailManager();

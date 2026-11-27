@@ -28,6 +28,18 @@
 const float dbgOffset = 0.f;
 const int dbgItems = 128;
 
+
+ICF float dm_grass_instance_hash(float x, float z)
+{
+	s32 ix = iFloor(x * 137.f);
+	s32 iz = iFloor(z * 137.f);
+	u32 h = u32(ix) * 73856093u ^ u32(iz) * 19349663u;
+	h ^= h >> 13;
+	h *= 0x85ebca6bu;
+	h ^= h >> 16;
+	return float(h & 0xFFFFFFu) * (1.f / float(0x1000000));
+}
+
 //--------------------------------------------------- Decompression
 static int magic4x4[4][4] =
 {
@@ -89,6 +101,19 @@ CDetailManager::CDetailManager()
 	hw_BatchSize = 0;
 	hw_VB = 0;
 	hw_IB = 0;
+#ifdef USE_DX11
+	hw_instanceVB = 0;
+	hw_instanceSRV = 0;
+	hw_frame_filled = u32(-1);
+	hw_instance_cap = 0;
+	hw_instancing = false;
+	hw_overflow_logged = false;
+	hw_run_frustum = nullptr;
+	hw_run_site = hw_run_site_none;
+	hw_run_cascade = 0;
+	hw_run_tested = hw_run_kept = hw_run_runs = hw_run_max = 0;
+	hw_run_dropped = hw_run_draws = 0;
+#endif
 	m_time_rot_1 = 0;
 	m_time_rot_2 = 0;
 	m_time_pos = 0;
@@ -96,6 +121,7 @@ CDetailManager::CDetailManager()
 
     m_frame_calc = 0;
     m_frame_rendered.store(0, std::memory_order_relaxed);
+    m_mt_calc_registration_tid = 0;
 
 #ifdef DETAIL_RADIUS
 	// KD: variable detail radius
@@ -264,6 +290,7 @@ void CDetailManager::Load()
 	{
 		// MT-details (@front)
 		Device.seqParallelRender.push_back(xr_make_delegate(this, &CDetailManager::MT_CALC));
+		m_mt_calc_registration_tid = GetCurrentThreadId(); // the thread that queues the worker call
 	}
 }
 #endif
@@ -329,7 +356,7 @@ void CDetailManager::UpdateVisibleM()
 	const float r_ssaCHEAP = 16 * r_ssaDISCARD;
 	const float fade_start_ssa = r_ssaDISCARD * ps_r__ssaDISCARD_fade_k;
 	const u32 curFrame = RDEVICE.dwFrame;
-	const bool fastUpdate = !!ps_r2_ls_flags.test(R2FLAG_FAST_DETAILS_UPDATE);
+	const bool fastUpdate = !!ps_r2_ls_flags_ext.test(R2FLAGEXT_FAST_DETAILS_UPDATE);
 	const bool noScale = !!psDeviceFlags2.test(rsNoScale);
 	const u32 dwCC = dm_cache1_count * dm_cache1_count;
 
@@ -378,8 +405,17 @@ void CDetailManager::UpdateVisibleM()
 				if (fcvNone == slot_res && fcvNone == slot_res_svp)
 					continue;
 #ifndef _EDITOR
-				if (!RImplementation.HOM.visible(S.vis))
-					continue;
+				{
+					extern int ps_r__svp_stats;
+					extern u32 svp_stats_hom_tested;
+					extern u32 svp_stats_hom_rejected;
+					if (ps_r__svp_stats) _InterlockedIncrement(reinterpret_cast<volatile long*>(&svp_stats_hom_tested));
+					if (!RImplementation.HOM.visible(S.vis))
+					{
+						if (ps_r__svp_stats) _InterlockedIncrement(reinterpret_cast<volatile long*>(&svp_stats_hom_rejected));
+						continue;
+					}
+				}
 #endif
 				if (curFrame > S.frame)
 				{
@@ -394,7 +430,20 @@ void CDetailManager::UpdateVisibleM()
 					float dist_sq_rcp = 1.f / dist_sq;
 					u32 slot_hash = GetFvectorHash(S.vis.sphere.P);
 
-					if (fastUpdate)
+					float keepP = 1.f;
+					{
+						float knee = ps_r__Detail_density_knee;
+						float dist_frac = _sqrt(dist_sq) / dm_fade;
+						if (dist_frac >= 1.f)
+							keepP = 0.f;
+						else if (dist_frac > knee && knee < 1.f)
+						{
+							float t = (dist_frac - knee) / (1.f - knee);
+							keepP = powf(1.f - t, ps_r__Detail_density_curve);
+						}
+					}
+
+					if (fastUpdate || ps_r2_ls_flags_ext.test(R2FLAGEXT_FAST_DETAILS_UPDATE))
 						S.frame = curFrame + 1;
 					else
 						S.frame = curFrame + 15u + ((slot_hash >> 16) & 15u);
@@ -440,14 +489,16 @@ void CDetailManager::UpdateVisibleM()
 								}
 							}
 
+							// drop this instance when its stable hash exceeds the slot keep probability
+							if (keepP < 1.f && dm_grass_instance_hash(Item.mRotY.c.x, Item.mRotY.c.z) > keepP)
+							{
+								Item.alpha_target = 0;
+								continue;
+							}
 							u32 vis_id = 0;
 							if (ssa > r_ssaCHEAP) vis_id = Item.vis_ID;
 
-							Fmatrix& M = Item.mRotY_calculated;
-							M = Item.mRotY;
-							M._11 *= scale; M._21 *= scale; M._31 *= scale;
-							M._12 *= scale; M._22 *= scale; M._32 *= scale;
-							M._13 *= scale; M._23 *= scale; M._33 *= scale;
+							Item.scale_calculated = scale;
 
 							sp.r_items[vis_id].push_back(*siIT);
 
@@ -459,6 +510,9 @@ void CDetailManager::UpdateVisibleM()
 							Item.alpha_target = 1;
 							Item.distance = dist_sq;
 							Item.position = S.vis.sphere.P;
+#ifdef USE_DX11
+							Item.radius = S.vis.sphere.R;
+#endif
 						}
 					}
 				}
@@ -496,6 +550,21 @@ void CDetailManager::UpdateVisibleM()
 	{
 		for (const DetailVisEntry& e : m_row_visibles[_mz])
 			m_visibles[e.vis_id][e.obj_id].push_back(e.items);
+	}
+
+	// Sort each object's visible slot parts front to back so near grass rasterizes first
+	for (u32 vid = 0; vid < 3; ++vid)
+	{
+		vis_list& list = m_visibles[vid];
+		for (u32 O = 0; O < list.size(); O++)
+		{
+			xr_vector<SlotItemVec*>& vis = list[O];
+			if (vis.size() > 1)
+				std::sort(vis.begin(), vis.end(), [](const SlotItemVec* a, const SlotItemVec* b)
+				{
+					return a->front()->distance < b->front()->distance;
+				});
+		}
 	}
 
 	RDEVICE.Statistic->RenderDUMP_DT_VIS.End();
@@ -554,6 +623,10 @@ void __stdcall CDetailManager::MT_CALC()
 	if (frame_calc != current_frame && (frame_rendered + 1) == current_frame)
 	{
 		PROF_EVENT("details_cache_update", PROF_CAT(Visibility));
+		extern int ps_r__svp_stats;
+		extern u32 svp_stats_detail_main_thread;
+		if (ps_r__svp_stats && GetCurrentThreadId() == m_mt_calc_registration_tid)
+			++svp_stats_detail_main_thread;
 		Fvector EYE = RDEVICE.vCameraPosition_saved;
 
 		int s_x = iFloor(EYE.x / dm_slot_size + .5f);

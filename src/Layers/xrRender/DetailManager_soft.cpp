@@ -79,7 +79,11 @@ void CDetailManager::soft_Render()
 					SlotItem& Instance = *items->at(item_idx);
 
 					// Build matrix
-					Fmatrix& M = Instance.mRotY_calculated;
+					Fmatrix M = Instance.mRotY;
+					const float sc = Instance.scale_calculated;
+					M._11 *= sc; M._21 *= sc; M._31 *= sc;
+					M._12 *= sc; M._22 *= sc; M._32 *= sc;
+					M._13 *= sc; M._23 *= sc; M._33 *= sc;
 					mXform._11 = M._11; mXform._12 = M._12;	mXform._13 = M._13; mXform._14 = M._14;
 					mXform._21 = M._21; mXform._22 = M._22;	mXform._23 = M._23; mXform._24 = M._24;
 					mXform._31 = M._31; mXform._32 = M._32;	mXform._33 = M._33; mXform._34 = M._34;

@@ -8,6 +8,8 @@
 
 #include "../../xrEngine/xr_efflensflare.h"
 
+// pip per-viewport sky prev: the main and SVP passes each keep their own last-frame transform, a single
+// shared one cross-contaminates the sky motion vectors (TAA tolerates it, upscaling shows the ghosting)
 static Fmatrix mSky_prev[2] = { Fidentity, Fidentity };
 
 //////////////////////////////////////////////////////////////////////////
@@ -186,8 +188,6 @@ void dxEnvDescriptorRender::OnDeviceCreate(CEnvDescriptor& owner)
 	if (owner.sky_texture_env_name.size())
 	{
 		sky_texture_env.create(owner.sky_texture_env_name.c_str());
-		// The combine pass copies this cube with surface_get and never applies it
-		sky_texture_env->bNoEvict = true;
 		if (g_pGamePersistent->Environment().m_paused)
 		{
 			mixRen.sky_r_textures_env.clear();
@@ -223,7 +223,7 @@ dxEnvironmentRender::dxEnvironmentRender()
 
 void dxEnvironmentRender::OnFrame(CEnvironment& env)
 {
-	PROF_EVENT("EnvironmentRender::OnFrame", PROF_CAT(Rendering));
+	PROF_EVENT("EnvironmentRender::OnFrame");
 	dxEnvDescriptorMixerRender& mixRen = *(dxEnvDescriptorMixerRender*)&*env.CurrentEnv->m_pDescriptorMixer;
 
 	if (::Render->get_generation() == IRender_interface::GENERATION_R2)
@@ -284,7 +284,7 @@ void dxEnvironmentRender::OnUnload()
 
 void dxEnvironmentRender::RenderSky(CEnvironment& env, bool OnlyMV)
 {
-	PROF_EVENT("EnvironmentRender::RenderSky", PROF_CAT(Rendering));
+	PROF_EVENT("EnvironmentRender::RenderSky");
 	// clouds_sh.create		("clouds","null");
 	//. this is the bug-fix for the case when the sky is broken
 	//. for some unknown reason the geoms happen to be invalid sometimes
@@ -328,9 +328,9 @@ void dxEnvironmentRender::RenderSky(CEnvironment& env, bool OnlyMV)
 
 	if (OnlyMV)
 	{
-		auto svp = Device.m_SecondViewport.IsSVPFrame();
-		RCache.set_xform_world_prev(mSky_prev[svp]);
-		mSky_prev[svp] = mSky;
+		const u32 svp_vp = Device.m_SecondViewport.IsSVPFrame();
+		RCache.set_xform_world_prev(mSky_prev[svp_vp]);
+		mSky_prev[svp_vp] = mSky;
 
 		RCache.set_Geometry(sh_2geom);
 		RCache.set_Shader(sh_2sky);
@@ -371,7 +371,7 @@ void dxEnvironmentRender::RenderSky(CEnvironment& env, bool OnlyMV)
 
 void dxEnvironmentRender::RenderClouds(CEnvironment& env)
 {
-	PROF_EVENT("EnvironmentRender::RenderClouds", PROF_CAT(Rendering));
+	PROF_EVENT("EnvironmentRender::RenderClouds");
 	::Render->rmFar();
 
 	Fmatrix mXFORM, mScale;

@@ -17,7 +17,8 @@
 #include "CameraRecoil.h"
 
 #include "NewZoomFlag.h"
-#include <Layers/xrRender/xrRender_console.h>
+#include "../Layers/xrRender/xrRender_console.h"
+#include "../xrEngine/svp_gameplay_cvars.h"
 
 class CEntity;
 class ENGINE_API CMotionDef;
@@ -25,6 +26,7 @@ class CSE_ALifeItemWeapon;
 class CSE_ALifeItemWeaponAmmo;
 class CWeaponMagazined;
 class CWeaponMagazinedWGrenade;
+class CActor;
 class CWeaponBinoculars;
 class CWeaponKnife;
 class CWeaponBM16;
@@ -100,13 +102,13 @@ public:
 		return inherited::net_SaveRelevant();
 	}
 
-	float CWeapon::GetSecondVPFov() const;
 	IC float GetZRotatingFactor()    const { return m_zoom_params.m_fZoomRotationFactor; }
-	IC float GetSecondVPZoomFactor() const { return GetZoomFactor(); }
-	float IsSecondVPZoomPresent() { 
-		return scope_svp_enabled
-			&& GetSecondVPZoomFactor() > 0.005f
-			&& GetSVPCameraMatrix(Fmatrix());
+	IC float GetSecondVPZoomFactor() const { return scope_svp_enabled ? GetZoomFactor() : m_zoom_params.m_fSecondVPFovFactor; }
+	float IsSecondVPZoomPresent()
+	{
+		if (!scope_svp_enabled)
+			return GetSecondVPZoomFactor() > 0.005f;
+		return GetSVPCameraMatrix();
 	}
 
 	// Up
@@ -133,8 +135,8 @@ public:
 	virtual void HUD_VisualBulletUpdate(bool force = false, int force_idx = -1);
 
 	void UpdateSecondVP();
-	bool CWeapon::GetSVPCameraMatrix(Fmatrix& camera);
-
+	bool GetSVPCameraMatrix();
+	void ApplySvpSightAnchor(CActor* pActor, Fmatrix& trans);
 
 	virtual void UpdateCL();
 	virtual void shedule_Update(u32 dt);
@@ -341,11 +343,15 @@ public:
 	//äëÿ îòîáðîàæåíèÿ èêîíîê àïãðåéäîâ â èíòåðôåéñå
 	int GetScopeX()
 	{
+		if (!HasValidScopeIndex())
+			return 0;
 		return pSettings->r_s32(m_scopes[m_cur_scope], "scope_x");
 	}
 
 	int GetScopeY()
 	{
+		if (!HasValidScopeIndex())
+			return 0;
 		return pSettings->r_s32(m_scopes[m_cur_scope], "scope_y");
 	}
 
@@ -376,7 +382,7 @@ public:
 
 	const shared_str GetScopeName() const
 	{
-		if (m_scopes.size() < 1)
+		if (!HasValidScopeIndex())
 		{
 			return {};
 		}
@@ -441,6 +447,17 @@ protected:
 		bool m_bZoomDofEnabled;
 		bool m_bIsZoomModeNow;
 		float m_fCurrentZoomFactor;
+		float m_fZoomTargetFactor; // pip smooth-zoom target, the current factor eases toward this (dynamic scopes)
+		bool m_bScriptedZoom = false; // pip true when a script authored the live factor, those carry the user fov already
+		bool m_bSvpAuthoredMin = false; // pip authored magnifications set the floor directly, skip the optical-model cap
+		int m_iSvpMagnificationMode = 0;
+		u8 m_uSvpMagnificationCount = 0;
+		float m_fSvpMagnifications[16] = {};
+		u64 m_uSvpMagnificationFingerprint = 0;
+		u32 m_uSvpMagnificationToken = 0;
+		u32 m_uSvpMagnificationGeneration = 0;
+		u32 m_uSvpMagnificationRouteEpoch = 0;
+		u32 m_uSvpMagnificationSession = 0;
 		float m_fZoomRotateTime;
 		float m_fBaseZoomFactor;
 		float m_fScopeZoomFactor;
@@ -453,6 +470,9 @@ protected:
 		BOOL m_bUseDynamicZoom_Primary;
 		BOOL m_bUseDynamicZoom_Alt;
 		BOOL m_bUseDynamicZoom_GL;
+		BOOL m_bSvpDynamicZoom_Primary;
+		BOOL m_bSvpDynamicZoom_Alt;
+		BOOL m_bSvpDynamicZoom_GL;
 		shared_str m_sUseZoomPostprocess;
 		shared_str m_sUseBinocularVision;
 		CUIBinocularsVision* m_pVision;
@@ -461,6 +481,21 @@ protected:
 
 	float m_fRTZoomFactor; //run-time zoom factor
 	CUIWindow* m_UIScope;
+	shared_str m_svpZoomSeedIdentity;
+	bool m_svpZoomSeedValid;
+	xr_map<shared_str, float> m_svpZoomFactors;
+	xr_map<shared_str, float> m_svpTypedMagnifications;
+	int m_svpZoomSeedMode;
+	shared_str m_svpTypedMagnificationIdentity;
+	shared_str m_svpMainViewIdentity;
+	bool m_svpMainViewValid;
+	shared_str SvpZoomIdentity() const;
+	void InvalidateSvpZoomSeed();
+	void CaptureSvpZoomSeed();
+	void SyncSvpZoomSeedMode();
+	bool SyncSvpTypedMagnifications();
+	bool RefreshSvpTypedMagnifications();
+	float SvpTypedMagnification() const;
 
 private:
 	bool firstZoomDone;
@@ -476,7 +511,9 @@ public:
 		return m_zoom_params.m_bZoomEnabled;
 	}
 
-	virtual float GetEffectiveMinScopeZoomFactor() const;
+	virtual float GetMinScopeZoomFactor() const;
+	virtual bool SvpDetentBase() const { return g_svp_zoom_base && scope_svp_enabled >= 2 && m_zoom_params.m_bUseDynamicZoom && !m_UIScope; }
+	virtual bool SvpMagsEligible() const { return true; }
 	virtual void ZoomInc();
 	virtual void ZoomDec();
 	virtual void OnZoomIn();
@@ -499,9 +536,20 @@ public:
 		return m_zoom_params.m_fCurrentZoomFactor;
 	}
 
+	IC bool IsScriptedZoom() const { return m_zoom_params.m_bScriptedZoom; }
+	// pip the svp has proven itself for this optic identity so the main view stays wide through snapshot gaps
+	bool OwnsSvpMainView() const;
+
+	// the lua binding reads this, scripts see the commanded detent while the fov keeps easing
+	float GetZoomFactorScript() const;
+	// the lua binding writes through this, it marks the factor script authored
+	void SetZoomFactorScript(float f);
+
 	IC void SetZoomFactor(float f)
 	{
 		m_zoom_params.m_fCurrentZoomFactor = f;
+		m_zoom_params.m_fZoomTargetFactor = f; // pip keep the smooth-zoom target synced, only scroll (ZoomInc/Dec) pushes it ahead
+		m_zoom_params.m_bScriptedZoom = false; // pip engine and config writes land here, the lua wrapper re-marks
 	}
 
 	IC float GetScopeZoomFactor() const
@@ -513,11 +561,6 @@ public:
 	{
 		m_zoom_params.m_fScopeZoomFactor = f;
 		ResetCurrentZoomFactor();
-	}
-
-	IC float GetMinScopeZoomFactor() const
-	{
-		return m_zoom_params.m_fMinBaseZoomFactor;
 	}
 
 	IC void SetMinScopeZoomFactor(float f)
@@ -1192,7 +1235,7 @@ public:
 	virtual void SetZoomRotateTime(float val) { m_zoom_params.m_fZoomRotateTime = val; }
 
     // verdatim
-    virtual void ForceSetZoomType(float val) { m_zoomtype = val; }
+    virtual void ForceSetZoomType(float val);
 
 protected:
 	int iAmmoElapsed; // ammo in magazine, currently
@@ -1211,6 +1254,9 @@ public:
 	DEFINE_VECTOR(shared_str, SCOPES_VECTOR, SCOPES_VECTOR_IT);
 	SCOPES_VECTOR m_scopes;
 	u8 m_cur_scope;
+	bool HasValidScopeIndex() const { return m_cur_scope < m_scopes.size(); }
+	bool SetCurrentScopeIndex(u8 index, LPCSTR source);
+	bool ValidateModularScopeState(LPCSTR source, bool rebuild_item);
 
 	bool m_altAimPos;
 	u8 m_zoomtype;

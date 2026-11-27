@@ -1,0 +1,756 @@
+local profiles
+local physical_specs
+local external_aliases
+local external_aliases_loaded = false
+local external_aliases_status = "unchecked"
+local external_checked = false
+local compat_section = "pip_mas_pizza_compat"
+local alias_meta_section = "pip_optic_external_aliases"
+local alias_schema_version = 1
+local alias_owner = "PiP MAS Pizza Compatibility"
+local alias_owner_id = "pip_mas_pizza_compat"
+local compat_probe_sections = { "exps3_mag", "gee36_dove" }
+
+local keys = {
+    "s3ds_tunneling_parallax",
+    "s3ds_tunneling_min",
+    "s3ds_tunneling_max",
+    "s3ds_eye_tracking_speed",
+    "s3ds_eye_tracking_accel_mm_s2",
+    "s3ds_eye_tracking_limit_mm",
+    "s3ds_eye_relief_low_mm",
+    "s3ds_eye_relief_high_mm",
+    "s3ds_exit_pupil_low_mm",
+    "s3ds_exit_pupil_high_mm",
+    "s3ds_pupil_parity",
+    "s3ds_pupil_field_low",
+    "s3ds_pupil_field_high",
+    "s3ds_transmission",
+    "s3ds_twilight_strength",
+}
+
+local defaults = {
+    s3ds_tunneling_parallax = 0.035,
+    s3ds_tunneling_min = 0.04,
+    s3ds_tunneling_max = 0.06,
+    s3ds_eye_tracking_speed = 5,
+    s3ds_eye_tracking_accel_mm_s2 = 80,
+    s3ds_eye_tracking_limit_mm = 7,
+    s3ds_eye_relief_low_mm = 80,
+    s3ds_eye_relief_high_mm = 80,
+    s3ds_exit_pupil_low_mm = 0,
+    s3ds_exit_pupil_high_mm = 0,
+    s3ds_pupil_parity = -1,
+    s3ds_pupil_field_low = 0.55,
+    s3ds_pupil_field_high = 0.55,
+    s3ds_transmission = 1,
+    s3ds_twilight_strength = 0.35,
+}
+
+local function runtime_section(ini, scope_section, weapon_section, scope_hint)
+    if weapon_section and ini:section_exist(weapon_section) then
+        return weapon_section
+    end
+    if scope_section and ini:section_exist(scope_section) then
+        return scope_section
+    end
+    if scope_hint and ini:section_exist(scope_hint) then
+        return scope_hint
+    end
+end
+
+local function normalized_owner(value)
+    return string.lower(string.gsub(tostring(value or ""), "[^%w]", ""))
+end
+
+local function ensure_physical_specs()
+    physical_specs = physical_specs or ini_file("pip_optic_physical_specs.ltx")
+end
+
+local function ensure_external_aliases()
+    if external_aliases_loaded then
+        return
+    end
+    external_aliases_loaded = true
+    if not getFS():exist("$game_config$", "pip_optic_external_aliases.ltx") then
+        external_aliases_status = "missing"
+        return
+    end
+
+    local candidate = ini_file("pip_optic_external_aliases.ltx")
+    local schema = tonumber(candidate:r_string_ex(alias_meta_section, "schema_version"))
+    local owner_id = candidate:r_string_ex(alias_meta_section, "owner_id")
+    local owner = candidate:r_string_ex(alias_meta_section, "owner")
+    if schema ~= alias_schema_version then
+        external_aliases_status = "schema_" .. tostring(schema or "missing")
+        return
+    end
+    local owner_valid = normalized_owner(owner_id) == normalized_owner(alias_owner_id)
+        or (not owner_id and normalized_owner(owner) == normalized_owner(alias_owner))
+    if not owner_valid then
+        external_aliases_status = "owner_mismatch"
+        printf("![PIP-COMPAT] alias owner expected=%s received=%s",
+            alias_owner_id, tostring(owner_id or owner or "missing"))
+        return
+    end
+
+    external_aliases = candidate
+    external_aliases_status = "ready"
+end
+
+local function validated_spec(spec)
+    ensure_physical_specs()
+    if spec and physical_specs:section_exist(spec) then
+        local model = physical_specs:r_string_ex(spec, "runtime_model")
+        if model == "geometric" or model == "display" then
+            return spec, model
+        end
+    end
+end
+
+local function section_spec(ini, section)
+    if not (ini and section and ini:section_exist(section)) then
+        return nil, nil, false
+    end
+    local spec, model = validated_spec(ini:r_string_ex(section, "spec"))
+    return spec, model, true
+end
+
+local function physical_spec(scope_section, weapon_section, scope_hint)
+    ensure_physical_specs()
+    ensure_external_aliases()
+    local function resolve(section, hint)
+        local spec, model, claimed = section_spec(physical_specs, section)
+        if claimed then
+            return spec, model, true, hint and "builtin_hint" or "builtin", section
+        end
+        spec, model, claimed = section_spec(external_aliases, section)
+        if claimed then
+            return spec, model, true, hint and "external_hint" or "external", section
+        end
+    end
+
+    local spec, model, claimed, binding, binding_section = resolve(weapon_section)
+    if claimed then
+        return spec, model, binding, binding_section
+    end
+    spec, model, claimed, binding, binding_section = resolve(scope_section)
+    if claimed then
+        return spec, model, binding, binding_section
+    end
+    spec, model, claimed, binding, binding_section = resolve(scope_hint, true)
+    if claimed then
+        return spec, model, binding, binding_section
+    end
+end
+
+-- raw spec binding, unvalidated so a spec with no runtime_model still names its class
+local function bound_spec(scope_section, weapon_section, scope_hint)
+    ensure_physical_specs()
+    ensure_external_aliases()
+    local sections = {weapon_section, scope_section, scope_hint}
+    for index = 1, 3 do
+        local section = sections[index]
+        if section then
+            if physical_specs:section_exist(section) then
+                return physical_specs:r_string_ex(section, "spec")
+            end
+            if external_aliases and external_aliases:section_exist(section) then
+                return external_aliases:r_string_ex(section, "spec")
+            end
+        end
+    end
+end
+
+local function list_values(value)
+    local values = {}
+    for item in string.gmatch(value or "", "[^,%s]+") do
+        values[#values + 1] = item
+    end
+    return values
+end
+
+local function has_runtime_value(section, fields)
+    for _, field in ipairs(fields) do
+        if ini_sys:r_string_ex(section, field) then
+            return true
+        end
+    end
+    return false
+end
+
+local function add_unique(values, value)
+    for _, current in ipairs(values) do
+        if current == value then
+            return
+        end
+    end
+    values[#values + 1] = value
+end
+
+local function validate_external_compat()
+    if external_checked or not ini_sys then
+        return
+    end
+    external_checked = true
+    ensure_external_aliases()
+    if not external_aliases then
+        local detected = {}
+        for _, section in ipairs(compat_probe_sections) do
+            if ini_sys:section_exist(section) then
+                detected[#detected + 1] = section
+            end
+        end
+        if #detected > 0 then
+            printf("![PIP-COMPAT] manifest=%s detected=%s",
+                external_aliases_status, table.concat(detected, ","))
+        end
+        return
+    end
+
+    local total = 0
+    local missing = {}
+    local invalid = {}
+    local missing_hud = {}
+    local missing_geometry = {}
+    local missing_zoom = {}
+    local wrong_type = {}
+    local wrong_hybrid = {}
+    local shader_contract = "missing"
+    local function validate_runtime_section(section)
+        if not ini_sys:section_exist(section) then
+            add_unique(missing, section)
+            return
+        end
+        local hud = ini_sys:r_string_ex(section, "hud")
+        if not (hud and ini_sys:section_exist(hud)) then
+            add_unique(missing_hud, section)
+        end
+        if not ini_sys:r_string_ex(section, "scope_objective_lens_offset") then
+            add_unique(missing_geometry, section)
+        end
+        if not has_runtime_value(section, {
+            "svp_magnifications",
+            "magnifications",
+            "magnification",
+            "scope_zoom_factor",
+        }) then
+            add_unique(missing_zoom, section)
+        end
+    end
+
+    external_aliases:section_for_each(function(section)
+        if section == alias_meta_section then
+            return false
+        end
+        total = total + 1
+        validate_runtime_section(section)
+        local spec = external_aliases:r_string_ex(section, "spec")
+        if not validated_spec(spec) then
+            add_unique(invalid, section)
+        end
+        return false
+    end)
+    if total == 0 then
+        return
+    end
+
+    local version = "missing"
+    local required_count = 0
+    local function validate_hybrid_sections(owner, key, expected)
+        for _, section in ipairs(list_values(ini_sys:r_string_ex(owner, key))) do
+            if not ini_sys:section_exist(section)
+                or not ini_sys:line_exist(section, "svp_hybrid_reflex")
+                or ini_sys:r_bool_ex(section, "svp_hybrid_reflex", not expected) ~= expected then
+                add_unique(wrong_hybrid, section)
+            end
+        end
+    end
+    if ini_sys:section_exist(compat_section) then
+        version = tostring(ini_sys:r_string_ex(compat_section, "version") or "unknown")
+        local contract = ini_sys:r_string_ex(compat_section, "shader_contract")
+        if contract and ini_sys:section_exist(contract)
+            and tonumber(ini_sys:r_string_ex(contract, "magnifier_reticle_type")) == 12
+            and ini_sys:r_string_ex(contract, "hybrid_capability") == "svp_hybrid_reflex" then
+            shader_contract = tostring(contract)
+            validate_hybrid_sections(contract, "hybrid_sections", true)
+            validate_hybrid_sections(contract, "hybrid_inactive_sections", false)
+        else
+            add_unique(missing, contract or "shader_contract")
+        end
+        for _, section in ipairs(list_values(ini_sys:r_string_ex(compat_section, "required_sections"))) do
+            required_count = required_count + 1
+            validate_runtime_section(section)
+        end
+        for _, section in ipairs(list_values(ini_sys:r_string_ex(compat_section, "type12_sections"))) do
+            if tonumber(ini_sys:r_string_ex(section, "s3ds_reticle_type")) ~= 12 then
+                add_unique(wrong_type, section)
+            end
+        end
+        validate_hybrid_sections(compat_section, "hybrid_sections", true)
+        validate_hybrid_sections(compat_section, "hybrid_inactive_sections", false)
+    else
+        add_unique(missing, compat_section)
+    end
+
+    if #missing > 0 or #invalid > 0 or #missing_hud > 0 or #missing_geometry > 0
+        or #missing_zoom > 0 or #wrong_type > 0 or #wrong_hybrid > 0 then
+        printf("![PIP-COMPAT] version=%s alias_schema=%d shader_contract=%s aliases=%d required=%d missing=%s invalid=%s hud=%s geometry=%s zoom=%s wrong_type=%s hybrid=%s",
+            version, alias_schema_version, shader_contract, total, required_count,
+            table.concat(missing, ","), table.concat(invalid, ","),
+            table.concat(missing_hud, ","), table.concat(missing_geometry, ","),
+            table.concat(missing_zoom, ","), table.concat(wrong_type, ","),
+            table.concat(wrong_hybrid, ","))
+    else
+        printf("[PIP-COMPAT] version=%s alias_schema=%d shader_contract=%s aliases=%d required=%d ready",
+            version, alias_schema_version, shader_contract, total, required_count)
+    end
+end
+
+local function spec_number_info(spec, key)
+    local value = spec and physical_specs:r_float_ex(spec, key)
+    if value then
+        return value, "spec:" .. spec .. ":" .. key
+    end
+end
+
+local function eye_relief(spec, endpoint)
+    local value, source = spec_number_info(spec, "eye_relief_mm")
+    if value then
+        return value, source
+    end
+    value, source = spec_number_info(spec, "eye_relief_" .. endpoint .. "_mm")
+    if value then
+        return value, source
+    end
+
+    local min_key = "eye_relief_" .. endpoint .. "_min_mm"
+    local max_key = "eye_relief_" .. endpoint .. "_max_mm"
+    local minimum = spec and physical_specs:r_float_ex(spec, min_key)
+    local maximum = spec and physical_specs:r_float_ex(spec, max_key)
+    if minimum and maximum then
+        return (minimum + maximum) * 0.5, "spec:" .. spec .. ":" .. min_key .. "+" .. max_key
+    end
+
+    min_key = "eye_relief_min_mm"
+    max_key = "eye_relief_max_mm"
+    minimum = spec and physical_specs:r_float_ex(spec, min_key)
+    maximum = spec and physical_specs:r_float_ex(spec, max_key)
+    if minimum and maximum then
+        return (minimum + maximum) * 0.5, "spec:" .. spec .. ":" .. min_key .. "+" .. max_key
+    end
+end
+
+local function exit_pupil(spec, endpoint)
+    local value, source = spec_number_info(spec, "exit_pupil_" .. endpoint .. "_mm")
+    if value then
+        return value, source
+    end
+    local mag_key = "magnification_" .. (endpoint == "low" and "min" or "max")
+    local magnification = spec and physical_specs:r_float_ex(spec, mag_key)
+    local objective = spec and physical_specs:r_float_ex(spec, "objective_mm")
+    if objective and magnification and magnification > 0 then
+        return objective / magnification,
+            "derived:" .. spec .. ":objective_mm/" .. mag_key
+    end
+end
+
+local function field_scale(spec, endpoint)
+    local value, source = spec_number_info(spec, "pupil_field_" .. endpoint)
+    if value then
+        return value, source
+    end
+    return 1, "derived:pupil_radii"
+end
+
+local function physical_runtime_values(spec, model)
+    local values = {}
+    local sources = {}
+    if not spec then
+        return values, sources
+    end
+
+    values.s3ds_eye_relief_low_mm, sources.s3ds_eye_relief_low_mm = eye_relief(spec, "low")
+    values.s3ds_eye_relief_high_mm, sources.s3ds_eye_relief_high_mm = eye_relief(spec, "high")
+    values.s3ds_exit_pupil_low_mm, sources.s3ds_exit_pupil_low_mm = exit_pupil(spec, "low")
+    values.s3ds_exit_pupil_high_mm, sources.s3ds_exit_pupil_high_mm = exit_pupil(spec, "high")
+    values.s3ds_pupil_field_low, sources.s3ds_pupil_field_low = field_scale(spec, "low")
+    values.s3ds_pupil_field_high, sources.s3ds_pupil_field_high = field_scale(spec, "high")
+
+    if model == "display" then
+        values.s3ds_pupil_parity = 0
+        sources.s3ds_pupil_parity = "model:" .. spec .. ":display"
+    else
+        values.s3ds_pupil_parity, sources.s3ds_pupil_parity =
+            spec_number_info(spec, "pupil_parity")
+    end
+
+    if model == "display" then
+        values.s3ds_transmission = 1
+        sources.s3ds_transmission = "model:" .. spec .. ":display"
+    else
+        values.s3ds_transmission, sources.s3ds_transmission =
+            spec_number_info(spec, "transmission")
+        if values.s3ds_transmission == nil then
+            values.s3ds_transmission = 1
+            sources.s3ds_transmission = "physical_default"
+        end
+    end
+
+    values.s3ds_tunneling_parallax = 0
+    values.s3ds_tunneling_min = 0
+    values.s3ds_tunneling_max = 0
+    sources.s3ds_tunneling_parallax = "model:" .. spec
+    sources.s3ds_tunneling_min = "model:" .. spec
+    sources.s3ds_tunneling_max = "model:" .. spec
+
+    if model == "display" then
+        values.s3ds_twilight_strength = 0
+        sources.s3ds_twilight_strength = "model:" .. spec .. ":display"
+    elseif values.s3ds_exit_pupil_low_mm or values.s3ds_exit_pupil_high_mm then
+        values.s3ds_twilight_strength = 1
+        sources.s3ds_twilight_strength = "derived:" .. spec .. ":exit_pupil"
+    end
+
+    return values, sources
+end
+
+local function find_profile(scope_section, weapon_section, scope_hint)
+    profiles = profiles or ini_file("pip_optic_profiles.ltx")
+    return runtime_section(profiles, scope_section, weapon_section, scope_hint)
+end
+
+local function profile_value_info(scope_section, weapon_section, scope_hint, key)
+    local sections = {weapon_section, scope_section, scope_hint}
+    for index = 1, 3 do
+        local section = sections[index]
+        if section and profiles:section_exist(section) then
+            local value = profiles:r_float_ex(section, key)
+            if value ~= nil then
+                return value, "profile:" .. section, section
+            end
+        end
+    end
+    local value = profiles:r_float_ex("default", key)
+    if value ~= nil then
+        return value, "profile:default", "default"
+    end
+    return defaults[key], "lua_default", "default"
+end
+
+local function authored_line_source(section, key)
+    local file = section and ini_sys:section_exist(section)
+        and ini_sys:line_exist(section, key)
+        and ini_sys:dltx_get_filename_of_line(section, key)
+    return table.concat({ "ltx", section or "none", key, file or "merged" }, ":")
+end
+
+local function finite_positive(value)
+    return value and value == value and value > 0 and value < math.huge
+end
+
+local function trim(value)
+    return string.match(tostring(value or ""), "^%s*(.-)%s*$")
+end
+
+local function decimal_number(raw)
+    local text = trim(raw)
+    local base = text
+    local exponent
+    local marker = string.find(text, "[eE]")
+    if marker then
+        if string.find(text, "[eE]", marker + 1) then
+            return
+        end
+        base = string.sub(text, 1, marker - 1)
+        exponent = string.sub(text, marker + 1)
+        exponent = string.gsub(exponent, "^[%+%-]", "")
+        if not string.match(exponent, "^%d+$") then
+            return
+        end
+    end
+    base = string.gsub(base, "^[%+%-]", "")
+    local decimal = string.match(base, "^%d+$")
+        or string.match(base, "^%d+%.%d*$")
+        or string.match(base, "^%.%d+$")
+    if not decimal then
+        return
+    end
+    return tonumber(text)
+end
+
+local function parse_magnification_list(raw)
+    local text = trim(raw)
+    if text == "" then
+        return nil, "empty"
+    end
+    local fixed = decimal_number(text)
+    if fixed ~= nil then
+        if finite_positive(fixed) and fixed <= 200 then
+            return "fixed", { fixed }
+        end
+        return nil, "range"
+    end
+
+    if string.find(text, ",", 1, true) then
+        local values = {}
+        local cursor = 1
+        while true do
+            local separator = string.find(text, ",", cursor, true)
+            local part = trim(string.sub(text, cursor, separator and separator - 1 or #text))
+            local value = decimal_number(part)
+            if part == "" or not finite_positive(value) or value > 200 then
+                return nil, "detent_component"
+            end
+            if #values > 0 and value <= values[#values] then
+                return nil, "detent_order"
+            end
+            values[#values + 1] = value
+            if #values > 16 then
+                return nil, "detent_count"
+            end
+            if not separator then
+                break
+            end
+            cursor = separator + 1
+        end
+        if #values < 2 then
+            return nil, "detent_count"
+        end
+        return "detent", values
+    end
+
+    local separator
+    for index = 2, #text - 1 do
+        if string.sub(text, index, index) == "-" then
+            local previous = string.sub(text, index - 1, index - 1)
+            if previous ~= "e" and previous ~= "E" then
+                if separator then
+                    return nil, "mixed_delimiter"
+                end
+                separator = index
+            end
+        end
+    end
+    if not separator then
+        return nil, "syntax"
+    end
+    local low = decimal_number(string.sub(text, 1, separator - 1))
+    local high = decimal_number(string.sub(text, separator + 1))
+    if not finite_positive(low) or not finite_positive(high)
+        or low > 200 or high > 200 or low >= high then
+        return nil, "continuous_order"
+    end
+    return "continuous", { low, high }
+end
+
+local function magnification_parent_scope(section)
+    if not section or not ini_sys:section_exist(section) then
+        return
+    end
+    local parent = ini_sys:r_string_ex(section, "parent_section")
+    if not parent or parent == "" then
+        return
+    end
+    local prefix = parent .. "_"
+    if string.sub(section, 1, #prefix) ~= prefix then
+        return
+    end
+    local suffix = string.sub(section, #prefix + 1)
+    if suffix ~= "" and ini_sys:section_exist(suffix) then
+        return suffix
+    end
+end
+
+local function magnification_sections(scope_section, weapon_section, scope_hint)
+    local sections = {}
+    local modular = weapon_section and
+        ini_sys:r_bool_ex(weapon_section, "modular_attachments", false)
+    if scope_section and modular then
+        add_unique(sections, scope_section)
+        add_unique(sections, magnification_parent_scope(scope_section))
+        return sections
+    end
+    local candidates = { weapon_section, scope_section, scope_hint }
+    for index = 1, 3 do
+        local section = candidates[index]
+        if section and ini_sys:section_exist(section) then
+            add_unique(sections, section)
+            add_unique(sections, magnification_parent_scope(section))
+        end
+    end
+    return sections
+end
+
+local function magnification_info(scope_section, weapon_section, scope_hint)
+    local keys = { "svp_magnifications", "magnifications", "magnification" }
+    for _, section in ipairs(
+        magnification_sections(scope_section, weapon_section, scope_hint)) do
+        for _, key in ipairs(keys) do
+            local raw = ini_sys:r_string_ex(section, key)
+            if raw ~= nil then
+                local mode, values_or_error = parse_magnification_list(raw)
+                if not mode then
+                    return nil, nil, nil, key .. ":" .. values_or_error
+                end
+                local source = authored_line_source(section, key)
+                if key == "magnification" and mode == "fixed"
+                    and ini_sys:r_bool_ex(section, "scope_dynamic_zoom", false) then
+                    local minimum_raw = ini_sys:r_string_ex(section, "min_magnification")
+                    local minimum = decimal_number(minimum_raw)
+                    if not finite_positive(minimum) or minimum >= values_or_error[1] then
+                        return nil, nil, nil, "min_magnification:continuous_order"
+                    end
+                    mode = "continuous"
+                    values_or_error = { minimum, values_or_error[1] }
+                    source = source .. "+"
+                        .. authored_line_source(section, "scope_dynamic_zoom") .. "+"
+                        .. authored_line_source(section, "min_magnification")
+                end
+                return mode, values_or_error, source
+            end
+        end
+    end
+end
+
+local function eye_coupling_info(scope_section, weapon_section, scope_hint)
+    local sections = {weapon_section, scope_section, scope_hint}
+    for index = 1, 3 do
+        local section = sections[index]
+        if section and profiles:section_exist(section) then
+            local value = profiles:r_float_ex(section, "eye_coupling")
+            if value ~= nil then
+                if value == 0 then
+                    return false, "profile:" .. section
+                elseif value == 1 then
+                    return true, "profile:" .. section
+                end
+                return nil, nil, "eye_coupling:" .. tostring(value)
+            end
+        end
+    end
+    local spec = bound_spec(scope_section, weapon_section, scope_hint)
+    if spec and physical_specs:section_exist(spec) then
+        local class = physical_specs:r_string_ex(spec, "optic_class")
+        if class then
+            return class ~= "display", "class:" .. spec .. ":" .. class
+        end
+    end
+    local value = profiles:r_float_ex("default", "eye_coupling")
+    if value ~= nil then
+        if value == 0 then
+            return false, "profile:default"
+        elseif value == 1 then
+            return true, "profile:default"
+        end
+        return nil, nil, "eye_coupling:" .. tostring(value)
+    end
+    return true, "lua_default"
+end
+
+function resolve(scope_section, weapon_section, scope_hint)
+    local profile_section = find_profile(scope_section, weapon_section, scope_hint) or "default"
+    local spec, model, binding, binding_section =
+        physical_spec(scope_section, weapon_section, scope_hint)
+    if get_console():get_integer("r__svpscope") > 0 then
+        validate_external_compat()
+    end
+    local physical_values, physical_sources = physical_runtime_values(spec, model)
+    local values = {}
+    local sources = {}
+    for _, key in ipairs(keys) do
+        local value = physical_values[key]
+        local source = physical_sources[key]
+        if value == nil then
+            value, source = profile_value_info(scope_section, weapon_section, scope_hint, key)
+        end
+        if value == nil then
+            value = defaults[key]
+            source = "lua_default"
+        end
+        values[key] = value
+        sources[key] = source or "lua_default"
+    end
+
+    local physical_min, physical_min_source = spec_number_info(spec, "magnification_min")
+    local physical_max, physical_max_source = spec_number_info(spec, "magnification_max")
+    local objective, objective_source = spec_number_info(spec, "objective_mm")
+    local eye_coupling, eye_coupling_source, eye_coupling_error =
+        eye_coupling_info(scope_section, weapon_section, scope_hint)
+    local reticle_illum, reticle_illum_source =
+        profile_value_info(scope_section, weapon_section, scope_hint, "reticle_illum")
+    local magnification_mode, magnifications, magnification_source, magnification_error =
+        magnification_info(scope_section, weapon_section, scope_hint)
+    local field_error = eye_coupling_error or magnification_error
+    if reticle_illum == nil or reticle_illum ~= reticle_illum
+        or reticle_illum < 0 or reticle_illum > 1 then
+        field_error = field_error or "reticle_illum:range"
+    end
+    if (physical_min == nil) ~= (physical_max == nil) then
+        field_error = field_error or "physical_magnification:endpoints"
+    elseif physical_min and (not finite_positive(physical_min)
+        or not finite_positive(physical_max)
+        or physical_min > 200 or physical_max > 200
+        or physical_min > physical_max) then
+        field_error = field_error or "physical_magnification:range"
+    end
+    if objective == 0 then
+        objective = nil
+        objective_source = nil
+    elseif objective ~= nil
+        and (not finite_positive(objective) or objective > 200) then
+        field_error = field_error or "objective_mm:range"
+    end
+    return {
+        profile = profile_section or "default",
+        spec = spec,
+        model = model,
+        binding = binding,
+        binding_section = binding_section,
+        values = values,
+        sources = sources,
+        physical_min = physical_min,
+        physical_max = physical_max,
+        physical_min_source = physical_min_source or "none",
+        physical_max_source = physical_max_source or "none",
+        eye_coupling = eye_coupling,
+        eye_coupling_source = eye_coupling_source,
+        reticle_illum = reticle_illum,
+        reticle_illum_source = reticle_illum_source,
+        magnification_mode = magnification_mode,
+        magnifications = magnifications,
+        magnification_source = magnification_source,
+        field_error = field_error,
+        objective_mm = objective,
+        objective_source = objective_source,
+        exit_pupil_low_mm = values.s3ds_exit_pupil_low_mm,
+        exit_pupil_high_mm = values.s3ds_exit_pupil_high_mm,
+        alias_status = external_aliases_status,
+    }
+end
+
+function materialize_legacy(optics)
+    for _, key in ipairs(keys) do
+        exec_console_cmd(key .. " " .. tostring(optics.values[key]))
+    end
+end
+
+function apply(scope_section, weapon_section)
+    local optics = resolve(scope_section, weapon_section)
+    materialize_legacy(optics)
+    return optics
+end
+
+function profile_value_for(scope_section, weapon_section, key, scope_hint)
+    find_profile(scope_section, weapon_section, scope_hint)
+    local value, source, profile_section =
+        profile_value_info(scope_section, weapon_section, scope_hint, key)
+    return value, profile_section or "default", source
+end
+
+function objective_mm(scope_section, weapon_section, scope_hint)
+    local spec, _, binding, binding_section =
+        physical_spec(scope_section, weapon_section, scope_hint)
+    local value, source = spec_number_info(spec, "objective_mm")
+    return value, spec, binding, binding_section, source
+end

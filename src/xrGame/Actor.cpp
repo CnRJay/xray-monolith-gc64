@@ -1,6 +1,7 @@
 #include "pch_script.h"
 #include "Actor_Flags.h"
 #include "hudmanager.h"
+#include "../xrCore/svp_log.h"
 #ifdef DEBUG
 
 #	include "PHDebug.h"
@@ -29,6 +30,7 @@
 
 // breakpoints
 #include "../xrEngine/xr_input.h"
+#include "../xrEngine/svp_gameplay_cvars.h" // pip the 75 base for the through-scope sens fov
 //
 #include "Actor.h"
 #include "ActorAnimation.h"
@@ -1100,7 +1102,7 @@ void CActor::g_Physics(Fvector& _accel, float jump, float dt)
 float g_fov = 55.0f;
 extern float g_ironsights_factor;
 
-float CActor::currentFOV(bool wantSVPFov = false)
+float CActor::currentFOV(bool wantSVPFov)
 {
 	if (!psHUD_Flags.is(HUD_WEAPON | HUD_WEAPON_RT | HUD_WEAPON_RT2))
 		return g_fov;
@@ -1112,10 +1114,16 @@ float CActor::currentFOV(bool wantSVPFov = false)
 		(!pWeapon->ZoomTexture() || (!pWeapon->IsRotatingToZoom() && pWeapon->ZoomTexture()))
 	)
 	{
+		const bool svp_owns_main_view = Device.true_pip_on && pWeapon->OwnsSvpMainView();
 		if (pWeapon->GetZoomFactor() == 0)
 			return atan(tan(g_fov * (0.5 * PI / 180)) / g_ironsights_factor) / (0.5 * PI / 180);
-		else if (Device.m_SecondViewport.IsSVPActive() && !wantSVPFov)
+		// pip when the SVP renders the zoom, the main view stays wide (the zoom lives in the scope image),
+		// wantSVPFov asks for the real zoomed fov (svpCamera, mouse sensitivity)
+		else if (svp_owns_main_view && !wantSVPFov)
 			return g_fov;
+		else if (svp_owns_main_view && wantSVPFov)
+			// pip the true through-scope fov, config factors ride the 75 base and rescale to the live fov
+			return svp_factor_to_fov(pWeapon->GetZoomFactor(), pWeapon->IsScriptedZoom() ? 1.f : g_fov / SVP_ZOOM_BASE_FOV);
 		else
 			return pWeapon->GetZoomFactor() * (0.75f);
 	}
@@ -1128,9 +1136,10 @@ float CActor::currentFOV(bool wantSVPFov = false)
 bool CActor::scopeCameraMatrix(Fmatrix& camera)
 {
 	CWeapon* pWeapon = smart_cast<CWeapon*>(inventory().ActiveItem());
-	if (pWeapon)
+	if (pWeapon && pWeapon->GetSVPCameraMatrix())
 	{
-		return pWeapon->GetSVPCameraMatrix(camera);
+		camera.invert(Device.matrices[1].mView);
+		return true;
 	}
 	camera = Device.mInvView;
 	return false;
@@ -1251,7 +1260,28 @@ void CActor::UpdateCL()
 			g_pGamePersistent->m_pGShaderConstants->hud_params.z = pWeapon->GetHudFov();
 
 			g_pGamePersistent->m_pGShaderConstants->hud_fov_params.x = pWeapon->CurrentZoomFactor();
-			g_pGamePersistent->m_pGShaderConstants->hud_fov_params.y = pWeapon->GetEffectiveMinScopeZoomFactor();
+			g_pGamePersistent->m_pGShaderConstants->hud_fov_params.y = pWeapon->GetMinScopeZoomFactor();
+
+			// dial telemetry, the three inputs the scope zoom mapping divides, prints in any mode
+			{
+				extern int ps_r__svp_diag;
+				extern int scope_svp_enabled;
+				if (ps_r__svp_diag && pWeapon->IsZoomed())
+				{
+					static u32 s_dial_ms = 0;
+					if (Device.dwTimeGlobal - s_dial_ms > 1000)
+					{
+						s_dial_ms = Device.dwTimeGlobal;
+						const float F = pWeapon->GetZoomFactor();
+						const float Fmin = pWeapon->GetMinScopeZoomFactor();
+						const float Ftop = pWeapon->CurrentZoomFactor();
+						const float part = (_abs(Ftop - Fmin) > EPS) ? (F - Fmin) / (Ftop - Fmin) : 0.f;
+						PipMsg("[SVP-DIAL] %s scope=%s F=%.3f Fmin=%.3f Ftop=%.3f part=%.4f svp=%d",
+							pWeapon->cNameSect().c_str(), pWeapon->GetScopeName().c_str(),
+							F, Fmin, Ftop, part, scope_svp_enabled);
+					}
+				}
+			}
 		}
 	}
 #ifdef STATIONARYMGUN_NEW
@@ -1261,6 +1291,9 @@ void CActor::UpdateCL()
 		HUD().ShowCrosshair(true);
 		g_pGamePersistent->m_pGShaderConstants->hud_params.set(0.f, 0.f, 0.f, 0.f);
 		g_pGamePersistent->m_pGShaderConstants->m_blender_mode.set(0.f, 0.f, 0.f, 0.f);
+		// pip a mount right after ads left the svp rendering a dead second pass all mount long
+		if (Device.true_pip_on)
+			Device.m_SecondViewport.SetSVPActive(false);
 	}
 #endif
 	else
@@ -1276,7 +1309,8 @@ void CActor::UpdateCL()
 			g_pGamePersistent->m_pGShaderConstants->m_blender_mode.set(0.f, 0.f, 0.f, 0.f);
 
 			// Turn off SecondVP
-			Device.m_SecondViewport.SetSVPActive(false);
+			Device.m_SecondViewport.svp_eye_tracking_suspended.store(false, std::memory_order_release);
+			Device.m_SecondViewport.SetSVPActive(false);			
 		}
 	}
 
@@ -3146,11 +3180,18 @@ void CActor::initFPCam()
 {
 	if (!m_FPCam) {
 		m_FPCam = xr_new<CFPCamEffector>();
+		m_FPCam->m_on_b_remove_callback = SBaseEffector::CB_ON_B_REMOVE(this, &CActor::OnFPCamReleased);
 		Cameras().AddCamEffector(m_FPCam);
 	}
 }
 
-void CActor::removeFPCam()
+// clears the dangling pointer when the effector self-removes during a smoothed release
+void CActor::OnFPCamReleased()
+{
+	m_FPCam = NULL;
+}
+
+void CActor::removeFPCam() 
 {
 	if (m_FPCam) {
 		Cameras().RemoveCamEffector(m_FPCam);

@@ -121,7 +121,7 @@ struct FTreeVisual_setup
 
 	void calculate()
 	{
-		dwFrame = Device.dwViewport;
+		dwFrame = Device.dwFrame;
 
 		// Calc wind-vector3, scale
 		float tm_rot = PI_MUL_2 * Device.fTimeGlobal / ps_r__Tree_w_rot;
@@ -150,7 +150,8 @@ struct FTreeVisual_setup
 
 void FTreeVisual::Render(float LOD)
 {
-	auto svp = Device.m_SecondViewport.IsSVPFrame();
+	PROF_EVENT("FTreeVisual::Render");
+	const bool svp = Device.m_SecondViewport.IsSVPFrame(); // pip this viewport's prev-wind slot
 	static FTreeVisual_setup tvs, prev_tvs[2];
 	if (tvs.dwFrame != Device.dwViewport)
 	{
@@ -236,8 +237,8 @@ void FTreeVisual::Render(float LOD)
 		{
 			for (int Bend = 0; Bend < BendersQty; Bend++)
 			{
-				c_prevgrass[Bend].set(GData.prev_pos[Device.m_SecondViewport.IsSVPFrame()][Bend]);
-				c_prevgrass[Bend + 16].set(GData.prev_dir[Device.m_SecondViewport.IsSVPFrame()][Bend]);
+				c_prevgrass[Bend].set(GData.prev_pos[Bend]);
+				c_prevgrass[Bend + 16].set(GData.prev_dir[Bend]);
 			}
 		}
 	}

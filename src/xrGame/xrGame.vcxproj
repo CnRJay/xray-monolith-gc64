@@ -1078,6 +1078,7 @@
     <ClInclude Include="configs_dump_verifyer.h" />
     <ClInclude Include="console_registrator.h" />
     <ClInclude Include="shader_bus_script.h" />
+    <ClInclude Include="svp_optic_config_script.h" />
     <ClInclude Include="controller_state_panic_inline.h" />
     <ClInclude Include="control_action.h" />
     <ClInclude Include="control_action_inline.h" />
@@ -2036,6 +2037,7 @@
     <ClInclude Include="visual_memory_params.h" />
     <ClInclude Include="wallmark_manager.h" />
     <ClInclude Include="Weapon.h" />
+    <ClInclude Include="svp_mags.h" />
     <ClInclude Include="WeaponAK74.h" />
     <ClInclude Include="WeaponAmmo.h" />
     <ClInclude Include="WeaponAutomaticShotgun.h" />
@@ -2785,6 +2787,9 @@
     <ClCompile Include="shader_bus_script.cpp">
       <PrecompiledHeaderFile>pch_script.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <ClCompile Include="svp_optic_config_script.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="cover_evaluators.cpp" />
     <ClCompile Include="cover_manager.cpp" />
@@ -4278,6 +4283,10 @@
     <ClCompile Include="visual_memory_params.cpp" />
     <ClCompile Include="wallmark_manager.cpp" />
     <ClCompile Include="Weapon.cpp" />
+    <ClCompile Include="svp_weapon.cpp" />
+    <ClCompile Include="svp_mags.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="WeaponAK74.cpp">
       <PrecompiledHeaderFile>pch_script.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName)_script.pch</PrecompiledHeaderOutputFile>

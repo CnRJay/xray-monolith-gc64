@@ -78,8 +78,12 @@ public:
 	ref_shader m_SelectionShader;
 
 private:
+	// the actual test-Present device loss check, gated to every r__device_state_interval frames
+	DeviceState PollDeviceState();
 
 	CGammaControl m_Gamma;
+	u32 m_device_state_poll_countdown;
+	DeviceState m_device_state_cached;
 };
 
 #endif //ifndef _EDITOR

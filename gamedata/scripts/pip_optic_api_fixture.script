@@ -1,0 +1,650 @@
+local expected_fields = {
+    { "schema_version", "integer", true, false, false },
+    { "context_token", "integer", true, false, false },
+    { "context", "string", true, false, false },
+    { "weapon", "string", true, false, false },
+    { "weapon_id", "integer", true, false, false },
+    { "scope", "string", false, false, false },
+    { "diagnostic_scope", "string", false, false, false },
+    { "identity_source", "string", true, false, false },
+    { "zoom_type", "integer", true, false, false },
+    { "profile_id", "string", true, false, false },
+    { "spec_section", "string", false, false, false },
+    { "model", "string", false, false, false },
+    { "binding", "string", false, false, false },
+    { "binding_section", "string", false, false, false },
+    { "reticle_type", "integer", true, true, true },
+    { "hybrid_reflex", "boolean", false, true, true },
+    { "objective_offset", "object", false, true, true },
+    { "objective_mm", "number", false, true, true },
+    { "middle_grey", "number", true, true, true },
+    { "adapt_speed", "number", true, true, true },
+    { "convergence_limit_m", "number", true, true, true },
+    { "tunneling_parallax", "number", true, true, true },
+    { "tunneling_min", "number", true, true, true },
+    { "tunneling_max", "number", true, true, true },
+    { "tracking_speed", "number", true, true, true },
+    { "tracking_accel_mm_s2", "number", true, true, true },
+    { "tracking_limit_mm", "number", true, true, true },
+    { "eye_relief_low_mm", "number", true, true, true },
+    { "eye_relief_high_mm", "number", true, true, true },
+    { "exit_pupil_low_mm", "number", true, true, true },
+    { "exit_pupil_high_mm", "number", true, true, true },
+    { "pupil_parity", "number", true, true, true },
+    { "pupil_field_low", "number", true, true, true },
+    { "pupil_field_high", "number", true, true, true },
+    { "transmission", "number", true, true, true },
+    { "twilight_strength", "number", true, true, true },
+    { "physical_min", "number", false, true, true },
+    { "physical_max", "number", false, true, true },
+    { "eye_coupling", "boolean", true, true, true },
+    { "reticle_illum", "number", true, true, true },
+    { "magnification_mode", "enum", false, true, true },
+    { "magnifications", "array", false, true, true },
+    { "mod_lane", "object", false, true, true },
+    { "sources", "map", true, false, false },
+}
+local fixture_token
+
+local function copy_table(value)
+    local result = {}
+    for key, entry in pairs(value) do
+        result[key] = type(entry) == "table" and copy_table(entry) or entry
+    end
+    return result
+end
+
+local function deep_equal(left, right)
+    if type(left) ~= type(right) then
+        return false
+    end
+    if type(left) ~= "table" then
+        return left == right
+    end
+    for key, value in pairs(left) do
+        if not deep_equal(value, right[key]) then
+            return false
+        end
+    end
+    for key in pairs(right) do
+        if left[key] == nil then
+            return false
+        end
+    end
+    return true
+end
+
+local function descriptor_fields()
+    local described = svp_optic_api_describe()
+    return described, described.fields
+end
+
+local function rebuild_sources(value)
+    local _, fields = descriptor_fields()
+    value.sources = {}
+    for name, descriptor in pairs(fields) do
+        if descriptor.source_required == true and value[name] ~= nil then
+            value.sources[name] = "fixture:" .. name
+        end
+    end
+    return value
+end
+
+local function profile(token, context, ladder)
+    local value = {
+        schema_version = 3,
+        context_token = token,
+        context = context or "pip_api_fixture",
+        weapon = "pip_api_fixture_weapon",
+        weapon_id = 65535,
+        scope = "pip_api_fixture_scope",
+        diagnostic_scope = "pip_api_fixture_diagnostic",
+        identity_source = "fixture",
+        zoom_type = 0,
+        profile_id = "fixture",
+        spec_section = "fixture_spec",
+        model = "geometric",
+        binding = "fixture",
+        binding_section = "fixture_binding",
+        reticle_type = 0,
+        hybrid_reflex = false,
+        objective_offset = { x = 0, y = 0, z = 10, radius = 1 },
+        objective_mm = 24,
+        middle_grey = 0.5,
+        adapt_speed = 1,
+        convergence_limit_m = 100,
+        tunneling_parallax = 0.035,
+        tunneling_min = 0.04,
+        tunneling_max = 0.06,
+        tracking_speed = 5,
+        tracking_accel_mm_s2 = 80,
+        tracking_limit_mm = 7,
+        eye_relief_low_mm = 80,
+        eye_relief_high_mm = 80,
+        exit_pupil_low_mm = 8,
+        exit_pupil_high_mm = 4,
+        pupil_parity = -1,
+        pupil_field_low = 0.55,
+        pupil_field_high = 0.55,
+        transmission = 0.9,
+        twilight_strength = 0.35,
+        physical_min = 1,
+        physical_max = 6,
+        eye_coupling = true,
+        reticle_illum = 1,
+        magnification_mode = "detent",
+        magnifications = ladder or { 1, 1.5, 4, 6 },
+        mod_lane = { x = 0, y = 0, z = 0, w = 0 },
+    }
+    return rebuild_sources(value)
+end
+
+local function begin_context(context)
+    return svp_begin_optic_context(context, "pip_api_fixture_weapon", 65535,
+        "pip_api_fixture_scope", 0, "fixture", "pip_api_fixture_diagnostic")
+end
+
+local function execute()
+    local failures = 0
+    local cases = 0
+    local rejections = 0
+    local active_token
+    local function record(name, condition, kind)
+        local passed = condition == true
+        cases = cases + 1
+        printf("[SVP-API-FIXTURE] case=%s kind=%s pass=%s",
+            name, kind, tostring(passed))
+        if not passed then
+            failures = failures + 1
+        end
+    end
+    local function check(name, condition)
+        record(name, condition, "acceptance")
+    end
+    local function reject(name, condition)
+        rejections = rejections + 1
+        record(name, condition, "rejection")
+    end
+    local function invalid(name, mutate, keep_sources)
+        local candidate = profile(1)
+        mutate(candidate)
+        if not keep_sources then
+            rebuild_sources(candidate)
+        end
+        local result = svp_validate_optic_profile(candidate)
+        reject(name, type(result) == "table" and result.ok == false)
+    end
+
+    local info = svp_optic_api_info()
+    local route_epoch = svp_optic_route_epoch()
+    check("version", svp_optic_api_version() == 3)
+    check("route_epoch", type(route_epoch) == "number"
+        and route_epoch > 0 and route_epoch == math.floor(route_epoch))
+    check("ranges", info.api_min == 3 and info.api_max == 3
+        and info.schema_min == 3 and info.schema_max == 3)
+    check("pair_count", type(info.supported_pairs) == "table"
+        and #info.supported_pairs == 1)
+    check("pair", info.supported_pairs[1].api == 3
+        and info.supported_pairs[1].schema == 3)
+    local capability_count = 0
+    for _, enabled in pairs(info.capabilities) do
+        capability_count = capability_count + (enabled == true and 1 or 100)
+    end
+    check("capabilities", capability_count == 6
+        and info.capabilities.api_info == true
+        and info.capabilities.field_descriptors == true
+        and info.capabilities.structured_validation == true
+        and info.capabilities.typed_transport == true
+        and info.capabilities.hybrid_reflex == true
+        and info.capabilities.profile_inspector == true)
+    reject("unknown_capability",
+        svp_optic_api_has_capability("fixture_unknown") == false)
+    info.supported_pairs[1].api = 99
+    info.capabilities.api_info = false
+    local fresh_info = svp_optic_api_info()
+    check("info_fresh", fresh_info.supported_pairs[1].api == 3
+        and fresh_info.capabilities.api_info == true
+        and fresh_info.schema_hash == info.schema_hash)
+    local resolver_ok, default_optics = pcall(function()
+        return pip_optic_profile.resolve(nil, nil)
+    end)
+    check("bundled_defaults", resolver_ok and type(default_optics) == "table"
+        and default_optics.field_error == nil
+        and default_optics.eye_coupling == true
+        and default_optics.eye_coupling_source == "lua_default"
+        and default_optics.reticle_illum == 1
+        and default_optics.reticle_illum_source == "profile:default"
+        and default_optics.magnification_mode == nil
+        and default_optics.magnifications == nil)
+
+    local connected = svp_optic_api_connect(3, 3)
+    check("connect", connected.ok == true and connected.api == 3
+        and connected.schema == 3)
+    check("connect_hash", connected.schema_hash == info.schema_hash)
+    check("connect_route_stable", svp_optic_route_epoch() == route_epoch)
+    local disconnected_state = svp_current_optic_profile()
+    for index, pair in ipairs({
+        { 2, 1 }, { 3, 1 }, { 2, 3 }, { 4, 4 }, { 0, 0 }, { 3.5, 3 },
+    }) do
+        local result = svp_optic_api_connect(pair[1], pair[2])
+        reject("connect_reject_" .. tostring(index),
+            result.ok == false and result.code == "unsupported_version"
+                and #result.supported_pairs == 1)
+    end
+    check("connect_reject_preserves",
+        deep_equal(disconnected_state, svp_current_optic_profile()))
+
+    local described, fields = descriptor_fields()
+    check("describe_hash", described.schema == 3
+        and described.schema_hash == info.schema_hash)
+    local descriptor_count = 0
+    for name, descriptor in pairs(fields) do
+        descriptor_count = descriptor_count + 1
+        local expected = expected_fields[descriptor.index]
+        check("descriptor_" .. tostring(descriptor.index),
+            expected and expected[1] == name
+                and expected[2] == descriptor.type
+                and expected[3] == descriptor.required
+                and expected[4] == descriptor.registrable
+                and expected[5] == descriptor.source_required)
+    end
+    check("descriptor_count",
+        descriptor_count == #expected_fields and descriptor_count == 44)
+    fields.objective_mm.maximum = 1
+    check("describe_detached",
+        svp_optic_api_describe().fields.objective_mm.maximum == 200
+            and svp_optic_api_info().schema_hash == info.schema_hash)
+
+    local full = profile(1)
+    for _, expected in ipairs(expected_fields) do
+        local name = expected[1]
+        local descriptor = fields[name]
+        if descriptor.registrable then
+            if name ~= "physical_min" and name ~= "physical_max"
+                and name ~= "magnification_mode" and name ~= "magnifications" then
+                local result = svp_validate_optic_fields({ [name] = full[name] })
+                check("partial_" .. name, result.ok == true)
+            end
+        else
+            local result = svp_validate_optic_fields({ [name] = full[name] })
+            reject("private_" .. name,
+                result.ok == false and result.code == "not_registrable")
+        end
+    end
+    check("partial_physical_pair", svp_validate_optic_fields({
+        physical_min = 1, physical_max = 6,
+    }).ok == true)
+    reject("partial_physical_one_sided", svp_validate_optic_fields({
+        physical_min = 1,
+    }).ok == false)
+    local detached_input = {
+        magnification_mode = "detent",
+        magnifications = { 1, 1.5, 4, 6 },
+        objective_offset = { x = 0, y = 0, z = 10, radius = 1 },
+    }
+    local partial = svp_validate_optic_fields(detached_input)
+    check("partial_magnification_pair", partial.ok == true)
+    reject("partial_magnification_one_sided", svp_validate_optic_fields({
+        magnification_mode = "detent",
+    }).ok == false)
+    partial.normalized.magnifications[1] = 99
+    partial.normalized.objective_offset.z = 99
+    check("partial_detached", detached_input.magnifications[1] == 1
+        and detached_input.objective_offset.z == 10)
+
+    for _, expected in ipairs(expected_fields) do
+        if expected[3] then
+            invalid("required_" .. expected[1], function(value)
+                value[expected[1]] = nil
+            end, expected[1] == "sources")
+        end
+    end
+    local minimal = profile(1)
+    for _, expected in ipairs(expected_fields) do
+        if not expected[3] then
+            minimal[expected[1]] = nil
+        end
+    end
+    rebuild_sources(minimal)
+    check("optional_omission", svp_validate_optic_profile(minimal).ok == true)
+
+    invalid("top_metatable", function(value)
+        setmetatable(value, {})
+    end, true)
+    invalid("top_numeric_key", function(value)
+        value[1] = true
+    end, true)
+    invalid("old_zero_m", function(value)
+        value.zero_m = 100
+    end, true)
+    invalid("empty_profile_id", function(value)
+        value.profile_id = ""
+    end)
+    invalid("oversized_profile_id", function(value)
+        value.profile_id = string.rep("x", 128)
+    end)
+    invalid("fractional_reticle", function(value)
+        value.reticle_type = 1.5
+    end)
+    invalid("large_reticle", function(value)
+        value.reticle_type = 256
+    end)
+    invalid("hybrid_type", function(value)
+        value.hybrid_reflex = 0
+    end)
+    invalid("eye_coupling_type", function(value)
+        value.eye_coupling = 1
+    end)
+    invalid("reticle_illum_low", function(value)
+        value.reticle_illum = -0.01
+    end)
+    invalid("reticle_illum_high", function(value)
+        value.reticle_illum = 1.01
+    end)
+    invalid("reticle_illum_nan", function(value)
+        value.reticle_illum = 0 / 0
+    end)
+    invalid("convergence_gap", function(value)
+        value.convergence_limit_m = 1
+    end)
+    invalid("convergence_high", function(value)
+        value.convergence_limit_m = 1001
+    end)
+    for _, convergence in ipairs({ 0, 2, 1000 }) do
+        local candidate = profile(1)
+        candidate.convergence_limit_m = convergence
+        check("convergence_valid_" .. tostring(convergence),
+            svp_validate_optic_profile(candidate).ok == true)
+    end
+    invalid("tunneling_order", function(value)
+        value.tunneling_min = 0.8
+        value.tunneling_max = 0.2
+    end)
+    invalid("physical_one_sided", function(value)
+        value.physical_max = nil
+    end)
+    invalid("physical_zero", function(value)
+        value.physical_min = 0
+    end)
+    invalid("physical_reversed", function(value)
+        value.physical_min = 7
+        value.physical_max = 6
+    end)
+    invalid("physical_high", function(value)
+        value.physical_max = 201
+    end)
+    invalid("objective_mm_zero", function(value)
+        value.objective_mm = 0
+    end)
+    invalid("objective_mm_high", function(value)
+        value.objective_mm = 201
+    end)
+    invalid("objective_mm_infinite", function(value)
+        value.objective_mm = math.huge
+    end)
+
+    local objective_cases = {
+        function(objective) objective.z = nil end,
+        function(objective) objective.extra = 1 end,
+        function(objective) objective[1] = 1 end,
+        function(objective) setmetatable(objective, {}) end,
+        function(objective) objective.x = -9 end,
+        function(objective) objective.y = 65 end,
+        function(objective) objective.z = 0 end,
+        function(objective) objective.radius = 0 end,
+        function(objective) objective.radius = 65 end,
+        function(objective) objective.x = 0 / 0 end,
+    }
+    for index, mutate in ipairs(objective_cases) do
+        invalid("objective_" .. tostring(index), function(value)
+            mutate(value.objective_offset)
+        end)
+    end
+
+    local lane_cases = {
+        function(lane) lane.w = nil end,
+        function(lane) lane.extra = 1 end,
+        function(lane) lane[1] = 1 end,
+        function(lane) setmetatable(lane, {}) end,
+        function(lane) lane.x = "0" end,
+        function(lane) lane.x = 0 / 0 end,
+    }
+    for index, mutate in ipairs(lane_cases) do
+        invalid("lane_" .. tostring(index), function(value)
+            mutate(value.mod_lane)
+        end)
+    end
+
+    local valid_ladders = {
+        { "fixed", { 4 } },
+        { "continuous", { 1, 6 } },
+        { "detent", { 1, 6 } },
+        { "detent", { 1, 1.5, 6 } },
+        { "detent", { 1, 1.5, 2, 4, 6 } },
+        { "detent", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 } },
+    }
+    for index, ladder in ipairs(valid_ladders) do
+        local candidate = profile(1)
+        candidate.magnification_mode = ladder[1]
+        candidate.magnifications = ladder[2]
+        check("ladder_valid_" .. tostring(index),
+            svp_validate_optic_profile(candidate).ok == true)
+    end
+    local invalid_ladders = {
+        { "fixed", {} },
+        { "fixed", { 1, 2 } },
+        { "continuous", { 1 } },
+        { "continuous", { 1, 2, 3 } },
+        { "detent", { 1 } },
+        { "detent", { 1, 1 } },
+        { "detent", { 2, 1 } },
+        { "detent", { [0] = 1, [1] = 2 } },
+        { "detent", { [-1] = 1, [1] = 2 } },
+        { "detent", { [1.5] = 1, [2] = 2 } },
+        { "detent", { [1] = 1, [3] = 3 } },
+        { "detent", { [1] = 1, bad = 2 } },
+        { "detent", setmetatable({ 1, 2 }, {}) },
+        { "detent", { 1, 0 / 0 } },
+        { "detent", { 1, math.huge } },
+        { "detent", { 0, 1 } },
+        { "detent", { -1, 1 } },
+        { "detent", { 1, "2" } },
+        { "detent", "1,2" },
+        { "detent", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 } },
+        { "unknown", { 1, 2 } },
+    }
+    for index, ladder in ipairs(invalid_ladders) do
+        invalid("ladder_invalid_" .. tostring(index), function(value)
+            value.magnification_mode = ladder[1]
+            value.magnifications = ladder[2]
+        end)
+    end
+    invalid("magnification_one_sided", function(value)
+        value.magnifications = nil
+    end)
+
+    invalid("source_missing", function(value)
+        value.sources.middle_grey = nil
+    end, true)
+    invalid("source_unknown", function(value)
+        value.sources.unknown = "fixture"
+    end, true)
+    invalid("source_omitted_field", function(value)
+        value.objective_mm = nil
+    end, true)
+    invalid("source_type", function(value)
+        value.sources.middle_grey = 1
+    end, true)
+    invalid("source_empty", function(value)
+        value.sources.middle_grey = ""
+    end, true)
+    invalid("source_oversized", function(value)
+        value.sources.middle_grey = string.rep("x", 256)
+    end, true)
+    invalid("source_numeric_key", function(value)
+        value.sources[1] = "fixture"
+    end, true)
+    invalid("source_metatable", function(value)
+        setmetatable(value.sources, {})
+    end, true)
+
+    local complete_input = profile(1)
+    local validated = svp_validate_optic_profile(complete_input)
+    check("complete", validated.ok == true)
+    validated.normalized.middle_grey = 2
+    validated.normalized.sources.middle_grey = "mutated"
+    check("complete_detached", complete_input.middle_grey == 0.5
+        and complete_input.sources.middle_grey == "fixture:middle_grey")
+    check("validators_preserve",
+        deep_equal(disconnected_state, svp_current_optic_profile()))
+
+    active_token = begin_context("pip_api_fixture")
+    fixture_token = active_token
+    check("begin", active_token and active_token > 0)
+    check("begin_route_stable", svp_optic_route_epoch() == route_epoch)
+    local valid = profile(active_token)
+    local accepted = svp_apply_optic_profile(active_token, valid)
+    check("apply", accepted.ok == true
+        and accepted.context_token == active_token
+        and type(accepted.config_generation) == "number"
+        and type(accepted.profile_fingerprint) == "string")
+    check("apply_route_stable", svp_optic_route_epoch() == route_epoch)
+
+    for index, ladder in ipairs(valid_ladders) do
+        local candidate = profile(active_token)
+        candidate.magnification_mode = ladder[1]
+        candidate.magnifications = ladder[2]
+        rebuild_sources(candidate)
+        local mode_result = svp_apply_optic_profile(active_token, candidate)
+        local inspected = svp_current_optic_profile()
+        check("apply_ladder_" .. tostring(index), mode_result.ok == true
+            and inspected.magnification_mode == ladder[1]
+            and deep_equal(inspected.magnifications, ladder[2]))
+    end
+
+    local lensless = profile(active_token)
+    lensless.objective_offset = nil
+    lensless.objective_mm = nil
+    lensless.eye_coupling = false
+    lensless.reticle_illum = 0
+    lensless.magnification_mode = "fixed"
+    lensless.magnifications = { 4 }
+    rebuild_sources(lensless)
+    local lensless_result = svp_apply_optic_profile(active_token, lensless)
+    local lensless_inspected = svp_current_optic_profile()
+    check("apply_lensless", lensless_result.ok == true
+        and lensless_inspected.objective_offset == nil
+        and lensless_inspected.objective_mm == nil
+        and lensless_inspected.eye_coupling == false
+        and lensless_inspected.reticle_illum == 0)
+
+    accepted = svp_apply_optic_profile(active_token, valid)
+    check("apply_restore", accepted.ok == true)
+    local before = svp_current_optic_profile()
+    check("inspector_fingerprint",
+        before.profile_fingerprint == accepted.profile_fingerprint)
+    local repeated = svp_apply_optic_profile(active_token, copy_table(valid))
+    local after = svp_current_optic_profile()
+    check("repeat_stable", repeated.ok == true
+        and repeated.config_generation == accepted.config_generation
+        and repeated.profile_fingerprint == accepted.profile_fingerprint
+        and deep_equal(before, after))
+
+    local rejected_connect = svp_optic_api_connect(3, 1)
+    after = svp_current_optic_profile()
+    reject("active_connect_reject", rejected_connect.ok == false
+        and rejected_connect.code == "unsupported_version")
+    check("active_connect_preserves", deep_equal(before, after))
+
+    local fractional = svp_apply_optic_profile(active_token + 0.5, valid)
+    after = svp_current_optic_profile()
+    reject("fractional_token_reject", fractional.ok == false
+        and fractional.code == "stale_token")
+    check("fractional_token_preserves", deep_equal(before, after))
+    reject("fractional_clear_reject",
+        svp_clear_optic_profile(active_token + 0.5) == false)
+    check("fractional_clear_preserves",
+        deep_equal(before, svp_current_optic_profile()))
+
+    local malformed = copy_table(valid)
+    malformed.convergence_limit_m = 1
+    local rejected = svp_apply_optic_profile(active_token, malformed)
+    after = svp_current_optic_profile()
+    reject("malformed_reject", rejected.ok == false)
+    check("malformed_preserves", deep_equal(before, after))
+
+    local stale = copy_table(valid)
+    stale.context_token = active_token + 1
+    rejected = svp_apply_optic_profile(active_token + 1, stale)
+    after = svp_current_optic_profile()
+    reject("stale_reject",
+        rejected.ok == false and rejected.code == "stale_token")
+    check("stale_preserves", deep_equal(before, after))
+
+    local mismatch = copy_table(valid)
+    mismatch.weapon = "other"
+    rejected = svp_apply_optic_profile(active_token, mismatch)
+    after = svp_current_optic_profile()
+    reject("identity_reject",
+        rejected.ok == false and rejected.code == "identity_mismatch")
+    check("identity_preserves", deep_equal(before, after))
+
+    local throwing = copy_table(valid)
+    setmetatable(throwing, {
+        __index = function()
+            error("fixture")
+        end,
+    })
+    rejected = svp_apply_optic_profile(active_token, throwing)
+    after = svp_current_optic_profile()
+    reject("throwing_input_reject", rejected.ok == false)
+    check("throwing_input_preserves", deep_equal(before, after))
+
+    local second_context = "pip_api_fixture_second"
+    active_token = begin_context(second_context)
+    fixture_token = active_token
+    check("second_begin", active_token and active_token > 0)
+    local second = profile(active_token, second_context, { 1, 2, 3, 5, 8 })
+    accepted = svp_apply_optic_profile(active_token, second)
+    after = svp_current_optic_profile()
+    check("second_apply", accepted.ok == true
+        and deep_equal(after.magnifications, { 1, 2, 3, 5, 8 }))
+    check("second_no_carry", after.context == second_context
+        and after.magnification_mode == "detent"
+        and after.magnifications[4] == 5)
+    check("clear", svp_clear_optic_profile(active_token) == true)
+    active_token = nil
+    fixture_token = nil
+    check("clear_invalid", svp_current_optic_profile().valid == false)
+    check("clear_route_stable", svp_optic_route_epoch() == route_epoch)
+    printf("[SVP-API-FIXTURE] totals cases=%d rejections=%d failures=%d",
+        cases, rejections, failures)
+    return failures == 0
+end
+
+function run()
+    local current_ok, current = pcall(svp_current_optic_profile)
+    if current_ok and type(current) == "table" and current.valid == true
+        and not string.find(current.context or "", "^pip_api_fixture") then
+        printf("![SVP-API-FIXTURE] refused context=%s", tostring(current.context))
+        return false
+    end
+    local ok, result = xpcall(function()
+        return execute()
+    end, function(error)
+        return tostring(error)
+    end)
+    current_ok, current = pcall(svp_current_optic_profile)
+    if fixture_token then
+        pcall(svp_clear_optic_profile, fixture_token)
+        fixture_token = nil
+    end
+    if current_ok and type(current) == "table"
+        and string.find(current.context or "", "^pip_api_fixture")
+        and current.context_token then
+        pcall(svp_clear_optic_profile, current.context_token)
+    end
+    printf("[SVP-API-FIXTURE] complete call=%s pass=%s result=%s",
+        tostring(ok), tostring(ok and result == true), tostring(result))
+    return ok and result == true
+end

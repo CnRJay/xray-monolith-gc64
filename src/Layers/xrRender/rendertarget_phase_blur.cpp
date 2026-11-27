@@ -246,8 +246,8 @@ void CRenderTarget::phase_ssfx_ssr()
 
 	//Set pass
 	RCache.set_Element(s_ssfx_ssr->E[0]);
-	RCache.set_c("m_current", GetPrevious()->Matrix_current);
-	RCache.set_c("m_previous", GetPrevious()->Matrix_previous);
+	RCache.set_c("m_current", Matrix_current);
+	RCache.set_c("m_previous", Matrix_previous);
 	RCache.set_c("cam_pos", ::Random.randF(-1.0, 1.0), ::Random.randF(-1.0, 1.0), 0.0f, 0.0f);
 
 	RCache.set_c("ssr_setup", ps_ssfx_ssr);
@@ -255,7 +255,9 @@ void CRenderTarget::phase_ssfx_ssr()
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
 	// COPY SSR RESULT ( ACC ) ////////////////////////////////////////////
+	svp_copy_begin(SVP_CP_HIST, rt_copy_bytes(rt_ssfx_ssr));
 	HW.pContext->CopyResource(rt_ssfx_ssr->pTexture->surface_get(), rt_ssfx->pTexture->surface_get());
+	svp_copy_end(SVP_CP_HIST);
 
 	// Disable/Enable Blur if the value is <= 0
 	//if (ps_ssfx_ssr.y > 0 || ps_ssfx_ssr.x > 1.0)
@@ -410,7 +412,9 @@ void CRenderTarget::phase_ssfx_volumetric_blur()
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
+	svp_copy_begin(SVP_CP_PASS, rt_copy_bytes(rt_Generic_2));
 	HW.pContext->CopyResource(rt_Generic_2->pTexture->surface_get(), rt_ssfx_accum->pTexture->surface_get());
+	svp_copy_end(SVP_CP_PASS);
 };
 
 void CRenderTarget::phase_ssfx_water_blur()
@@ -573,8 +577,8 @@ void CRenderTarget::phase_ssfx_sss()
 	// Draw COLOR
 	RCache.set_Element(s_ssfx_sss->E[0]);
 
-	RCache.set_c("m_current", GetPrevious()->Matrix_current);
-	RCache.set_c("m_previous", GetPrevious()->Matrix_previous);
+	RCache.set_c("m_current", Matrix_current);
+	RCache.set_c("m_previous", Matrix_previous);
 	RCache.set_c("ssfx_sss", ps_ssfx_sss);
 
 	RCache.set_Geometry(g_combine);
@@ -627,7 +631,9 @@ void CRenderTarget::phase_ssfx_sss()
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
 
+	svp_copy_begin(SVP_CP_PASS, rt_copy_bytes(rt_ssfx_sss));
 	HW.pContext->CopyResource(rt_ssfx_sss->pTexture->surface_get(), rt_ssfx_temp2->pTexture->surface_get());
+	svp_copy_end(SVP_CP_PASS);
 
 };
 
@@ -681,8 +687,8 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 	// Draw COLOR
 	RCache.set_Element(s_ssfx_sss_ext->E[0]);
 
-	RCache.set_c("m_current", GetPrevious()->Matrix_current);
-	RCache.set_c("m_previous", GetPrevious()->Matrix_previous);
+	RCache.set_c("m_current", Matrix_current);
+	RCache.set_c("m_previous", Matrix_previous);
 	RCache.set_c("ssfx_sss", ps_ssfx_sss);
 	RCache.set_c("id_offset", 0);
 
@@ -868,7 +874,9 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
+	svp_copy_begin(SVP_CP_PASS, rt_copy_bytes(rt_ssfx_sss_ext));
 	HW.pContext->CopyResource(rt_ssfx_sss_ext->pTexture->surface_get(), rt_ssfx_sss_tmp->pTexture->surface_get());
+	svp_copy_end(SVP_CP_PASS);
 
 	// SSS Ext 2 -------------------------------------------------------
 
@@ -890,15 +898,17 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 	// Draw COLOR
 	RCache.set_Element(s_ssfx_sss_ext->E[1]);
 
-	RCache.set_c("m_current", GetPrevious()->Matrix_current);
-	RCache.set_c("m_previous", GetPrevious()->Matrix_previous);
+	RCache.set_c("m_current", Matrix_current);
+	RCache.set_c("m_previous", Matrix_previous);
 	RCache.set_c("id_offset", 1);
 	RCache.get_ConstantDirect(strLights, 4 * sizeof(Fvector4) * 2, 0, 0, &LightData);
 
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
+	svp_copy_begin(SVP_CP_PASS, rt_copy_bytes(rt_ssfx_sss_ext2));
 	HW.pContext->CopyResource(rt_ssfx_sss_ext2->pTexture->surface_get(), rt_ssfx_sss_tmp->pTexture->surface_get());
+	svp_copy_end(SVP_CP_PASS);
 
 	// Combine ---------------------------------------------------------
 
@@ -1023,8 +1033,8 @@ void CRenderTarget::phase_ssfx_motion_blur()
 	// Draw COLOR
 	RCache.set_Element(s_ssfx_motion_blur->E[0]);
 
-	RCache.set_c("m_current", GetPrevious()->Matrix_current);
-	RCache.set_c("m_previous", GetPrevious()->Matrix_previous);
+	RCache.set_c("m_current", Matrix_current);
+	RCache.set_c("m_previous", Matrix_previous);
 
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);

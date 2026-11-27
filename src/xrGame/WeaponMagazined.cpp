@@ -635,7 +635,7 @@ void CWeaponMagazined::on_a_hud_attach()
 
 	if (m_eScopeStatus == ALife::eAddonAttachable &&
 		0 != (m_flagsAddOnState & CSE_ALifeItemWeapon::eWeaponAddonScope)
-		&& m_modular_attachments)
+		&& m_modular_attachments && HasValidScopeIndex())
 	{
 		if (!m_scopeItem) {
 			m_scopeItem = xr_new<CAnonHudItem>();
@@ -1327,7 +1327,8 @@ bool CWeaponMagazined::CanDetach(const char* item_section_name)
 {
 	if (m_eScopeStatus == ALife::eAddonAttachable &&
 		0 != (m_flagsAddOnState & CSE_ALifeItemWeapon::eWeaponAddonScope)
-		&& (!m_modular_attachments || m_scopes[m_cur_scope] == item_section_name)) /* &&
+		&& (!m_modular_attachments
+			|| (HasValidScopeIndex() && m_scopes[m_cur_scope] == item_section_name))) /* &&
 																		   (m_scopes[cur_scope]->m_sScopeName	== item_section_name))*/
 	{
 		SCOPES_VECTOR_IT it = m_scopes.begin();
@@ -1373,26 +1374,27 @@ bool CWeaponMagazined::Attach(PIItem pIItem, bool b_send_event)
 		(m_flagsAddOnState & CSE_ALifeItemWeapon::eWeaponAddonScope) == 0 /*&&
 																		  (m_scopes[cur_scope]->m_sScopeName == pIItem->object().cNameSect())*/)
 	{
+		bool matched = false;
 		SCOPES_VECTOR_IT it = m_scopes.begin();
 		for (; it != m_scopes.end(); it++)
 		{
 			if (m_modular_attachments) {
 				if (*it == pIItem->object().cNameSect())
-					m_cur_scope = u8(it - m_scopes.begin());
+					matched = SetCurrentScopeIndex(u8(it - m_scopes.begin()), "attach");
 			} else {
 				if (pSettings->r_string((*it), "scope_name") == pIItem->object().cNameSect())
-					m_cur_scope = u8(it - m_scopes.begin());
+					matched = SetCurrentScopeIndex(u8(it - m_scopes.begin()), "attach");
 			}
+			if (matched)
+				break;
 		}
+		if (!matched)
+			return inherited::Attach(pIItem, b_send_event);
+
 		m_flagsAddOnState |= CSE_ALifeItemWeapon::eWeaponAddonScope;
 		if (m_modular_attachments) {
+			ValidateModularScopeState("attach", true);
 			LoadScopeKoeffs();
-			m_scopeItem = xr_new<CAnonHudItem>();
-			m_scopeItem->Load(pIItem->object().cNameSect().c_str());
-			if (g_player_hud->attached_item(0) && g_player_hud->attached_item(0)->m_parent_hud_item == this) {
-				g_player_hud->attach_item(m_scopeItem);
-				m_scopeItem->PlayAnimIdle();
-			}
 		}
 		result = true;
 	}
@@ -1415,6 +1417,8 @@ bool CWeaponMagazined::Attach(PIItem pIItem, bool b_send_event)
 
 	if (result)
 	{
+		if (pScope)
+			InvalidateSvpZoomSeed();
 		if (b_send_event && OnServer())
 		{
 			//уничтожить подсоединенную вещь из инвентаря
@@ -1460,6 +1464,7 @@ bool CWeaponMagazined::Detach(const char* item_section_name, bool b_spawn_item)
 	if (m_eScopeStatus == ALife::eAddonAttachable &&
 		DetachScope(item_section_name, b_spawn_item))
 	{
+		InvalidateSvpZoomSeed();
 		if ((m_flagsAddOnState & CSE_ALifeItemWeapon::eWeaponAddonScope) == 0)
 		{
 			Msg("ERROR: scope addon already detached.");
@@ -1519,7 +1524,8 @@ void CWeaponMagazined::InitAddons()
 	if (!m_bUseEngineAttachments)
 		return;
 
-	if (IsScopeAttached())
+	if (IsScopeAttached()
+		&& (m_eScopeStatus != ALife::eAddonAttachable || HasValidScopeIndex()))
 	{
 		shared_str scope_tex_name;
 		if (m_eScopeStatus == ALife::eAddonAttachable)
@@ -1530,7 +1536,8 @@ void CWeaponMagazined::InitAddons()
 			m_zoom_params.m_bUseDynamicZoom = READ_IF_EXISTS(pSettings, r_bool, GetScopeName(), "scope_dynamic_zoom", FALSE);
 			m_zoom_params.m_sUseBinocularVision = READ_IF_EXISTS(pSettings, r_string, GetScopeName(), "scope_alive_detector", 0);
 			m_zoom_params.m_fZoomStepCount = READ_IF_EXISTS(pSettings, r_float, GetScopeName(), "zoom_step_count", 0);
-			m_fRTZoomFactor = m_zoom_params.m_fScopeZoomFactor;
+			if (scope_tex_name != NULL || m_zoomtype != 0 || !SvpDetentBase())
+				m_fRTZoomFactor = m_zoom_params.m_fScopeZoomFactor;
 			if (m_UIScope)
 			{
 				xr_delete(m_UIScope);
@@ -1616,11 +1623,18 @@ void CWeaponMagazined::LoadSilencerKoeffs()
 void CWeaponMagazined::LoadScopeKoeffs()
 {
 	if (m_eScopeStatus == ALife::eAddonAttachable
+		&& HasValidScopeIndex()
 		&& (!m_modular_attachments || (m_flagsAddOnState & CSE_ALifeItemWeapon::eWeaponAddonScope)))
 	{
-		LPCSTR sect = GetScopeName().c_str();
-        if (!sect)
-            Debug.fatal(DEBUG_INFO, "!CWeaponMagazined::LoadScopeKoeffs ERROR: GetScopeName for `%s` returns null, check scope_name in ltx, m_scopes.size() %d, m_cur_scope %d", cNameSect_str(), m_scopes.size(), m_cur_scope);
+		const shared_str scope = GetScopeName();
+		if (!scope.size())
+		{
+			Msg("![MAS-SCOPE] section=%s index=%u count=%u action=coefficients_skipped",
+				cNameSect_str(), u32(m_cur_scope), u32(m_scopes.size()));
+			ResetScopeKoeffs();
+			return;
+		}
+		LPCSTR sect = scope.c_str();
 		m_scope_koef.cam_dispersion = READ_IF_EXISTS(pSettings, r_float, sect, "cam_dispersion_k", 1.0f);
 		m_scope_koef.cam_disper_inc = READ_IF_EXISTS(pSettings, r_float, sect, "cam_dispersion_inc_k", 1.0f);
 		m_scope_koef.pdm_base = READ_IF_EXISTS(pSettings, r_float, sect, "PDM_disp_base_k", 1.0f);

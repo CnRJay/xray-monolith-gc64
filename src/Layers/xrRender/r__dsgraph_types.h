@@ -78,12 +78,13 @@ namespace R_dsgraph
 		Fmatrix* pMatrix = nullptr;
 		ShaderElement* pSE = nullptr;
 		bool b_hud_mode = false;
+		u8 hud_role = 0;
 		float fov = 0.f;
 
         DSGraphItem(T key, float _ssa, IRenderable* obj, dxRender_Visual* vis,
-            Fmatrix* mat, ShaderElement* se, bool hud, float custom_fov = 0.f)
+            Fmatrix* mat, ShaderElement* se, bool hud, u8 role = 0, float custom_fov = 0.f)
             : sortKey(key), ssa(_ssa), pObject(obj), pVisual(vis),
-            pMatrix(mat), pSE(se), b_hud_mode(hud), fov(custom_fov) {
+            pMatrix(mat), pSE(se), b_hud_mode(hud), hud_role(role), fov(custom_fov) {
         }
 
         bool operator<(const DSGraphItem& other) const noexcept
@@ -220,7 +221,11 @@ namespace R_dsgraph
         }
 	};
 
-	using RenderQueue = xr_vector<RenderPacket, render_allocator::helper<RenderPacket>::result>;
+	// sorted tracks whether the packets are already in sort key order, every append clears it
+	struct RenderQueue : xr_vector<RenderPacket, render_allocator::helper<RenderPacket>::result>
+	{
+		bool sorted = false;
+	};
 	using RenderQueueArray = xr_array<xr_array<RenderQueue, SHADER_PASSES_MAX>, 2>;
 
 	struct DynamicSceneRgraph
@@ -262,6 +267,7 @@ namespace R_dsgraph
 		mapDSGraphItems<float, false> mapWater;
 #ifdef USE_DX11
 		mapDSGraphItems<float, true> mapScopeHUDSorted;
+		mapDSGraphItems<float, true> mapScopeHUDObjective;
 		mapDSGraphItems<float, true> mapReflexHUDSorted;
 		mapDSGraphItems<float, false> mapScopeHUD;
 		mapDSGraphItems<float, false> mapScopeCamAttached;
@@ -277,6 +283,7 @@ namespace R_dsgraph
 					queue[_priority][iPass].clear_and_free();
 				else
 					queue[_priority][iPass].clear();
+				queue[_priority][iPass].sorted = false;
 			}
 		}
 
@@ -353,6 +360,7 @@ namespace R_dsgraph
 				mapScopeCamAttachedSorted.clear_and_free();
 				mapScopeHUD.clear_and_free();
 				mapScopeHUDSorted.clear_and_free();
+				mapScopeHUDObjective.clear_and_free();
 				mapReflexHUDSorted.clear_and_free();
 #endif
 			}
@@ -382,6 +390,7 @@ namespace R_dsgraph
 				mapScopeCamAttachedSorted.clear();
 				mapScopeHUD.clear();
 				mapScopeHUDSorted.clear();
+				mapScopeHUDObjective.clear();
 				mapReflexHUDSorted.clear();
 #endif
 			}

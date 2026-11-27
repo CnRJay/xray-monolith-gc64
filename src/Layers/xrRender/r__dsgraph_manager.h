@@ -32,9 +32,11 @@ public:
 	xrCriticalSection						P_CS;
 	xrSRWLock								S_LC;
 
-	FixedMAP<CSector*, std::pair<xr_vector<CFrustum>, FixedSet<CPortal*>>>		m_sector_frustums;
+	using sector_frustums_t = FixedMAP<CSector*, std::pair<xr_vector<CFrustum>, FixedSet<CPortal*>>>;
+	sector_frustums_t						m_sector_frustums;
 	xr_unordered_flat_set<dxRender_Visual*>				m_static_seen;
 	xr_vector<ISpatialShared>				lstRenderables, lstLights;
+	xr_vector<int>							lstLODgroups; // r_dsgraph_render_lods scratch, cleared each call
 	FixedMAP<CPortal*, float>				f_portals;
 	sPoly S, D;
 	ref_shader								f_shader;
@@ -47,22 +49,28 @@ public:
 	void initialize();
 	void destroy();
 	void traverse(CSector* start, CFrustum& F, Fvector& vBase, Fmatrix& mXFORM);
-	IC bool is_sector_visible(CSector* sector)
+	// node hands back the frustum entry the lookup already found, so a caller that needs the
+	// frustums does not repeat the find, it stays null on the i_start early-out
+	IC bool is_sector_visible(CSector* sector, sector_frustums_t::TNode** node = nullptr)
 	{
+		if (node) *node = nullptr;
+
 		if (sector == i_start) return true;
 
 		{
 			xrSRWLockGuard guard(&S_LC, true);
 			if(m_sector_frustums.size())
 			{
-				if (auto node = m_sector_frustums.find(sector))
-					return !node->val.first.empty();
+				if (auto found = m_sector_frustums.find(sector))
+				{
+					if (node) *node = found;
+					return !found->val.first.empty();
+				}
 			}
 		}
 
 		return false;
 	};
-	CDSGraphManager& get_traverser_safed() { xrSRWLockGuard guard(&S_LC, false); return *this; };
 	void fade_portal(CPortal* _p, float ssa);
 	void fade_render();
 
@@ -83,6 +91,15 @@ public:
 
 	void AddToRenderQueue(R_dsgraph::RenderQueue& queue, const R_dsgraph::DSGraphItem<u32, false>& item, const SPass& pass);
 	void r_dsgraph_render_graph(R_dsgraph::RenderQueueArray& queue, u32 _priority, bool _clear = true, bool static_geometry = true);
+
+	// pip SVP geometry cull, active only between begin/end which renderGBuffer brackets around the SVP pass
+	static void svp_cull_begin(Fmatrix& full_xform, bool cull_world);
+	static void svp_cull_end();
+	static bool svp_cull_active();
+	static void svp_set_lod_scale(float s); // pip SVP LOD: scale captured ssa to the SVP's pixel coverage
+	static void svp_set_ssa_cull(float strength, float cov); // pip SVP small-object cull threshold
+	static bool svp_cull_reject(dxRender_Visual* V, Fmatrix* M);
+	static float svp_drain_lod(float ssa, float R); // pip lod for the drained weapon via the inline lod helpers
 	IC void r_dsgraph_render_graph(u32 _priority, bool _clear = true)
 	{
 		r_dsgraph_render_static(_priority, _clear);
@@ -102,7 +119,48 @@ public:
 	template<typename T, bool Reverse>
 	void r_dsgraph_render_graph_sorted(R_dsgraph::mapDSGraphItems<T, Reverse>& graph, bool _clear = true);
 	void r_dsgraph_capture_hud();
-	void r_dsgraph_render_hud();
+	void r_dsgraph_render_hud(bool _clear = true);
+	void r_dsgraph_render_hud_svp();
+	// pip one hud pose sample feeds the housing and every late scope draw
+	struct SSvpPoseLatch
+	{
+		Fmatrix* source = nullptr;
+		Fmatrix value;
+	};
+	xr_vector<SSvpPoseLatch> m_svp_pose;
+	u32 m_svp_pose_frame{u32(-1)};
+	void svp_latch_hud_poses();
+	Fmatrix* svp_pose_of(Fmatrix* p);
+	// pip one lens bone sample feeds camera derivation and late lens draws
+	struct SSvpBoneLatch
+	{
+		dxRender_Visual* visual = nullptr;
+		Fmatrix value;
+	};
+	xr_vector<SSvpBoneLatch> m_svp_bone;
+	u32 m_svp_bone_frame{u32(-1)};
+	bool svp_lens_bone_of(dxRender_Visual* v, Fmatrix& out);
+	struct SSvpHudAdmission
+	{
+		float axial = 0.f;
+		float radial = -1.f;
+		float radius = 0.f;
+		float dir_right = 0.f;
+		float dir_up = 0.f;
+		float axial_lo = 0.f;
+		float axial_hi = 0.f;
+		float objective = 0.f;
+		LPCSTR reason = "inactive";
+		bool candidate = false;
+		bool reject = false;
+		bool forward = false;
+		// world aabb and its 8 posed corners, the near-plane derive frustum tests them
+		Fbox box_w;
+		Fvector corners_w[8];
+		bool box_valid = false;
+	};
+	void svp_classify_objective_hud(dxRender_Visual* visual, Fmatrix* matrix, u8 role,
+		SSvpHudAdmission& admission);
 	void r_dsgraph_render_hud_ui();
 	void r_dsgraph_render_lods(bool _setup_zb, bool _clear);
 	void r_dsgraph_render_sorted(bool render_hud = true);
@@ -117,7 +175,7 @@ public:
 #endif
 	void r_dsgraph_render_cam_ui();
 	void r_dsgraph_render_water_ssr();
-	void r_dsgraph_render_water();
+	void r_dsgraph_render_water(bool clearGraph = true); // pip clearGraph false keeps mapWater for the next viewport
 
 	void r_dsgraph_capture(bool lights = false, bool dynamic = false, CObject* O = nullptr);
 	void r_dsgraph_capture_lights();

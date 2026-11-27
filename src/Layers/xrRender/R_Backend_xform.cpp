@@ -5,6 +5,10 @@
 
 void R_xforms::set_W(const Fmatrix& m)
 {
+	// an unchanged world matrix is already resident, the c_w binders re-push it on every shader bind
+	if (0 == memcmp(&m_w, &m, sizeof(Fmatrix)))
+		return;
+
 	m_w.set(m);
 	m_wv.mul_43(m_v, m_w);
 	m_wvp.mul(m_p, m_wv);
@@ -43,34 +47,37 @@ void R_xforms::set_P(const Fmatrix& m)
 
 void R_xforms::set_W_prev(const Fmatrix& m)
 {
-	m_w_prev[Device.m_SecondViewport.IsSVPFrame()].set(m);
-	m_wv_prev[Device.m_SecondViewport.IsSVPFrame()].mul_43(m_v_prev[Device.m_SecondViewport.IsSVPFrame()], m_w_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	m_wvp_prev[Device.m_SecondViewport.IsSVPFrame()].mul(m_p_prev[Device.m_SecondViewport.IsSVPFrame()], m_wv_prev[Device.m_SecondViewport.IsSVPFrame()]);
+	const bool svp = Device.m_SecondViewport.IsSVPFrame(); // pip pick this viewport's prev-matrix slot
+	m_w_prev[svp].set(m);
+	m_wv_prev[svp].mul_43(m_v_prev[svp], m_w_prev[svp]);
+	m_wvp_prev[svp].mul(m_p_prev[svp], m_wv_prev[svp]);
 
-	if (c_w_prev)		RCache.set_c(c_w_prev[Device.m_SecondViewport.IsSVPFrame()], m_w_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	if (c_wv_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_wv_prev[Device.m_SecondViewport.IsSVPFrame()], m_wv_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	if (c_wvp_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_wvp_prev[Device.m_SecondViewport.IsSVPFrame()], m_wvp_prev[Device.m_SecondViewport.IsSVPFrame()]);
+	if (c_w_prev[svp])		RCache.set_c(c_w_prev[svp], m_w_prev[svp]);
+	if (c_wv_prev[svp])		RCache.set_c(c_wv_prev[svp], m_wv_prev[svp]);
+	if (c_wvp_prev[svp])	RCache.set_c(c_wvp_prev[svp], m_wvp_prev[svp]);
 }
 void R_xforms::set_V_prev(const Fmatrix& m)
 {
-	m_v_prev[Device.m_SecondViewport.IsSVPFrame()].set(m);
-	m_wv_prev[Device.m_SecondViewport.IsSVPFrame()].mul_43(m_v_prev[Device.m_SecondViewport.IsSVPFrame()], m_w_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	m_vp_prev[Device.m_SecondViewport.IsSVPFrame()].mul(m_p_prev[Device.m_SecondViewport.IsSVPFrame()], m_v_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	m_wvp_prev[Device.m_SecondViewport.IsSVPFrame()].mul(m_p_prev[Device.m_SecondViewport.IsSVPFrame()], m_wv_prev[Device.m_SecondViewport.IsSVPFrame()]);
+	const bool svp = Device.m_SecondViewport.IsSVPFrame();
+	m_v_prev[svp].set(m);
+	m_wv_prev[svp].mul_43(m_v_prev[svp], m_w_prev[svp]);
+	m_vp_prev[svp].mul(m_p_prev[svp], m_v_prev[svp]);
+	m_wvp_prev[svp].mul(m_p_prev[svp], m_wv_prev[svp]);
 
-	if (c_v_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_v_prev[Device.m_SecondViewport.IsSVPFrame()], m_v_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	if (c_vp_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_vp_prev[Device.m_SecondViewport.IsSVPFrame()], m_vp_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	if (c_wv_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_wv_prev[Device.m_SecondViewport.IsSVPFrame()], m_wv_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	if (c_wvp_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_wvp_prev[Device.m_SecondViewport.IsSVPFrame()], m_wvp_prev[Device.m_SecondViewport.IsSVPFrame()]);
+	if (c_v_prev[svp])		RCache.set_c(c_v_prev[svp], m_v_prev[svp]);
+	if (c_vp_prev[svp])		RCache.set_c(c_vp_prev[svp], m_vp_prev[svp]);
+	if (c_wv_prev[svp])		RCache.set_c(c_wv_prev[svp], m_wv_prev[svp]);
+	if (c_wvp_prev[svp])	RCache.set_c(c_wvp_prev[svp], m_wvp_prev[svp]);
 }
 void R_xforms::set_P_prev(const Fmatrix& m)
 {
-	m_p_prev[Device.m_SecondViewport.IsSVPFrame()].set(m);
-	m_vp_prev[Device.m_SecondViewport.IsSVPFrame()].mul(m_p_prev[Device.m_SecondViewport.IsSVPFrame()], m_v_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	m_wvp_prev[Device.m_SecondViewport.IsSVPFrame()].mul(m_p_prev[Device.m_SecondViewport.IsSVPFrame()], m_wv_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	if (c_p_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_p_prev[Device.m_SecondViewport.IsSVPFrame()], m_p_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	if (c_vp_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_vp_prev[Device.m_SecondViewport.IsSVPFrame()], m_vp_prev[Device.m_SecondViewport.IsSVPFrame()]);
-	if (c_wvp_prev[Device.m_SecondViewport.IsSVPFrame()])		RCache.set_c(c_wvp_prev[Device.m_SecondViewport.IsSVPFrame()], m_wvp_prev[Device.m_SecondViewport.IsSVPFrame()]);
+	const bool svp = Device.m_SecondViewport.IsSVPFrame();
+	m_p_prev[svp].set(m);
+	m_vp_prev[svp].mul(m_p_prev[svp], m_v_prev[svp]);
+	m_wvp_prev[svp].mul(m_p_prev[svp], m_wv_prev[svp]);
+	if (c_p_prev[svp])		RCache.set_c(c_p_prev[svp], m_p_prev[svp]);
+	if (c_vp_prev[svp])		RCache.set_c(c_vp_prev[svp], m_vp_prev[svp]);
+	if (c_wvp_prev[svp])	RCache.set_c(c_wvp_prev[svp], m_wvp_prev[svp]);
 }
 
 void R_xforms::apply_invw()
@@ -96,8 +103,8 @@ void R_xforms::unmap()
 	c_vp = NULL;
 	c_wvp = NULL;
 
-
-	for (auto i = 0; i < 2; i++) {
+	for (int i = 0; i < 2; i++)
+	{
 		c_w_prev[i] = NULL;
 		c_v_prev[i] = NULL;
 		c_p_prev[i] = NULL;
@@ -118,8 +125,8 @@ R_xforms::R_xforms()
 	m_vp.identity();
 	m_wvp.identity();
 
-
-	for (auto i = 0; i < 2; i++) {
+	for (int i = 0; i < 2; i++)
+	{
 		m_w_prev[i].identity();
 		m_v_prev[i].identity();
 		m_p_prev[i].identity();

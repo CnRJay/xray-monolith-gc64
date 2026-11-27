@@ -254,7 +254,7 @@ public:
     void __stdcall net_Relcase(CObject* obj);
 
 #ifdef CBULLETMANAGER_EX
-    	bool ValidateHitDynamicVisualMesh(SBullet& B, collide::rq_result& R, Fvector& collide_position, float range);
+	bool ValidateHitDynamicVisualMesh(SBullet& B, collide::rq_result& R, Fvector& collide_position, float range);
 #endif
 };
 

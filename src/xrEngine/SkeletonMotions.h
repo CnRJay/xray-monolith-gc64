@@ -170,6 +170,9 @@ DEFINE_VECTOR(CMotion, MotionVec, MotionVecIt);
 DEFINE_VECTOR(MotionVec*, BoneMotionsVec, BoneMotionsVecIt);
 DEFINE_MAP(shared_str, MotionVec, BoneMotionMap, BoneMotionMapIt);
 
+// bone mismatch detail from the last failed motion bind, the model fatal prompt reads it
+extern ENGINE_API string2048 g_motions_bind_fail_reason;
+
 // partition
 class ENGINE_API CPartDef
 {

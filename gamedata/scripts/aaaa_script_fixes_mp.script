@@ -1017,7 +1017,6 @@ function anomaly_restrictor_update()
 				if pos_dist_invalidate then
 					anomaly_restrictor_db_v.last_pos = new_pos
 				end
-				
 
 				-- Pure-Lua distance check bypass and optimized monster search loop over db_online_monsters.
 				-- Bypasses level.iterate_nearest to avoid Luabind interop and C++ sorting overhead.

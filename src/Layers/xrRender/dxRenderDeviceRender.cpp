@@ -76,7 +76,7 @@ static void bus_textures_update()
 }
 
 dxRenderDeviceRender::dxRenderDeviceRender()
-	: Resources(0)
+	: Resources(0), m_device_state_poll_countdown(0), m_device_state_cached(dsOK)
 {
 	;
 }
@@ -136,6 +136,7 @@ void dxRenderDeviceRender::Reset(HWND hWnd, u32& dwWidth, u32& dwHeight, float& 
 #endif // DEBUG
 
 	bus_textures_release();
+	m_device_state_poll_countdown = 0;
 	Resources->reset_begin();
 	Memory.mem_compact();
 
@@ -378,6 +379,19 @@ void dxRenderDeviceRender::ResourcesDumpMemoryUsage()
 
 dxRenderDeviceRender::DeviceState dxRenderDeviceRender::GetDeviceState()
 {
+	if (ps_r__device_state_interval > 1 && m_device_state_poll_countdown > 0)
+	{
+		--m_device_state_poll_countdown;
+		return m_device_state_cached;
+	}
+
+	m_device_state_cached = PollDeviceState();
+	m_device_state_poll_countdown = ps_r__device_state_interval > 1 ? ps_r__device_state_interval - 1 : 0;
+	return m_device_state_cached;
+}
+
+dxRenderDeviceRender::DeviceState dxRenderDeviceRender::PollDeviceState()
+{
 	HW.Validate();
 #if defined(USE_DX10) || defined(USE_DX11)
     HRESULT _hr = HW.m_pSwapChain->Present(0, DXGI_PRESENT_TEST);
@@ -501,9 +515,13 @@ void dxRenderDeviceRender::End()
 		record->present[0] = CPU::QPC();
 		record->presented = false;
 	}
+	if (Device.true_pip_on || (!Device.m_SecondViewport.IsSVPFrame() && !Device.m_SecondViewport.isCamReady))
 	{
+		extern float svp_stats_present_ms;
+		CTimer present_timer;
+		present_timer.Start();
 		const HRESULT hr = HW.m_pSwapChain->Present(present_interval, present_flags);
-		// Occluded windows or failed Presents show nothing
+		svp_stats_present_ms = present_timer.GetElapsed_ms_f();
 		if (record)
 			record->presented = hr == S_OK;
 # if defined(USE_DX11)
@@ -516,7 +534,8 @@ void dxRenderDeviceRender::End()
 #else //!USE_DX10 || USE_DX11
 	CHK_DX(HW.pDevice->EndScene());
 
-	HW.pDevice->Present(NULL, NULL, NULL, NULL);
+	if (Device.true_pip_on || (!Device.m_SecondViewport.IsSVPFrame() && !Device.m_SecondViewport.isCamReady))
+		HW.pDevice->Present(NULL, NULL, NULL, NULL);
 #endif //-USE_DX10
 	//HRESULT _hr		= HW.pDevice->Present( NULL, NULL, NULL, NULL );
 	//if				(D3DERR_DEVICELOST==_hr)	return;			// we will handle this later

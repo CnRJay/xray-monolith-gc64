@@ -474,7 +474,7 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
 #elif defined(USE_DX10)
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 #endif
-    sd.BufferCount = 2;
+    sd.BufferCount = clampr(ps_r__swapchain_buffers, 2, 3); // flip-discard requires >= 2
 
     // Multisample
 	sd.SampleDesc.Count = 1;
@@ -580,6 +580,14 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
 
     _RELEASE(device);
     _RELEASE(context);
+
+    if (ps_r__max_frame_latency > 0) {
+        IDXGIDevice1* dxgi_device1 = nullptr;
+        if (SUCCEEDED(pDevice->QueryInterface(&dxgi_device1)) && dxgi_device1) {
+            dxgi_device1->SetMaximumFrameLatency((UINT)ps_r__max_frame_latency);
+            _RELEASE(dxgi_device1);
+        }
+    }
 
     // create swapchain
     R_CHK(m_pFactory->CreateSwapChainForHwnd(pDevice, m_hWnd, &sd, &sd_fullscreen, NULL, &m_pSwapChain));
@@ -852,6 +860,8 @@ void CHW::Reset(HWND hwnd)
     _SHOW_REF("refCount:SECRET_P_BASE_ZB", SECRET_P_BASE_ZB);
     _SHOW_REF("refCount:SECRET_P_BASE_RT", SECRET_P_BASE_RT);
 
+    pContext->OMSetRenderTargets(0, nullptr, nullptr);
+
     _RELEASE(SECRET_P_BASE_ZB);
     _RELEASE(SECRET_P_BASE_RT);
 
@@ -861,12 +871,16 @@ void CHW::Reset(HWND hwnd)
         flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
     }
 
-    CHK_DX(m_pSwapChain->ResizeBuffers(
+    // capture explicitly (the shipping CHK_DX does nothing) so a resize failure or a removed device (TDR)
+    // is logged instead of silently corrupting the swapchain and faulting in the UpdateViews GetBuffer
+    const HRESULT _hr_resize = m_pSwapChain->ResizeBuffers(
         cd.BufferCount,
         cd.Width,
         cd.Height,
         cd.Format,
-        flags));
+        flags);
+    if (FAILED(_hr_resize) || pDevice->GetDeviceRemovedReason() != S_OK)
+        Msg("! [CHW::Reset] ResizeBuffers hr=0x%08x removed=0x%08x", _hr_resize, pDevice->GetDeviceRemovedReason());
 #elif defined(USE_DX10)
 	CHK_DX(m_pSwapChain->ResizeBuffers(
 		cd.BufferCount,
@@ -1512,5 +1526,12 @@ void CHW::UpdateViews()
     R_CHK(R);
 
     pDepthStencil->Release();
+
+#if defined(USE_DX11)
+    // snapshot the true swapchain RTV/DSV, re-run on resize, SetActive (R4) restores the main
+    // target from these so a clobbered pBaseRT from the SVP pass never sticks
+    secret_pBaseRT = pBaseRT;
+    secret_pBaseZB = pBaseZB;
+#endif
 }
 #endif

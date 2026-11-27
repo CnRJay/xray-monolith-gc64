@@ -245,6 +245,22 @@ void CCameraManager::RemoveCamEffector(CEffectorCam* ef)
 	}
 }
 
+void CCameraManager::RepositionCamEffector(CEffectorCam* ef)
+{
+	for (EffectorCamIt it = m_EffectorsCam.begin(); it != m_EffectorsCam.end(); it++)
+	{
+		if (*it == ef)
+		{
+			m_EffectorsCam.erase(it);
+			if (ef->AbsolutePositioning())
+				m_EffectorsCam.push_back(ef);
+			else
+				m_EffectorsCam.push_front(ef);
+			return;
+		}
+	}
+}
+
 void CCameraManager::RemoveHudMotionEffectors()
 {
 	for (EffectorCamIt it = m_EffectorsCam.begin(); it != m_EffectorsCam.end();)
@@ -500,9 +516,21 @@ void CCameraManager::ApplyDevice(float _viewport_near)
 	// projection
 	Device.fFOV = m_cam_info.fFov;
 	Device.fASPECT = m_cam_info.fAspect;
+	//--#SM+# Begin-- +SecondVP+
+	if (!Device.true_pip_on && Device.m_SecondViewport.IsSVPFrame())
+	{
+		Device.fFOV = g_pGamePersistent->m_pGShaderConstants->hud_params.y;
+		Device.m_SecondViewport.isCamReady = true;
+	}
+	else
+		Device.m_SecondViewport.isCamReady = false;
 
 	Device.mProject.build_projection(deg2rad(Device.fFOV), m_cam_info.fAspect, _viewport_near, m_cam_info.fFar);
-	Device.mProjectHud.build_projection(deg2rad(psHUD_FOV * 83.f), Device.fASPECT, R_VIEWPORT_NEAR, m_cam_info.fFar);
+	extern int g_svp_hud_true_fov;
+	const float hud_fov_deg = (g_svp_hud_true_fov && Device.true_pip_on && Device.m_SecondViewport.IsSVPActive()
+		&& g_pGamePersistent && g_pGamePersistent->m_pGShaderConstants->hud_params.x > 0.999f)
+		? Device.fFOV : psHUD_FOV * 83.f;
+	Device.mProjectHud.build_projection(deg2rad(hud_fov_deg), Device.fASPECT, R_VIEWPORT_NEAR, m_cam_info.fFar);
 	Device.mProjectCamAttached.build_projection(deg2rad(psCAM_ATTACHED_FOV * 83.f), Device.fASPECT, R_VIEWPORT_NEAR, m_cam_info.fFar);
 	Device.mProject3DIcons.build_projection_ortho(UI_3D_ICON_ORTHO_HEIGHT / Device.fASPECT,
 		UI_3D_ICON_ORTHO_HEIGHT, UI_3D_ICON_NEAR_PLANE, UI_3D_ICON_FAR_PLANE);
@@ -514,29 +542,33 @@ void CCameraManager::ApplyDevice(float _viewport_near)
 	if (g_pGamePersistent && g_pGamePersistent->m_pMainMenu->IsActive())
 		ResetPP();
 	else
-	{
-		pp_affected.validate("apply device");
-		// postprocess
-		IRender_Target* T = ::Render->getTarget();
-		T->set_duality_h(pp_affected.duality.h);
-		T->set_duality_v(pp_affected.duality.v);
-		T->set_blur(pp_affected.blur);
-		T->set_gray(pp_affected.gray);
-		T->set_noise(pp_affected.noise.intensity);
+		ApplyPP();
+}
 
-		clamp(pp_affected.noise.grain, EPS_L, 1000.0f);
+// pip the pp half of ApplyDevice, callable on its own
+void CCameraManager::ApplyPP()
+{
+	pp_affected.validate("apply device");
+	// postprocess
+	IRender_Target* T = ::Render->getTarget();
+	T->set_duality_h(pp_affected.duality.h);
+	T->set_duality_v(pp_affected.duality.v);
+	T->set_blur(pp_affected.blur);
+	T->set_gray(pp_affected.gray);
+	T->set_noise(pp_affected.noise.intensity);
 
-		T->set_noise_scale(pp_affected.noise.grain);
+	clamp(pp_affected.noise.grain, EPS_L, 1000.0f);
 
-		T->set_noise_fps(pp_affected.noise.fps);
-		T->set_color_base(pp_affected.color_base);
-		T->set_color_gray(pp_affected.color_gray);
-		T->set_color_add(pp_affected.color_add);
+	T->set_noise_scale(pp_affected.noise.grain);
 
-		T->set_cm_imfluence(pp_affected.cm_influence);
-		T->set_cm_interpolate(pp_affected.cm_interpolate);
-		T->set_cm_textures(pp_affected.cm_tex1, pp_affected.cm_tex2);
-	}
+	T->set_noise_fps(pp_affected.noise.fps);
+	T->set_color_base(pp_affected.color_base);
+	T->set_color_gray(pp_affected.color_gray);
+	T->set_color_add(pp_affected.color_add);
+
+	T->set_cm_imfluence(pp_affected.cm_influence);
+	T->set_cm_interpolate(pp_affected.cm_interpolate);
+	T->set_cm_textures(pp_affected.cm_tex1, pp_affected.cm_tex2);
 }
 
 void CCameraManager::ResetPP()

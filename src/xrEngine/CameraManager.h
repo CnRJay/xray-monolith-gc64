@@ -157,6 +157,9 @@ public:
 	// demonized: removecameffector by pointer
 	void RemoveCamEffector(CEffectorCam* ef);
 
+	// move a live effector between front and back per its AbsolutePositioning without releasing it
+	void RepositionCamEffector(CEffectorCam* ef);
+
 	void RemoveHudMotionEffectors();
 
 	ECamEffectorType RequestCamEffectorId();
@@ -178,6 +181,7 @@ public:
 	void UpdateFromCamera(const CCameraBase* C);
 
 	void ApplyDevice(float _viewport_near);
+	void ApplyPP();
 	static void ResetPP();
 
 	CCameraManager(bool bApplyOnUpdate);

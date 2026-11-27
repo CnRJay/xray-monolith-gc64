@@ -859,8 +859,19 @@ void CGamePersistent::ImGui_OnShow(bool show)
 	::luabind::functor<void> imgui_show;
 	if (ai().script_engine().functor("callbacks_gameobject.on_imgui_show", imgui_show))
 	{
-        imgui_show(show);
+		imgui_show(show);
 	}
+}
+
+bool CGamePersistent::OnModelLoadFatal(LPCSTR message)
+{
+	if (!g_pGameLevel || !g_pGameLevel->bReady)
+		return false;
+
+	::luabind::functor<bool> prompt;
+	if (!ai().script_engine().functor("_G.COnModelLoadFatalError", prompt))
+		return false;
+	return prompt(message) == true;
 }
 
 #include "game_sv_single.h"

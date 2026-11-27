@@ -718,7 +718,9 @@ public:
 		return *this;
 	}
 
-	IC void decompose_projection(T& fFov, T& fAspect, T& fNearPlane, T& fFarPlane) {
+	// inverse of build_projection
+	IC void decompose_projection(T& fFov, T& fAspect, T& fNearPlane, T& fFarPlane)
+	{
 		T Q = _33;
 		T w = _11;
 		T h = _22;

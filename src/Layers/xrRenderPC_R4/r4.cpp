@@ -10,6 +10,8 @@
 #include "../xrRender/dxRenderDeviceRender.h"
 #include "../xrRender/dxWallMarkArray.h"
 #include "../xrRender/dxUIShader.h"
+#include "../xrRender/xrRender_console.h" // r__shader_debug
+#include "svp_stats.h" // pip render-stats overlay, query pool release on reset/destroy
 
 #include "../xrRenderDX10/3DFluid/dx103DFluidManager.h"
 #include "../xrRenderDX10/dx10GpuTimeline.h"
@@ -124,6 +126,22 @@ static class cl_pos_decompress_params : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
+		const Fmatrix& projection = Device.mProject;
+		const bool svp_projection = Device.true_pip_on
+			&& Device.m_SecondViewport.m_render_pass_is_svp;
+		if (svp_projection && _valid(projection._11) && _valid(projection._22)
+			&& _abs(projection._11) > EPS && _abs(projection._22) > EPS)
+		{
+			const float inv_x = 1.f / projection._11;
+			const float inv_y = 1.f / projection._22;
+			RCache.set_c(C,
+				(1.f + projection._31) * inv_x,
+				(projection._32 - 1.f) * inv_y,
+				2.f * inv_x / (float)Device.dwWidth,
+				-2.f * inv_y / (float)Device.dwHeight);
+			return;
+		}
+
 		float VertTan = -1.0f * tanf(deg2rad(Device.fFOV / 2.0f));
 		float HorzTan = - VertTan / Device.fASPECT;
 
@@ -532,7 +550,10 @@ void CRender::create()
 
 	m_bMakeAsyncSS = false;
 
-	initializeTargets();
+	Target = xr_new<CRenderTarget>();
+	TargetMain = Target;
+	TargetSVP = nullptr;
+	m_cascade2_cache.valid = false;
 
 	Models = xr_new<CModelPool>();
 	PSLibrary.OnCreate();
@@ -549,21 +570,6 @@ void CRender::create()
 	Device.ModelDefferClear = xr_make_delegate(Models, &CModelPool::DeleteQueuedDeffer);
 }
 
-void CRender::initializeTargets()
-{
-	TargetMain = xr_new<CRenderTarget>("main", Device.dwWidth, Device.dwHeight);
-	const u32 svp_dim = _max(128u, u32(float(Device.dwHeight) * clampr(ps_r__svp_scale, 0.25f, 1.0f)) & ~7u);
-	TargetSVP = xr_new<CRenderTarget>("svp", svp_dim, svp_dim);
-	TargetMain->SetActive();
-}
-
-void CRender::deleteTargets()
-{
-	Target = nullptr;
-	xr_delete(TargetMain);
-	xr_delete(TargetSVP);
-}
-
 void CRender::destroy()
 {
 	m_bMakeAsyncSS = false;
@@ -571,10 +577,14 @@ void CRender::destroy()
 	GMBase.destroy();
 	GMBaseSVP.destroy();
 
-	deleteTargets();
 	HWOCC.occq_destroy();
+	svp_stats::release(); // pip drop the stats query pool + font with the device
 	xr_delete(Models);
 	gpu_timeline::destroy();
+	xr_delete(Target);
+	TargetMain = nullptr;
+	xr_delete(TargetSVP);
+	m_cascade2_cache.valid = false;
 	PSLibrary.OnDestroy();
 	Device.seqFrame.Remove(this);
 	Device.ModelDefferClear = nullptr;
@@ -591,15 +601,21 @@ void CRender::reset_begin()
 	}
 	//-AVO
 
-	deleteTargets();
+	xr_delete(Target);
+	TargetMain = nullptr;
+	xr_delete(TargetSVP);
+	m_cascade2_cache.valid = false;
 	HWOCC.occq_destroy();
+	svp_stats::release(); // pip release the stats queries before ResizeBuffers, re-lazy-alloc on next enabled frame
 }
 
 void CRender::reset_end()
 {
 	HWOCC.occq_create(occq_size);
 
-	initializeTargets();
+	Target = xr_new<CRenderTarget>();
+	TargetMain = Target;
+	m_cascade2_cache.valid = false;
 
 	//AVO: let's reload details while changed details options on vid_restart
 	if (b_loaded && ((dm_current_size != dm_size) || (ps_r__Detail_density != ps_current_detail_density) || (
@@ -791,7 +807,8 @@ FSlideWindowItem* CRender::getSWI(int id)
 	return &SWIs[id];
 }
 
-IRender_Target* CRender::getTarget() { return Target; }
+// pip external callers (ppe params, UI metrics) get the main target
+IRender_Target* CRender::getTarget() { return TargetMain ? (IRender_Target*)TargetMain : Target; }
 
 IRender_Light* CRender::light_create() { return Lights.Create(); }
 IRender_Glow* CRender::glow_create() { return xr_new<CGlow>(); }
@@ -874,7 +891,8 @@ void CRender::add_Occluder(Fbox2& bb_screenspace)
 
 void CRender::rmNear()
 {
-	IRender_Target* T = getTarget();
+	// the viewport matches the ACTIVE target
+	IRender_Target* T = Target;
 	D3D_VIEWPORT VP = {0, 0, (float)T->get_width(), (float)T->get_height(), 0, 0.02f};
 
 	HW.pContext->RSSetViewports(1, &VP);
@@ -883,7 +901,7 @@ void CRender::rmNear()
 
 void CRender::rmFar()
 {
-	IRender_Target* T = getTarget();
+	IRender_Target* T = Target;
 	D3D_VIEWPORT VP = {0, 0, (float)T->get_width(), (float)T->get_height(), 0.99999f, 1.f};
 
 	HW.pContext->RSSetViewports(1, &VP);
@@ -892,7 +910,7 @@ void CRender::rmFar()
 
 void CRender::rmNormal()
 {
-	IRender_Target* T = getTarget();
+	IRender_Target* T = Target;
 	D3D_VIEWPORT VP = {0, 0, (float)T->get_width(), (float)T->get_height(), 0, 1.f};
 
 	HW.pContext->RSSetViewports(1, &VP);
@@ -906,17 +924,6 @@ CRender::CRender()
 	: m_bFirstFrameAfterReset(false)
 {
 	init_cacades();
-
-	Device.m_SecondViewport.get_bone_matrix = [](IKinematics* k, IRenderVisual* v, Fmatrix& m) -> bool
-	{
-		auto s = dynamic_cast<CSkeletonX*>(v);
-		if (s && k)
-		{
-			m = k->LL_GetTransform_R(s->get_RMS_boneid());
-			return true;
-		}
-		return false;
-	};
 }
 
 CRender::~CRender()
@@ -1864,6 +1871,21 @@ HRESULT CRender::shader_compile(
 	sh_name[len] = '1';
 	++len;
 
+	// grass instancing rides the shader cache name so both states keep their own compiled files
+	if (ps_r__detail_instancing)
+	{
+		defines[def_it].Name = "DETAILS_INSTANCING";
+		defines[def_it].Definition = "1";
+		def_it++;
+		sh_name[len] = '1';
+		++len;
+	}
+	else
+	{
+		sh_name[len] = '0';
+		++len;
+	}
+
 	//Be carefull!!!!! this should be at the end to correctly generate
 	//compiled shader name;
 	// add a #define for DX10_1 MSAA support
@@ -2047,7 +2069,8 @@ HRESULT CRender::shader_compile(
 	if (useGeneratedShaderCache)
 		source_crc = getShaderSourceCrc32(pSrcData, SrcDataLen, ::Render->getShaderPath());
 
-	if (FS.exist(file_name))
+	// r__shader_debug skips the cache read so a cached optimized blob does not shadow the debug build
+	if (!r__shader_debug && FS.exist(file_name))
 	{
 		IReader* file = FS.r_open(file_name);
 		if (useGeneratedShaderCache)
@@ -2091,6 +2114,10 @@ HRESULT CRender::shader_compile(
 		includer Includer;
 		LPD3DBLOB pShaderBuf = NULL;
 		LPD3DBLOB pErrorBuf = NULL;
+		// r__shader_debug emits debug info + skips optimization so RenderDoc can step the HLSL source
+		DWORD compileFlags = Flags;
+		if (r__shader_debug)
+			compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 		_result =
 			D3DCompile(
 				pSrcData,
@@ -2098,23 +2125,27 @@ HRESULT CRender::shader_compile(
 				"", //NULL, //LPCSTR pFileName,	//	NVPerfHUD bug workaround.
 				defines, &Includer, pFunctionName,
 				pTarget,
-				Flags, 0,
+				compileFlags, 0,
 				&pShaderBuf,
 				&pErrorBuf
 			);
 
 		if (SUCCEEDED(_result))
 		{
-			IWriter* file = FS.w_open(file_name);
+			// don't cache the debug blob, keyed by source CRC, it would later load as if it were a normal build
+			if (!r__shader_debug)
+			{
+				IWriter* file = FS.w_open(file_name);
 
-			u32 const crc = crc32(pShaderBuf->GetBufferPointer(), pShaderBuf->GetBufferSize());
+				u32 const crc = crc32(pShaderBuf->GetBufferPointer(), pShaderBuf->GetBufferSize());
 
-			if (useGeneratedShaderCache)
-				file->w_u32(source_crc);
+				if (useGeneratedShaderCache)
+					file->w_u32(source_crc);
 
-			file->w_u32(crc);
-			file->w(pShaderBuf->GetBufferPointer(), (u32)pShaderBuf->GetBufferSize());
-			FS.w_close(file);
+				file->w_u32(crc);
+				file->w(pShaderBuf->GetBufferPointer(), (u32)pShaderBuf->GetBufferSize());
+				FS.w_close(file);
+			}
 
 			_result = create_shader(pTarget, (DWORD*)pShaderBuf->GetBufferPointer(), (u32)pShaderBuf->GetBufferSize(),
 			                        file_name, result, o.disasm);

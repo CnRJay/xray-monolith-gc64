@@ -12,6 +12,7 @@
 #include "weapon.h"
 #include "script_attachment_manager.h"
 #include "../xrEngine/CameraBase.h"
+#include "../Layers/xrRender/svp_console.h"
 
 extern int g_nearwall;
 
@@ -683,6 +684,10 @@ u32 attachable_hud_item::anim_play(const shared_str& anm_name_b, BOOL bMixIn, co
 	{
 		IKinematicsAnimated* ka = m_model->dcast_PKinematicsAnimated();
 
+		// a model whose motion bind failed stands down, the exit prompt owns the session
+		if (0 == ka->LL_MotionsSlotCount())
+			return ret;
+
 		shared_str item_anm_name;
 		if (anm->m_base_name != anm->m_additional_name)
 			item_anm_name = anm->m_additional_name;
@@ -1337,31 +1342,46 @@ void player_hud::render_hud(IDSGraphManager* DM)
 
 	if (!b_r0 && !b_r1) return;
 
+	const auto previous_role = DM->get_HUD_Role();
+	DM->set_HUD_Role(IDSGraphManager::hud_hands);
 	DM->add_Dynamic(m_model->dcast_RenderVisual(), &m_transform);
 	DM->add_Dynamic(m_model_2->dcast_RenderVisual(), &m_transform_2);
 
 	if (m_attached_items[0])
+	{
+		DM->set_HUD_Role(IDSGraphManager::hud_primary_item);
 		m_attached_items[0]->render(DM);
+	}
 
 	if (m_attached_items[1])
+	{
+		DM->set_HUD_Role(IDSGraphManager::hud_offhand_item);
 		m_attached_items[1]->render(DM);
+	}
 
 	if (m_attached_items[SCOPE_ATTACH_IDX])
+	{
+		DM->set_HUD_Role(IDSGraphManager::hud_optic);
 		m_attached_items[SCOPE_ATTACH_IDX]->render(DM);
+	}
 
 	if (script_anim_item_model)
 	{
+		DM->set_HUD_Role(IDSGraphManager::hud_prop);
 		DM->add_Dynamic(script_anim_item_model->dcast_RenderVisual(), &m_item_pos);
 	}
 
-	auto& actor_hud_attachments = *g_actor->GetAttachments();
-	for (auto& pair : actor_hud_attachments)
+	if (g_actor->GetAttachments()->size())
+	{
+		DM->set_HUD_Role(IDSGraphManager::hud_prop);
+		for (auto& pair : *g_actor->GetAttachments())
 		{
 			script_attachment* att = pair.second;
-
 			if (att->GetType() == eSA_HUD)
-            att->renderable_Render(DM);
+				att->renderable_Render(DM);
+		}
 	}
+	DM->set_HUD_Role(previous_role);
 }
 
 #include "../xrEngine/motion.h"
@@ -1765,6 +1785,85 @@ void player_hud::update(const Fmatrix& cam_trans)
 
 	if (m_attached_items[SCOPE_ATTACH_IDX])
 		m_attached_items[SCOPE_ATTACH_IDX]->update(true);
+
+	if (scope_svp_enabled >= 2 && ps_r__svp_cop_diag >= 2 && Device.true_pip_on
+		&& Device.m_SecondViewport.IsSVPActive()
+		&& m_attached_items[0] && m_attached_items[SCOPE_ATTACH_IDX])
+	{
+		auto* primary = m_attached_items[0];
+		auto* optic = m_attached_items[SCOPE_ATTACH_IDX];
+		Fmatrix primary_inverse;
+		primary_inverse.invert(primary->m_item_transform);
+		Fmatrix relative;
+		relative.mul_43(primary_inverse, optic->m_item_transform);
+		Fvector relative_i = relative.i;
+		Fvector relative_j = relative.j;
+		Fvector relative_k = relative.k;
+		relative_i.normalize_safe();
+		relative_j.normalize_safe();
+		relative_k.normalize_safe();
+
+		static const attachable_hud_item* s_primary = nullptr;
+		static const attachable_hud_item* s_optic = nullptr;
+		static u32 s_session = 0;
+		static u32 s_log_ms = 0;
+		static Fvector s_relative_c = {};
+		static Fvector s_relative_i = {};
+		static Fvector s_relative_j = {};
+		static Fvector s_relative_k = {};
+		static Fvector s_primary_c = {};
+		static Fvector s_optic_c = {};
+		static bool s_valid = false;
+
+		const u32 session = Device.m_SecondViewport.GetSVPSession();
+		const bool same = s_valid && s_primary == primary && s_optic == optic
+			&& s_session == session;
+		const bool linked = same && Device.dwTimeGlobal - s_log_ms <= 500;
+		if (!linked || Device.dwTimeGlobal - s_log_ms > 250)
+		{
+			Fvector relative_delta = {};
+			Fvector primary_delta = {};
+			Fvector optic_delta = {};
+			float angle_delta = 0.f;
+			if (linked)
+			{
+				relative_delta.sub(relative.c, s_relative_c);
+				primary_delta.sub(primary->m_item_transform.c, s_primary_c);
+				optic_delta.sub(optic->m_item_transform.c, s_optic_c);
+				const float trace = relative_i.dotproduct(s_relative_i)
+					+ relative_j.dotproduct(s_relative_j)
+					+ relative_k.dotproduct(s_relative_k);
+				angle_delta = rad2deg(acosf(std::clamp((trace - 1.f) * 0.5f, -1.f, 1.f)));
+			}
+			const LPCSTR weapon_section = wep ? wep->cNameSect().c_str() : "?";
+			const float nearwall_factor = wep ? wep->m_nearwall_factor : 0.f;
+			PipMsg("[SVP-ASSEMBLY] seed=%d dt_ms=%u relC=(%.5f,%.5f,%.5f) dRelC=(%.5f,%.5f,%.5f) relK=(%.5f,%.5f,%.5f) dAngleDeg=%.5f primaryC=(%.5f,%.5f,%.5f) dPrimary=(%.5f,%.5f,%.5f) opticC=(%.5f,%.5f,%.5f) dOptic=(%.5f,%.5f,%.5f) nearwall=%d factor=%.4f weapon=%s primaryHud=%s opticHud=%s primary=%p optic=%p session=%u frame=%u",
+				linked ? 0 : 1, linked ? Device.dwTimeGlobal - s_log_ms : 0,
+				relative.c.x, relative.c.y, relative.c.z,
+				relative_delta.x, relative_delta.y, relative_delta.z,
+				relative_k.x, relative_k.y, relative_k.z, angle_delta,
+				primary->m_item_transform.c.x, primary->m_item_transform.c.y,
+				primary->m_item_transform.c.z,
+				primary_delta.x, primary_delta.y, primary_delta.z,
+				optic->m_item_transform.c.x, optic->m_item_transform.c.y,
+				optic->m_item_transform.c.z,
+				optic_delta.x, optic_delta.y, optic_delta.z,
+				g_nearwall, nearwall_factor, weapon_section,
+				primary->m_sect_name.c_str(), optic->m_sect_name.c_str(),
+				(void*)primary, (void*)optic, session, Device.dwFrame);
+			s_primary = primary;
+			s_optic = optic;
+			s_session = session;
+			s_log_ms = Device.dwTimeGlobal;
+			s_relative_c = relative.c;
+			s_relative_i = relative_i;
+			s_relative_j = relative_j;
+			s_relative_k = relative_k;
+			s_primary_c = primary->m_item_transform.c;
+			s_optic_c = optic->m_item_transform.c;
+			s_valid = true;
+		}
+	}
 
 	if (script_anim_item_attached && script_anim_item_model)
 		update_script_item();
@@ -2178,7 +2277,8 @@ u32 player_hud::script_anim_play(u8 hand, LPCSTR section, LPCSTR anm_name, bool 
 
 	const motion_descr& M = phm->m_animations[Random.randI(phm->m_animations.size())];
 
-	if (script_anim_item_model)
+	// a bind failed item model has no slots and stands down
+	if (script_anim_item_model && 0 != script_anim_item_model->LL_MotionsSlotCount())
 	{
 		shared_str item_anm_name;
 		if (phm->m_base_name != phm->m_additional_name)

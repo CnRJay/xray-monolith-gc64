@@ -297,6 +297,9 @@ bool CWeapon::install_upgrade_addon(LPCSTR section, bool test)
 	process_if_exists_set(section, "scope_dynamic_zoom", &CInifile::r_bool, m_zoom_params.m_bUseDynamicZoom_Primary, test);
 	process_if_exists_set(section, "scope_dynamic_zoom_alt", &CInifile::r_bool, m_zoom_params.m_bUseDynamicZoom_Alt, test);
 	process_if_exists_set(section, "scope_dynamic_zoom_gl", &CInifile::r_bool, m_zoom_params.m_bUseDynamicZoom_GL, test);
+	process_if_exists_set(section, "scope_dynamic_zoom", &CInifile::r_bool, m_zoom_params.m_bSvpDynamicZoom_Primary, test);
+	process_if_exists_set(section, "scope_dynamic_zoom_alt", &CInifile::r_bool, m_zoom_params.m_bSvpDynamicZoom_Alt, test);
+	process_if_exists_set(section, "scope_dynamic_zoom_gl", &CInifile::r_bool, m_zoom_params.m_bSvpDynamicZoom_GL, test);
 
 	result |= result2;
 

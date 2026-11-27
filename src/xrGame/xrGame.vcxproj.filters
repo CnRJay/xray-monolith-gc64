@@ -5167,6 +5167,9 @@
       <Filter>AI\AScript\ScriptClasses\Console</Filter>
     </ClInclude>
     <ClInclude Include="shader_bus_script.h">
+      <Filter>scripts</Filter>
+    </ClInclude>
+    <ClInclude Include="svp_optic_config_script.h">
       <Filter>AI\AScript\ScriptClasses\Console</Filter>
     </ClInclude>
     <ClInclude Include="base_client_classes.h">
@@ -5734,6 +5737,9 @@
       <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Custom Weapon\Weapon Generic</Filter>
     </ClInclude>
     <ClInclude Include="Weapon.h">
+      <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Custom Weapon\Weapon Generic</Filter>
+    </ClInclude>
+    <ClInclude Include="svp_mags.h">
       <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Custom Weapon\Weapon Generic</Filter>
     </ClInclude>
     <ClInclude Include="WeaponAmmo.h">
@@ -8789,6 +8795,9 @@
       <Filter>AI\AScript\ScriptClasses\Console</Filter>
     </ClCompile>
     <ClCompile Include="shader_bus_script.cpp">
+      <Filter>scripts</Filter>
+    </ClCompile>
+    <ClCompile Include="svp_optic_config_script.cpp">
       <Filter>AI\AScript\ScriptClasses\Console</Filter>
     </ClCompile>
     <ClCompile Include="base_client_classes_script.cpp">
@@ -9305,6 +9314,12 @@
       <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Custom Weapon\Weapon Generic</Filter>
     </ClCompile>
     <ClCompile Include="Weapon.cpp">
+      <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Custom Weapon\Weapon Generic</Filter>
+    </ClCompile>
+    <ClCompile Include="svp_weapon.cpp">
+      <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Custom Weapon\Weapon Generic</Filter>
+    </ClCompile>
+    <ClCompile Include="svp_mags.cpp">
       <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Custom Weapon\Weapon Generic</Filter>
     </ClCompile>
     <ClCompile Include="WeaponDispersion.cpp">

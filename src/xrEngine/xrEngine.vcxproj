@@ -928,6 +928,7 @@
     <ClInclude Include="dedicated_server_only.h" />
     <ClInclude Include="defines.h" />
     <ClInclude Include="device.h" />
+    <ClInclude Include="svp_state.h" />
     <ClInclude Include="GIFResource.h" />
     <ClInclude Include="MonitorList.h" />
     <ClInclude Include="edit_actions.h" />
@@ -1010,6 +1011,9 @@
     <ClInclude Include="xr_input_xinput.h" />
     <ClInclude Include="XR_IOConsole.h" />
     <ClInclude Include="xr_ioc_cmd.h" />
+    <ClInclude Include="svp_console_policy.h" />
+    <ClInclude Include="svp_gameplay_cvars.h" />
+    <ClInclude Include="svp_crash_context.h" />
     <ClInclude Include="xr_object.h" />
     <ClInclude Include="xr_object_list.h" />
     <ClInclude Include="x_ray.h" />
@@ -1134,6 +1138,11 @@
     <ClCompile Include="XR_IOConsole_control.cpp" />
     <ClCompile Include="XR_IOConsole_get.cpp" />
     <ClCompile Include="xr_ioc_cmd.cpp" />
+    <ClCompile Include="svp_gameplay_cvars.cpp" />
+    <ClCompile Include="svp_crash_context.cpp" />
+    <ClCompile Include="svp_state.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="xr_object.cpp" />
     <ClCompile Include="xr_object_list.cpp" />
     <ClCompile Include="x_ray.cpp" />
@@ -1222,6 +1231,9 @@
     </ProjectReference>
     <ProjectReference Include="..\3rd party\optick\optick.vcxproj">
       <Project>{4ddc8f7a-3b57-4250-9404-d2ee1991be78}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\3rd party\moc\moc.vcxproj">
+      <Project>{44d6edb9-1ee8-4622-a874-0ac965958c2c}</Project>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup Condition="'$(Configuration)|$(Platform)'=='Verified|x64'">

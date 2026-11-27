@@ -50,6 +50,17 @@ struct resptrcode_crt : public resptr_base<CRT>
 
 typedef resptr_core<CRT, resptrcode_crt> ref_rt;
 
+// destination bytes one full copy of this target moves, read from the stored dims so no per-frame GetDesc
+IC u32 rt_copy_bytes(const ref_rt& t)
+{
+	if (!t)
+		return 0;
+	u32 bpp = 4;
+	if (t->fmt == D3DFMT_A16B16G16R16F) bpp = 8;
+	else if (t->fmt == D3DFMT_R16F || t->fmt == D3DFMT_L16) bpp = 2;
+	return t->dwWidth * t->dwHeight * bpp;
+}
+
 /*	//	DX10 cut 
 //////////////////////////////////////////////////////////////////////////
 class		CRTC	:	public xr_resource_named	{
