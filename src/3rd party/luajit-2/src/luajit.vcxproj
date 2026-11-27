@@ -95,13 +95,7 @@
     </ClCompile>
     <Lib>
       <TargetMachine>MachineX64</TargetMachine>
-      <AdditionalDependencies>lj_vm.obj;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
-    <!-- Code generation is handled via a CustomBuild on vm_x86.dasc below for incremental builds. -->
-    <PreBuildEvent>
-      <Message>Ensuring LuaJIT generated files exist</Message>
-      <Command>"$(ProjectDir)gen_luajit_artifacts.bat" "$(Platform)"</Command>
-    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ProfiledDX11|x64'">
     <ClCompile>
