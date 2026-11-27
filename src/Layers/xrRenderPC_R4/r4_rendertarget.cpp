@@ -663,16 +663,16 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 		//LV - we should change their formats into D3DFMT_A16B16G16R16F for better HDR support.
 		if (RImplementation.o.dx11_hdr10) {
 			rt_Generic_0 = createUnique(r2_RT_generic0, w, h, D3DFMT_A16B16G16R16F, 1);
-			m_remap_generic0_idx = (int)RenderTargetRemaps.size() - 1;
+			if (!isMain) m_remap_generic0_idx = (int)RenderTargetRemaps.size() - 1;
 			rt_Generic_1 = createUnique(r2_RT_generic1, w, h, D3DFMT_A16B16G16R16F, 1);
 			rt_Generic = createUnique(r2_RT_generic, w, h, D3DFMT_A16B16G16R16F, 1);
-			m_remap_generic_idx = (int)RenderTargetRemaps.size() - 1;
+			if (!isMain) m_remap_generic_idx = (int)RenderTargetRemaps.size() - 1;
 		} else {
 			rt_Generic_0 = createUnique(r2_RT_generic0, w, h, D3DFMT_A8R8G8B8, 1);
-			m_remap_generic0_idx = (int)RenderTargetRemaps.size() - 1;
+			if (!isMain) m_remap_generic0_idx = (int)RenderTargetRemaps.size() - 1;
 			rt_Generic_1 = createUnique(r2_RT_generic1, w, h, D3DFMT_A8R8G8B8, 1);
 			rt_Generic = createUnique(r2_RT_generic, w, h, D3DFMT_A8R8G8B8, 1);
-			m_remap_generic_idx = (int)RenderTargetRemaps.size() - 1;
+			if (!isMain) m_remap_generic_idx = (int)RenderTargetRemaps.size() - 1;
 		}
 
 		rt_fakescope = createUnique(r2_RT_scopert, w, h, D3DFMT_A8R8G8B8, 1); //crookr fakescope
