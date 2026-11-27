@@ -119,10 +119,10 @@ struct FTreeVisual_setup
 		dwFrame = 0;
 	}
 
-	void calculate()
+	void calculate(u32 viewport_id)
 	{
 		const bool on_rt = CRenderThread::IsOnRenderThread();
-		dwFrame = on_rt ? Device.m_rt_view.dwFrame : Device.dwFrame;
+		dwFrame = viewport_id;
 		const float time_global = on_rt ? Device.m_rt_view.fTimeGlobal : Device.fTimeGlobal;
 
 		// Calc wind-vector3, scale
@@ -159,7 +159,7 @@ void FTreeVisual::Render(float LOD)
 	if (tvs.dwFrame != cur_vp)
 	{
 		prev_tvs[svp] = tvs; // Save previous frame calculations
-		tvs.calculate();
+		tvs.calculate(cur_vp);
 	}
 	// setup constants
 #if RENDER!=R_R1

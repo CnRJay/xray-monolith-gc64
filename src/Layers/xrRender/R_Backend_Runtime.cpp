@@ -71,7 +71,7 @@ void CBackend::OnFrameBegin()
 	//#endif
 }
 
-void CBackend::Invalidate()
+void CBackend::Invalidate(bool clearTextureOverrides)
 {
 	pRT[0] = NULL;
 	pRT[1] = NULL;
@@ -162,7 +162,8 @@ void CBackend::Invalidate()
 	for (u32 ds_it = 0; ds_it < mtMaxDomainShaderTextures;) textures_ds[ds_it++] = 0;
 	for (u32 cs_it = 0; cs_it < mtMaxComputeShaderTextures;) textures_cs[cs_it++] = 0;
 
-	textureOverrides.clear();
+	if (clearTextureOverrides)
+		textureOverrides.clear();
 #endif
 #endif	//	USE_DX10
 
