@@ -50,6 +50,7 @@ dx10ConstantBuffer::dx10ConstantBuffer(ID3DShaderReflectionConstantBuffer* pTabl
 	VERIFY(m_pBuffer);
 	m_pBufferData = xr_malloc(Desc.Size);
 	VERIFY(m_pBufferData);
+	ZeroMemory(m_pBufferData, Desc.Size);
 }
 
 bool dx10ConstantBuffer::Similar(dx10ConstantBuffer& _in)

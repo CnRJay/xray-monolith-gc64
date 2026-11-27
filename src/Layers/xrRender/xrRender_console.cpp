@@ -313,6 +313,7 @@ float ps_r2_tnmp_gamma = .25f; // r2-only
 float ps_r2_tnmp_onoff = .0f; // r2-only
 
 float ps_r4_full_detail_distance_scale = 0.5f; // r4-only
+int ps_r4_cbuffer_skip_unchanged = 1;
 
 // HDR10 parameters
 float ps_r4_hdr10_whitepoint_nits = 400.0f; // r4-only, default = 400 nits
@@ -1612,6 +1613,7 @@ void xrRender_initconsole()
 	CMD4(CCC_Integer, "r__svpscope", &scope_svp_enabled, 0, 2);
 	CMD4(CCC_Float, "r__svp_scale", &ps_r__svp_scale, 0.25f, 1.0f);
 	CMD4(CCC_Integer, "r__svp_quality", &ps_r__svp_quality, 0, 1);
+	CMD4(CCC_Integer, "r4_cbuffer_skip_unchanged", &ps_r4_cbuffer_skip_unchanged, 0, 1);
 	CMD4(CCC_Integer, "r__scope_debug", &scope_debug, 0, 4);
 
 	CMD4(CCC_Integer, "r__heatvision", &ps_r2_heatvision, 0, 1); //--DSR-- HeatVision

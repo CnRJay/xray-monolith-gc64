@@ -32,6 +32,8 @@ public:
 
 private:
 	Fvector4* Access(u16 offset);
+	void* RawData(u16 offset);
+	void WriteChecked(u32 offset, const void* src, u32 bytes);
 
 private:
 	shared_str m_strBufferName;
