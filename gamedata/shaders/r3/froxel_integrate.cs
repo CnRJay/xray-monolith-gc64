@@ -24,15 +24,17 @@ void main(uint3 id : SV_DispatchThreadID)
         prevDepth = nextDepth;
 
         float4 s = g_LightVolume[uint3(id.xy, z)];
-        float3 inScatter = s.rgb;
-        float extinction = max(s.a, 0.0f);
+        if (any(isnan(s)) || any(isinf(s)))
+            s = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        float3 inScatter = clamp(s.rgb, 0.0f, 64.0f);
+        float extinction = clamp(s.a, 0.0f, 8.0f);
 
         // Energy-conserving analytical Beer-Lambert integration (Hillaire, Frostbite 2015)
         float sliceTrans = exp(-extinction * sliceThickness);
         float3 sliceInt = (inScatter - inScatter * sliceTrans) / max(extinction, 1e-5f);
 
-        accumScatter += accumTrans * sliceInt;
-        accumTrans *= sliceTrans;
+        accumScatter = clamp(accumScatter + accumTrans * sliceInt, 0.0f, 64.0f);
+        accumTrans = saturate(accumTrans * sliceTrans);
 
         g_IntegratedOut[uint3(id.xy, z)] = float4(accumScatter, accumTrans);
     }

@@ -368,6 +368,16 @@ bool CVolumetricFroxels::EnsureVolumeResources(int quality)
 		return false;
 	}
 
+	const FLOAT zero4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	const FLOAT one4[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	const FLOAT identityVol[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	HW.pContext->ClearUnorderedAccessViewFloat(m_mediaUav, zero4);
+	HW.pContext->ClearUnorderedAccessViewFloat(m_sunVisUav, one4);
+	HW.pContext->ClearUnorderedAccessViewFloat(m_spotAccumUav, zero4);
+	HW.pContext->ClearUnorderedAccessViewFloat(m_lightUav[0], zero4);
+	HW.pContext->ClearUnorderedAccessViewFloat(m_lightUav[1], zero4);
+	HW.pContext->ClearUnorderedAccessViewFloat(m_integratedUav, identityVol);
+
 	m_gridW = w;
 	m_gridH = h;
 	m_gridD = d;
@@ -408,8 +418,9 @@ void CVolumetricFroxels::BeginFrame(bool sunEnabled)
 
 	Fmatrix viewProj;
 	viewProj.mul(RV.mProject, RV.mView);
-	Fmatrix invViewProj;
-	invViewProj.invert(viewProj);
+	Fmatrix invViewProj = Fidentity;
+	if (!D3DXMatrixInverse((D3DXMATRIX*)&invViewProj, nullptr, (D3DXMATRIX*)&viewProj))
+		return;
 
 	m_cbData.mViewProj = viewProj;
 	m_cbData.mInvViewProj = invViewProj;
@@ -822,9 +833,13 @@ void CVolumetricFroxels::ApplyToScene(ID3D11RenderTargetView* targetRtv, ID3D11S
 
 	HW.pContext->Draw(3, 0);
 
-	// Unbind SRVs and synchronize X-Ray's state caches so subsequent RCache passes rebind cleanly
+	// Unbind SRVs/CB/sampler and synchronize X-Ray's state caches so subsequent RCache passes rebind cleanly
 	ID3D11ShaderResourceView* nullSrvs[3] = { nullptr, nullptr, nullptr };
+	ID3D11Buffer* nullCb = nullptr;
+	ID3D11SamplerState* nullSmp = nullptr;
 	HW.pContext->PSSetShaderResources(0, 3, nullSrvs);
+	HW.pContext->PSSetConstantBuffers(0, 1, &nullCb);
+	HW.pContext->PSSetSamplers(0, 1, &nullSmp);
 	HW.pContext->VSSetShader(nullptr, nullptr, 0);
 	HW.pContext->PSSetShader(nullptr, nullptr, 0);
 

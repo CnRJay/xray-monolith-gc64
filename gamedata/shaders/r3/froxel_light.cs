@@ -81,6 +81,9 @@ void main(uint3 id : SV_DispatchThreadID)
 
     float3 inScatter = totalLight * albedo * extinction;
     float4 currentVal = float4(inScatter, extinction);
+    if (any(isnan(currentVal)) || any(isinf(currentVal)))
+        currentVal = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    currentVal = clamp(currentVal, float4(0.0f, 0.0f, 0.0f, 0.0f), float4(64.0f, 64.0f, 64.0f, 8.0f));
 
     // 5. Temporal reprojection using unjittered froxel center to stabilize jittered shadow & noise samples
     float temporalBlend = vInvGridParams.w;
@@ -97,14 +100,18 @@ void main(uint3 id : SV_DispatchThreadID)
             if (all(prevUv > 0.0f) && all(prevUv < 1.0f) && prevSlice > 0.0f && prevSlice < 1.0f)
             {
                 float4 history = g_History.SampleLevel(g_SmpLinear, float3(prevUv, prevSlice), 0.0f);
-                // Reduce history weight slightly near edges and on sharp brightness changes to avoid ghosting
-                float2 edgeDist = min(prevUv, 1.0f - prevUv);
-                float edgeWeight = saturate(min(edgeDist.x, edgeDist.y) * 16.0f);
-                float blend = temporalBlend * edgeWeight;
-                currentVal = lerp(currentVal, history, blend);
+                if (!any(isnan(history)) && !any(isinf(history)))
+                {
+                    history = clamp(history, float4(0.0f, 0.0f, 0.0f, 0.0f), float4(64.0f, 64.0f, 64.0f, 8.0f));
+                    // Reduce history weight slightly near edges and on sharp brightness changes to avoid ghosting
+                    float2 edgeDist = min(prevUv, 1.0f - prevUv);
+                    float edgeWeight = saturate(min(edgeDist.x, edgeDist.y) * 16.0f);
+                    float blend = temporalBlend * edgeWeight;
+                    currentVal = lerp(currentVal, history, blend);
+                }
             }
         }
     }
 
-    g_LightOut[id] = max(currentVal, 0.0f);
+    g_LightOut[id] = clamp(currentVal, float4(0.0f, 0.0f, 0.0f, 0.0f), float4(64.0f, 64.0f, 64.0f, 8.0f));
 }

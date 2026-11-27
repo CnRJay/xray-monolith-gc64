@@ -56,6 +56,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Disabled unused renderers in single-renderer configurations in `src/engine-vs2026.sln`.
 
 ### Fixed
+- **Froxel Volumetrics Matrix Inversion & NaN Protection**:
+  - Replaced 4x3 affine `Fmatrix::invert()` on the perspective `viewProj` matrix in `CVolumetricFroxels::BeginFrame()` with full 4x4 `D3DXMatrixInverse`, cleared newly allocated 3D UAV textures on creation, and added `isnan`/`isinf` sanitization across `froxel_light.cs`, `froxel_integrate.cs`, and `froxel_apply.ps` to eliminate full-screen black-frame flickering.
+- **Decoupled Render Thread Environment & Skeleton Synchronization**:
+  - Snapshotted `dxEnvDescriptorMixerRender` sky/envmap/cloud texture lists and `$user$sky0`/`$user$sky1` bindings during `ExtractFrame()` so `CEnvironment::OnFrame()` in Frame N+1 cannot mutate texture lists concurrently while the Render Thread executes `RenderSky`, `RenderClouds`, or `phase_combine`.
+  - Synchronized `SFrameBoneArena::SnapshotBonesForRT()`, `CKinematics::CopyBonesFrom()` / `LL_SetBoneVisible()`, and `CActor::renderable_Render()` shadow-pass legs updates against parallel TBB sun-cascade extraction and concurrent Render Thread reads, fixing first-person legs deformation and bone palette corruption.
 - **Decoupled Render Thread OCCQ Deferral**:
   - Deferred GPU light occlusion queries (`light::vis_prepare()` / `draw_occq_volume()`) out of `CRender::ExtractFrame()` (where `phase_occq()` and PART-0 depth are not yet bound) onto the Render Thread right after PART-0 depth fill, fixing a null vertex shader crash in `CBackend::ApplyVertexLayout` under `r__mt_decouple 1`.
 - **Multithreading & Renderer Thread-Safety Fixes**:

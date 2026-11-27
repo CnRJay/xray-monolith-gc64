@@ -36,9 +36,12 @@ float4 main(PSIn i) : SV_Target
     float3 uvw = float3(i.uv, saturate(sliceNorm + dither));
 
     float4 vol = g_Integrated.SampleLevel(g_SmpLinear, uvw, 0.0f);
+    if (any(isnan(vol)) || any(isinf(vol)))
+        vol = float4(0.0f, 0.0f, 0.0f, 1.0f);
 
     // Expose volumetric in-scattering with eye adaptation to match combine_1 output scale
-    float tmScale = clamp(g_Tonemap.Load(int3(0, 0, 0)).x, 0.25f, 3.0f);
+    float rawTm = g_Tonemap.Load(int3(0, 0, 0)).x;
+    float tmScale = (isnan(rawTm) || isinf(rawTm)) ? 1.0f : clamp(rawTm, 0.25f, 3.0f);
     vol.rgb *= tmScale;
 
     // Soft sky blend preserves skybox luminance while keeping volumetric sunbeams visible against the sky
@@ -51,5 +54,5 @@ float4 main(PSIn i) : SV_Target
 
     // Hardware blend state is (Src = ONE, Dest = SRC_ALPHA):
     // OutRGB = vol.rgb + SceneRGB * vol.a
-    return float4(max(vol.rgb, 0.0f), saturate(vol.a));
+    return float4(clamp(vol.rgb, 0.0f, 32.0f), saturate(vol.a));
 }
