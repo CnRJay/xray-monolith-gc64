@@ -419,7 +419,7 @@ void CRender::combineLightingAndBloom()
 		GM.r_dsgraph_render_emissive(RImplementation.o.ssfx_bloom ? false : true);
 	}
 
-	if (RImplementation.o.ssfx_bloom)
+	if (RImplementation.o.ssfx_bloom && !Device.m_SecondViewport.IsSVPFrame())
 	{
 		PIX_EVENT(DEFER_EMISSIVE_BLOOM);
 		// Render Emissive on `rt_ssfx_bloom_emissive`

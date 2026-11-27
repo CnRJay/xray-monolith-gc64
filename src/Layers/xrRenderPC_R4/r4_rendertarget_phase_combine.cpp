@@ -667,7 +667,7 @@ void CRenderTarget::phase_combine()
 		//--DSR-- HeatVision_end
 	}
 
-	if (scope_fake_enabled && !scope_svp_enabled)
+	if (scope_fake_enabled && !scope_svp_enabled && !Device.m_SecondViewport.IsSVPFrame())
 	{
 		PIX_EVENT(phase_fakescope);
 		phase_fakescope(); //crookr
@@ -683,10 +683,7 @@ void CRenderTarget::phase_combine()
 
 	if (Device.m_SecondViewport.IsSVPFrame())
 	{
-		phase_svp_capture();
-
-		// At this point, the scope view is done.
-		//    we do not want to post process.
+		// Scope pass reads TargetSVP->rt_Generic_0 directly.
 		return;
 	}
 

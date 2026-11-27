@@ -417,6 +417,13 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 	auto h = Height;
 
 	auto id = name ? xr_string(name) : xr_string(std::to_string(reinterpret_cast<std::uintptr_t>(this)).c_str());
+	const bool isMain = (id == "main");
+	t_ss_async = nullptr;
+	t_material_surf = nullptr;
+	t_noise_surf_mipped = nullptr;
+	for (int it = 0; it < TEX_jitter_count; ++it)
+		t_noise_surf[it] = nullptr;
+
 	auto createUnique = [this, id](LPCSTR Name, u32 w, u32 h, D3DFORMAT f, u32 SampleCount = 1, bool useUAV = false) -> ref_rt {
 		ref_rt rt;
 		auto uname = xr_string(Name) + "$" + id;
@@ -631,7 +638,8 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 			rt_Generic = createUnique(r2_RT_generic, w, h, D3DFMT_A8R8G8B8, 1);
 		}
 
-		rt_fakescope = createUnique(r2_RT_scopert, w, h, D3DFMT_A8R8G8B8, 1); //crookr fakescope
+		if (isMain)
+			rt_fakescope = createUnique(r2_RT_scopert, w, h, D3DFMT_A8R8G8B8, 1);
 
 		//--DSR-- HeatVision_start
 		rt_Heat = createUnique(r2_RT_heat, w, h, D3DFMT_A8R8G8B8, SampleCount);
@@ -643,18 +651,23 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 			rt_Generic_temp = createUnique("$user$generic_temp", w, h, D3DFMT_A8R8G8B8, RImplementation.o.dx10_msaa ? SampleCount : 1);
 		}
 
-		rt_dof = createUnique(r2_RT_dof, w, h, RImplementation.o.dx11_hdr10 ? D3DFMT_A16B16G16R16F : D3DFMT_A8R8G8B8);
-
-		rt_secondVP = createUnique(r2_RT_secondVP, w, h, rt_Color->fmt, 1);
+		if (isMain)
+		{
+			rt_dof = createUnique(r2_RT_dof, w, h, RImplementation.o.dx11_hdr10 ? D3DFMT_A16B16G16R16F : D3DFMT_A8R8G8B8);
+			rt_secondVP = createUnique(r2_RT_secondVP, w, h, rt_Color->fmt, 1);
+		}
 		t_reticle.create("$user$reticle");
 
-		if (RImplementation.o.dx11_hdr10) {
-			rt_ui_pda = createUnique(r2_RT_ui, w, h, D3DFMT_A2R10G10B10); // NOTE: this is a hack to use DXGI R10G10B10A2_UNORM
-		} else {
-			rt_ui_pda = createUnique(r2_RT_ui, w, h, D3DFMT_A8R8G8B8);
+		if (isMain)
+		{
+			if (RImplementation.o.dx11_hdr10) {
+				rt_ui_pda = createUnique(r2_RT_ui, w, h, D3DFMT_A2R10G10B10); // NOTE: this is a hack to use DXGI R10G10B10A2_UNORM
+			} else {
+				rt_ui_pda = createUnique(r2_RT_ui, w, h, D3DFMT_A8R8G8B8);
+			}
 		}
 
-		if (ps_r4_atlas && id == "main")
+		if (ps_r4_atlas && isMain)
 		{
 			const u32 atlas_width = ps_r4_atlas_width;
 			const u32 atlas_height = ps_r4_atlas_height;
@@ -669,7 +682,7 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 		}
 
 		// TODO: R11G11B10F? needs another horrible hack + cast + update to converter function
-		if (RImplementation.o.dx11_hdr10) {
+		if (RImplementation.o.dx11_hdr10 && isMain) {
 			rt_HDR10_HalfRes[0] = createUnique(r4_RT_HDR10_halfres0, w/2,  h/2,  D3DFMT_A16B16G16R16F);
 			rt_HDR10_HalfRes[1] = createUnique(r4_RT_HDR10_halfres1, w/2,  h/2,  D3DFMT_A16B16G16R16F);
 		}
@@ -688,7 +701,8 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 		rt_blur_h_8 = createUnique(r2_RT_blur_h_8, u32(w/8), u32(h/8), D3DFMT_A8R8G8B8);
 		rt_blur_8 = createUnique(r2_RT_blur_8, u32(w/8), u32(h/8), D3DFMT_A8R8G8B8);
 
-		rt_pp_bloom = createUnique(r2_RT_pp_bloom, w, h, D3DFMT_A8R8G8B8);
+		if (isMain)
+			rt_pp_bloom = createUnique(r2_RT_pp_bloom, w, h, D3DFMT_A8R8G8B8);
 
 		// Screen Space Shaders Stuff
 		rt_ssfx_taa = createUnique(r2_RT_ssfx_taa, w, h, D3DFMT_A16B16G16R16F, SampleCount); // Temp RT
@@ -719,7 +733,7 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 			rt_ssfx_sss_tmp = createUnique(r2_RT_ssfx_sss_tmp, w, h, D3DFMT_A8R8G8B8); // SSS EXT Acc
 		}
 
-		if (RImplementation.o.ssfx_bloom)
+		if (RImplementation.o.ssfx_bloom && isMain)
 		{
 			rt_ssfx_bloom1 = createUnique(r2_RT_ssfx_bloom1, w / 2.0f, h / 2.0f, D3DFMT_A16B16G16R16F); // Bloom
 			rt_ssfx_bloom_emissive = createUnique(r2_RT_ssfx_bloom_emissive, w, h, D3DFMT_A8R8G8B8, SampleCount); // Emissive
@@ -983,6 +997,7 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 	}
 
 	// BLOOM
+	if (isMain)
 	{
 		D3DFORMAT fmt = D3DFMT_A8R8G8B8; //;		// D3DFMT_X8R8G8B8
 		u32 w = BLOOM_size_X, h = BLOOM_size_Y;
@@ -1119,7 +1134,8 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 		t_envmap_1.create(r2_T_envs1);
 	}
 
-	// Build textures
+	// Build shared LUT/noise textures and async screenshot surface only for the main target
+	if (isMain)
 	{
 		// Testure for async sreenshots
 		{
@@ -1446,7 +1462,8 @@ CRenderTarget::~CRenderTarget()
 	Device.m_SecondViewport.update_lens_params = nullptr;
 
 	// Textures
-	t_material->surface_set(NULL);
+	if (t_material)
+		t_material->surface_set(NULL);
 
 #ifdef DEBUG
 	_SHOW_REF					("t_material_surf",t_material_surf);
@@ -1480,14 +1497,16 @@ CRenderTarget::~CRenderTarget()
 	// Jitter
 	for (int it = 0; it < TEX_jitter_count; it++)
 	{
-		t_noise[it]->surface_set(NULL);
+		if (t_noise[it])
+			t_noise[it]->surface_set(NULL);
 #ifdef DEBUG
 		_SHOW_REF("t_noise_surf[it]",t_noise_surf[it]);
 #endif // DEBUG
 		_RELEASE(t_noise_surf[it]);
 	}
 
-	t_noise_mipped->surface_set(NULL);
+	if (t_noise_mipped)
+		t_noise_mipped->surface_set(NULL);
 #ifdef DEBUG
 	_SHOW_REF("t_noise_surf_mipped",t_noise_surf_mipped);
 #endif // DEBUG

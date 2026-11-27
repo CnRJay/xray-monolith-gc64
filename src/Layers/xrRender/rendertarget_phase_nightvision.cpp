@@ -407,7 +407,7 @@ void CRenderTarget::phase_3DSSReticle()
 
 		auto svp = Device.m_SecondViewport.IsSVPActive();
 		
-		f(r2_RT_secondVP, svp ? RImplementation.TargetSVP->rt_secondVP : RImplementation.TargetMain->rt_secondVP);		
+		f(r2_RT_secondVP, svp ? RImplementation.TargetSVP->rt_Generic_0 : RImplementation.TargetMain->rt_secondVP);		
 		f(r2_RT_generic2, svp ? RImplementation.TargetSVP->rt_Position : RImplementation.TargetMain->rt_Generic_2);
 		f(r2_RT_heat,     svp ? RImplementation.TargetSVP->rt_Heat : RImplementation.TargetMain->rt_Heat);
 
@@ -474,15 +474,5 @@ void CRenderTarget::phase_3DSSReticle()
 	}
 
 	u_setrt(RImplementation.Target->rt_Generic_0, RImplementation.Target->rt_Position, RImplementation.Target->baseZB);
-};
-
-/** Run scope preprocesson the current frame and store in svp rt.
-  * (Handle anything that needs to read from the g-buffer here.)
-  */
-void CRenderTarget::phase_svp_capture()
-{
-	PIX_EVENT(PHASE_SCOPE_SVP_CAPTURE);
-	// This copy is not necessary, remove in the future and read directly from rt_Generic_0
-	HW.pContext->CopyResource(RImplementation.TargetSVP->rt_secondVP->pSurface, RImplementation.TargetSVP->rt_Generic_0->pSurface);
 };
 #endif

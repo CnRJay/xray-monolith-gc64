@@ -466,7 +466,6 @@ public:
 	void draw_scope(ref_shader e, std::function<void(R_dsgraph::DSGraphItem<float, true>* N)> bind);
 	void phase_3DSSReticle(); // Redotix99: for 3D Shader Based Scopes
 	void phase_apply_distortion();
-	void phase_svp_capture();
 	void phase_lut();
 	void phase_smaa();
 	void phase_scene_prepare();
