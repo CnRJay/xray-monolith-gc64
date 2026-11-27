@@ -335,9 +335,37 @@ void CRender::ExtractFrame()
 	TargetMain->svp_objective_hud_prepare(svp);
 
 	// Capture scene lights and pre-cull sun cascades + shadowed lights on Main Thread + TBB.
+	// GPU OCCQ queries are deferred until Render Thread finishes PART-0 depth fill.
 	LP_normal.clear();
 	LP_pending.clear();
+	m_rt_occq_lights.clear();
+	m_rt_defer_occq = true;
 	GMBase.r_dsgraph_capture_lights();
+	m_rt_defer_occq = false;
+
+	auto collectOccq = [this](const xr_vector<light*>& list)
+	{
+		for (light* L : list)
+		{
+			if (!L)
+				continue;
+			if (L->m_parent && !ps_r2_shadow_omnipart_vischeck)
+			{
+				if (L->m_parent->omnipart[0] == L)
+					m_rt_occq_lights.push_back(L->m_parent);
+			}
+			else
+			{
+				m_rt_occq_lights.push_back(L);
+			}
+		}
+	};
+	collectOccq(LP_normal.v_shadowed);
+	collectOccq(LP_normal.v_point);
+	collectOccq(LP_normal.v_spot);
+	collectOccq(LP_pending.v_shadowed);
+	collectOccq(LP_pending.v_point);
+	collectOccq(LP_pending.v_spot);
 	if (ps_r__svp_stats)
 	{
 		const u32 lp_total = (u32)(LP_normal.v_point.size() + LP_normal.v_spot.size() + LP_normal.v_shadowed.size()
@@ -800,20 +828,31 @@ void CRender::renderGBuffer(bool clearGraph, bool preExtracted)
 	if (RImplementation.o.dx10_msaa)
 		RCache.set_ZB(RImplementation.Target->rt_MSAADepth->pZRT);
 
-	if (Target == TargetMain && !preExtracted) // pip lights captured once on main, the SVP reuses them
+	if (Target == TargetMain) // pip lights captured once on main, the SVP reuses them
 	{
 		PIX_EVENT(DEFER_TEST_LIGHT_VIS);
 		//******* Occlusion testing of volume-limited light-sources
 		Target->phase_occq();
-		LP_normal.clear();
-		LP_pending.clear();
-		GMBase.r_dsgraph_capture_lights();
-		if (ps_r__svp_stats)
+		if (!preExtracted)
 		{
-			const u32 lp_total = (u32)(LP_normal.v_point.size() + LP_normal.v_spot.size() + LP_normal.v_shadowed.size()
-				+ LP_pending.v_point.size() + LP_pending.v_spot.size() + LP_pending.v_shadowed.size());
-			const u32 lp_shadowed = (u32)(LP_normal.v_shadowed.size() + LP_pending.v_shadowed.size());
-			svp_stats::note_main_lights(lp_total, lp_shadowed);
+			LP_normal.clear();
+			LP_pending.clear();
+			GMBase.r_dsgraph_capture_lights();
+			if (ps_r__svp_stats)
+			{
+				const u32 lp_total = (u32)(LP_normal.v_point.size() + LP_normal.v_spot.size() + LP_normal.v_shadowed.size()
+					+ LP_pending.v_point.size() + LP_pending.v_spot.size() + LP_pending.v_shadowed.size());
+				const u32 lp_shadowed = (u32)(LP_normal.v_shadowed.size() + LP_pending.v_shadowed.size());
+				svp_stats::note_main_lights(lp_total, lp_shadowed);
+			}
+		}
+		else
+		{
+			for (light* L : m_rt_occq_lights)
+			{
+				if (L)
+					L->vis_prepare();
+			}
 		}
 	}
 

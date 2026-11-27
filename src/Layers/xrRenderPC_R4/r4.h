@@ -476,6 +476,7 @@ public:
 
 	// Frozen extraction state handed from ExtractFrame() to RenderSubmit()
 	bool m_rt_extracted = false;
+	bool m_rt_defer_occq = false;
 	bool m_rt_skip_scene = false;
 	bool m_rt_menu_pp = false;
 	BOOL m_rt_bSUN = FALSE;
@@ -484,6 +485,7 @@ public:
 	xr_vector<u8> m_rt_sun_needs_render;
 	bool m_rt_sun_need_shafts = false;
 	bool m_rt_sun_last_chain = false;
+	xr_vector<light*> m_rt_occq_lights;
 	xr_vector<light*> m_rt_shadowed_lights;
 	xr_vector<light*> m_rt_point_lights;
 	xr_vector<light*> m_rt_spot_lights;
