@@ -181,6 +181,7 @@ public:
 	// smap
 	ref_rt rt_smap_surf; // 32bit,		color
 	ref_rt rt_smap_depth; // 24(32) bit,	depth
+	ref_rt rt_smap_depth_far; // cached far sun cascade shadowmap
 	ref_rt rt_smap_depth_minmax; //	is used for min/max sm
 	//	TODO: DX10: CHeck if we need old-style SMAP
 	//	IDirect3DSurface9*			rt_smap_ZB;		//

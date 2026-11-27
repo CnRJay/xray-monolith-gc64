@@ -192,6 +192,14 @@ public:
 	bool m_bMakeAsyncSS;
 	bool m_bFirstFrameAfterReset; // Determines weather the frame is the first after resetting device.
 	xr_vector<sun::cascade> m_sun_cascades;
+	struct CascadeCache
+	{
+		bool valid = false;
+		u32 last_frame = 0;
+		Fmatrix xform = Fidentity;
+		Fvector cam_pos = { 0, 0, 0 };
+		Fvector sun_dir = { 0, 0, 0 };
+	} m_cascade2_cache;
 
 	CFrustum rainwet_cull_frustum;
 	Fvector3 rainwet_cull_COP;

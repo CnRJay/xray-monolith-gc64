@@ -55,6 +55,9 @@ void CRender::init_cacades()
 
 	m_sun_cascades[2].size = ps_ssfx_shadow_cascades.z; //160
 	m_sun_cascades[2].bias = m_sun_cascades[2].size * fBias;
+#if RENDER == R_R4
+	m_cascade2_cache.valid = false;
+#endif
 
 	// 	for( u32 i = 0; i < cascade_count; ++i )
 	// 	{
@@ -65,6 +68,8 @@ void CRender::init_cacades()
 }
 
 #if RENDER == R_R4
+extern int ps_r4_sun_cascade_cache;
+
 void CRender::shadowmap_sun_cascades()
 {
 	PIX_EVENT(SHADOWMAP_SUN_CASCADES);
@@ -79,18 +84,32 @@ void CRender::render_sun_cascades()
 	if (b_need_to_render_sunshafts)
 		m_sun_cascades[m_sun_cascades.size() - 1].reset_chain = true;
 
+	static const shared_str rtNameSmapDepth(r2_RT_smap_depth);
+
 	for (u32 i = 0; i < m_sun_cascades.size(); ++i)
 	{
+		const bool useFarCache = (ps_r4_sun_cascade_cache > 0) && (i == m_sun_cascades.size() - 1) && TargetMain->rt_smap_depth_far;
+
 		TargetMain->SetActive();
 		shadowmap_sun_cascade(i);
+
+		if (useFarCache)
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
 
 		if (Device.m_SecondViewport.IsSVPActive())
 		{
 			TargetSVP->SetActive();
+			if (useFarCache)
+				RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
 			render_sun_cascade(i);
 		}
 		TargetMain->SetActive();
+		if (useFarCache)
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
 		render_sun_cascade(i);
+
+		if (useFarCache)
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth->pTexture);
 	}
 
 	if (b_need_to_render_sunshafts)
@@ -115,6 +134,30 @@ void CRender::shadowmap_sun_cascade(u32 cascade_ind)
 	Lights.sun_adapted = Lights.sun_cascades[cascade_ind];
 	light* fuckingsun = (light*)Lights.sun_adapted._get();
 	sun::cascade& cascade = m_sun_cascades[cascade_ind];
+
+	const bool isFarCascade = (cascade_ind == m_sun_cascades.size() - 1);
+	const bool useFarCache = isFarCascade && (ps_r4_sun_cascade_cache > 0) && TargetMain->rt_smap_depth_far;
+	if (useFarCache && m_cascade2_cache.valid)
+	{
+		const u32 maxAge = (ps_r4_sun_cascade_cache == 1) ? 4u : (u32)ps_r4_sun_cascade_cache;
+		const u32 age = Device.dwFrame - m_cascade2_cache.last_frame;
+		const float camMoveSq = Device.vCameraPosition.distance_to_sqr(m_cascade2_cache.cam_pos);
+		const float sunDot = fuckingsun->direction.dotproduct(m_cascade2_cache.sun_dir);
+		if (age < maxAge && camMoveSq < 16.0f && sunDot > 0.99999f)
+		{
+			cascade.xform = m_cascade2_cache.xform;
+			fuckingsun->X.D.combine = m_cascade2_cache.xform;
+			if (Target->use_minmax_sm_this_frame())
+			{
+				static const shared_str rtNameSmapDepth(r2_RT_smap_depth);
+				RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
+				PIX_EVENT(SE_SUN_NEAR_MINMAX_GENERATE);
+				Target->create_minmax_SM();
+				RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth->pTexture);
+			}
+			return;
+		}
+	}
 
 	CFrustum& cull_frustum = cascade.cull_frustum;
 	xr_vector<Fplane> cull_planes;
@@ -303,7 +346,12 @@ void CRender::shadowmap_sun_cascade(u32 cascade_ind)
 		}
 	}
 
-	auto smap = Target->rt_smap_depth;
+	auto smap = useFarCache ? TargetMain->rt_smap_depth_far : Target->rt_smap_depth;
+	if (useFarCache)
+	{
+		SRVSManager.UnbindPSResource(smap->pTexture->get_SRView());
+		SRVSManager.Apply();
+	}
 	Target->phase_smap_spot_clear(smap);
 
 	// Begin SMAP-render
@@ -352,10 +400,24 @@ void CRender::shadowmap_sun_cascade(u32 cascade_ind)
 		}
 	}
 
+	if (useFarCache)
+	{
+		m_cascade2_cache.valid = true;
+		m_cascade2_cache.last_frame = Device.dwFrame;
+		m_cascade2_cache.xform = cascade.xform;
+		m_cascade2_cache.cam_pos = Device.vCameraPosition;
+		m_cascade2_cache.sun_dir = fuckingsun->direction;
+	}
+
 	if (Target->use_minmax_sm_this_frame())
 	{
+		static const shared_str rtNameSmapDepth(r2_RT_smap_depth);
+		if (useFarCache)
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
 		PIX_EVENT(SE_SUN_NEAR_MINMAX_GENERATE);
 		Target->create_minmax_SM();
+		if (useFarCache)
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth->pTexture);
 	}
 
 	// Restore XForms

@@ -896,6 +896,8 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 
 		u32 size = RImplementation.o.smapsize;
 		rt_smap_depth.create(r2_RT_smap_depth, size, size, depth_format);
+		if (isMain)
+			rt_smap_depth_far.create("$user$smap_depth_far", size, size, depth_format);
 
 		if (RImplementation.o.dx10_minmax_sm)
 		{
