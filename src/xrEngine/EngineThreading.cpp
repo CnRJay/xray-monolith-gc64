@@ -9,9 +9,12 @@
 #include "Render.h"
 #include "Irenderable.h"
 #include "../../Include/xrRender/Kinematics.h"
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 BOOL mt_Scheduler = TRUE;
 BOOL mt_SchedulerRT = FALSE;
+BOOL mt_ParallelBones = TRUE;
 
 namespace
 {
@@ -139,8 +142,20 @@ void XRay::Engine::CalculateBonesThread()
 	};
 	std::sort(spatialsSnapshot.begin(), spatialsSnapshot.end(), sortFunc);
 
-    for (const auto& snapshot : spatialsSnapshot)
-        snapshot.pKin->CalculateBones(TRUE);
+	if (mt_ParallelBones && spatialsSnapshot.size() >= 8)
+	{
+		tbb::parallel_for(tbb::blocked_range<size_t>(0, spatialsSnapshot.size(), 4),
+			[&](const tbb::blocked_range<size_t>& r)
+			{
+				for (size_t i = r.begin(); i < r.end(); ++i)
+					spatialsSnapshot[i].pKin->CalculateBones(TRUE);
+			});
+	}
+	else
+	{
+		for (const auto& snapshot : spatialsSnapshot)
+			snapshot.pKin->CalculateBones(TRUE);
+	}
 }
 
 extern BOOL psLua_ParallelGC;

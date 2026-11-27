@@ -142,7 +142,9 @@ void CKinematics::CalculateBones(BOOL bForceExact)
 	if (UCalc_Visibox >= psSkeletonUpdate)
 	{
 		// mark
-		UCalc_Visibox = -(::Random.randI(psSkeletonUpdate - 1));
+		UCalc_Visibox = (psSkeletonUpdate > 1)
+			? -int((u32(uintptr_t(this) >> 4) ^ RDEVICE.dwFrame) % u32(psSkeletonUpdate - 1))
+			: 0;
 		UCalc_ThisFrame = true;
 		CalculateBBox();
 #ifdef DEBUG
