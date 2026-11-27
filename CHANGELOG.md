@@ -23,9 +23,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - **Upstream Multithreading Baseline**:
   - Merged all commits from `upstream/all-in-one-vs2022-wpo-mt` (`707ca7680`), adopting upstream's `CDSGraphManager`, Optick GPU/CPU profiler scopes, and MT fixes while preserving True PIP Scopes (SVP 0.0.15).
-- **GitHub Actions CI (DX11 Only)**:
-  - Streamlined `.github/workflows/msbuild.yml` to build only the `DX11|x64` configuration on `all-in-one-vs2022-wpo`, `feat/**`, and PRs (removed legacy DX8/DX9/DX10 builds, unused `-AVX` variants, duplicate non-MT matrix, and upstream `retarget-pr.yml`).
-  - Automated GitHub Release patch notes extraction from `CHANGELOG.md`.
+- **GitHub Actions CI & Tag-Gated Releases (DX11 Only)**:
+  - Streamlined `.github/workflows/msbuild.yml` to build only the `DX11|x64` configuration on `all-in-one-vs2022-wpo`, `feat/**`, and PRs (removed legacy DX8/DX9/DX10 builds, unused `-AVX` variants, duplicate non-MT matrix, upstream `retarget-pr.yml`, and auto-releases on every commit).
+  - Gated GitHub Releases strictly on version tags (`v*`) or manual `workflow_dispatch` with a `release_tag` input.
+  - Packaged release archives in drag-and-drop Anomaly root layout (`bin/AnomalyDX11.exe` + unpacked `gamedata/`) with automated `CHANGELOG.md` release notes extraction and a separate PDB archive.
 
 ### Performance
 - **Multithreading Worker Parallelization (`feat/true-mt`)**:

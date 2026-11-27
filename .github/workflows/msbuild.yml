@@ -8,10 +8,18 @@ on:
     branches:
       - "all-in-one-vs2022-wpo"
       - "feat/**"
+    tags:
+      - "v*"
   pull_request:
     branches:
       - "all-in-one-vs2022-wpo"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional version tag to publish as a GitHub Release (e.g. v0.3.0). Leave empty for a CI build only."
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -22,35 +30,8 @@ concurrency:
 
 env:
   SOLUTION_FILE_PATH: src/engine-vs2026.sln
-  PACK_GAMEDATA_NAME: 00_modded_exes_gamedata.db0
 
 jobs:
-  pack_gamedata:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/all-in-one-vs2022-wpo'
-    name: Pack gamedata
-    runs-on: windows-2025-vs2026
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Pack gamedata
-        run: |
-          New-Item -Path "./compressor/gamedata" -ItemType Directory -Force | Out-Null
-          Copy-Item -Path "./gamedata/*" -Destination "./compressor/gamedata" -Recurse -Force
-          Push-Location "./compressor"
-          Start-Process -FilePath "./! compress_gamedata.cmd" -Wait
-          Rename-Item -Path "gamedata.db0" -NewName "${{ env.PACK_GAMEDATA_NAME }}"
-          Pop-Location
-
-      - name: Upload gamedata
-        uses: actions/upload-artifact@v4.6.0
-        with:
-          name: ${{ env.PACK_GAMEDATA_NAME }}
-          path: ./compressor/${{ env.PACK_GAMEDATA_NAME }}
-          if-no-files-found: error
-          retention-days: 1
-
   build_dx11:
     name: Build DX11 (x64)
     runs-on: windows-2025-vs2026
@@ -92,7 +73,7 @@ jobs:
       - name: Zip DX11 PDB
         run: |
           Push-Location "./_build/_game/bin_dbg"
-          Compress-Archive -DestinationPath "STALKER-Anomaly-modded-exes_DX11_pdb.zip" -Path "./*.pdb"
+          Compress-Archive -DestinationPath "STALKER-Anomaly-DX11_pdb.zip" -Path "./*.pdb"
           Pop-Location
 
       - name: Upload DX11 PDB
@@ -104,8 +85,10 @@ jobs:
           retention-days: 7
 
   release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/all-in-one-vs2022-wpo'
-    needs: [pack_gamedata, build_dx11]
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    needs: [build_dx11]
     name: Publish DX11 Release
     runs-on: ubuntu-latest
     permissions:
@@ -116,52 +99,67 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Get Datetime
-        id: datetime
-        run: echo "today=$(date +'%-Y.%-m.%-d')" >> "$GITHUB_OUTPUT"
+      - name: Resolve Release Tag
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.release_tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Extract Changelog Notes
         shell: python
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.tag }}
         run: |
           from pathlib import Path
           changelog = Path("CHANGELOG.md")
           notes = ""
           if changelog.exists():
               lines = changelog.read_text(encoding="utf-8").splitlines()
-              capture = False
-              out = []
-              for line in lines:
-                  if line.startswith("## "):
-                      if capture:
-                          break
-                      capture = True
-                      continue
-                  if capture:
-                      out.append(line)
-              notes = "\n".join(out).strip()
+              tag = __import__("os").environ["RELEASE_TAG"].lstrip("v")
+              # Prefer matching version header (e.g. ## [0.3.0]), fall back to first ## section
+              def extract(target_prefix=None):
+                  capture = False
+                  out = []
+                  for line in lines:
+                      if line.startswith("## "):
+                          if capture:
+                              break
+                          if target_prefix is None or target_prefix in line:
+                              capture = True
+                              continue
+                      elif capture:
+                          out.append(line)
+                  return "\n".join(out).strip()
+              notes = extract(f"[{tag}]") or extract()
           Path("release_notes.md").write_text(notes + "\n" if notes else "", encoding="utf-8")
 
       - name: Download artifacts
         uses: actions/download-artifact@v4.1.8
 
-      - name: Package DX11 Release
+      - name: Package Drag-and-Drop Anomaly Release
         run: |
-          mkdir -p release/bin release/db/mods pdb
-          mv "${{ env.PACK_GAMEDATA_NAME }}"/*.db0 release/db/mods/
+          TAG="${{ steps.ver.outputs.tag }}"
+          mkdir -p release/bin release/gamedata pdb
+          cp -r gamedata/. release/gamedata/
           mv DX11_exe/*.exe release/bin/
-          mv DX11_pdb/*.zip pdb/
+          mv DX11_pdb/*.zip "pdb/STALKER-Anomaly-DX11_${TAG}_pdb.zip"
 
           cd release
-          zip -r "../STALKER-Anomaly-modded-exes-DX11_${{ steps.datetime.outputs.today }}.zip" ./*
+          zip -r "../STALKER-Anomaly-DX11_${TAG}.zip" bin gamedata
           cd ..
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2.3.2
         with:
           files: |
-            *.zip
+            STALKER-Anomaly-DX11_*.zip
             pdb/*.zip
-          tag_name: "${{ steps.datetime.outputs.today }}"
+          tag_name: "${{ steps.ver.outputs.tag }}"
+          name: "X-Ray Monolith DX11 ${{ steps.ver.outputs.tag }}"
           body_path: release_notes.md
           generate_release_notes: true
           token: "${{ secrets.GITHUB_TOKEN }}"
