@@ -57,7 +57,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **Froxel Volumetrics & Post-Process Ping-Pong Interaction**:
-  - Preserved `RCache.textureOverrides` across `CVolumetricFroxels::ApplyToScene()` (`RCache.Invalidate(false)`) and tracked main-target `rt_Generic_0`/`rt_Generic` remap indices in `CRenderTarget` so `r4_post_pingpong 1` no longer alternates to the wrong swapped render target (eliminating the half-rate black-frame flickering when `r4_volumetric_froxels 1`).
+  - Preserved `RCache.textureOverrides` across `CVolumetricFroxels::ApplyToScene()` (`RCache.Invalidate(false)`) so `r4_post_pingpong 1` no longer alternates to the wrong swapped render target (eliminating the half-rate black-frame flickering when `r4_volumetric_froxels 1`).
   - Enabled `D3DCOMPILE_IEEE_STRICTNESS` for froxel shaders so `isnan`/`isinf` guards are preserved by the HLSL optimizer, and unbound the scene RTV after `ApplyToScene()`.
 - **Tree Wind Motion Vector Frame Latch (`FTreeVisual`)**:
   - Fixed `FTreeVisual_setup::calculate()` storing `dwFrame` while `FTreeVisual::Render()` compared against `dwViewport`, which caused `prev_wave`/`prev_wind` to overwrite with current-frame wind on every tree after the first and degrade TAA motion vectors on swaying foliage.
