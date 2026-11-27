@@ -4,6 +4,10 @@
 #include "FBasicVisual.h"
 
 #include "R_sun_support.h"
+#if RENDER == R_R4
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
+#endif
 
 constexpr float tweak_COP_initial_offs = 1200.f;
 
@@ -69,6 +73,7 @@ void CRender::init_cacades()
 
 #if RENDER == R_R4
 extern int ps_r4_sun_cascade_cache;
+extern int ps_r4_parallel_cull;
 
 void CRender::shadowmap_sun_cascades()
 {
@@ -84,14 +89,69 @@ void CRender::render_sun_cascades()
 	if (b_need_to_render_sunshafts)
 		m_sun_cascades[m_sun_cascades.size() - 1].reset_chain = true;
 
+	TargetMain->SetActive();
+
+	const u32 cascadeCount = (u32)m_sun_cascades.size();
+	xr_vector<u32> activeCascades;
+	activeCascades.reserve(cascadeCount);
+	xr_vector<u8> needsRender;
+	needsRender.assign(cascadeCount, 0);
+
+	for (u32 i = 0; i < cascadeCount; ++i)
+	{
+		needsRender[i] = prepare_sun_cascade(i) ? 1 : 0;
+		if (needsRender[i])
+			activeCascades.push_back(i);
+	}
+
+	if (!activeCascades.empty())
+	{
+		PROF_EVENT("Render Cascades: Parallel Static Cull", PROF_CAT(Visibility));
+		phase = PHASE_SMAP;
+		if (ps_r4_parallel_cull && !PortalTraverseDbg_Enabled() && activeCascades.size() >= 2)
+		{
+			tbb::parallel_for(tbb::blocked_range<size_t>(0, activeCascades.size(), 1),
+				[this, &activeCascades](const tbb::blocked_range<size_t>& r)
+				{
+					for (size_t idx = r.begin(); idx < r.end(); ++idx)
+					{
+						sun::cascade& c = m_sun_cascades[activeCascades[idx]];
+						c.GMCascade.traverse(pOutdoorSector, c.cull_frustum, c.cull_COP, c.cull_xform);
+						c.GMCascade.r_dsgraph_capture_static();
+					}
+				});
+		}
+		else
+		{
+			for (u32 ci : activeCascades)
+			{
+				sun::cascade& c = m_sun_cascades[ci];
+				c.GMCascade.traverse(pOutdoorSector, c.cull_frustum, c.cull_COP, c.cull_xform);
+				c.GMCascade.r_dsgraph_capture_static();
+			}
+		}
+	}
+
 	static const shared_str rtNameSmapDepth(r2_RT_smap_depth);
 
-	for (u32 i = 0; i < m_sun_cascades.size(); ++i)
+	for (u32 i = 0; i < cascadeCount; ++i)
 	{
-		const bool useFarCache = (ps_r4_sun_cascade_cache > 0) && (i == m_sun_cascades.size() - 1) && TargetMain->rt_smap_depth_far;
+		const bool useFarCache = (ps_r4_sun_cascade_cache > 0) && (i == cascadeCount - 1) && TargetMain->rt_smap_depth_far;
 
 		TargetMain->SetActive();
-		shadowmap_sun_cascade(i);
+		if (needsRender[i])
+		{
+			phase = PHASE_SMAP;
+			m_sun_cascades[i].GMCascade.r_dsgraph_capture_dynamic();
+			draw_sun_cascade_smap(i);
+		}
+		else if (useFarCache && Target->use_minmax_sm_this_frame())
+		{
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
+			PIX_EVENT(SE_SUN_NEAR_MINMAX_GENERATE);
+			Target->create_minmax_SM();
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth->pTexture);
+		}
 
 		if (useFarCache)
 			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
@@ -126,11 +186,8 @@ void CRender::render_sun_cascades()
 	TargetMain->accum_direct_blend();
 }
 
-void CRender::shadowmap_sun_cascade(u32 cascade_ind)
+bool CRender::prepare_sun_cascade(u32 cascade_ind)
 {
-	PROF_EVENT("Render Cascade: SMAP", PROF_CAT(Rendering));
-	PIX_EVENT(SHADOWMAP_SUN_CASCADE);
-
 	Lights.sun_adapted = Lights.sun_cascades[cascade_ind];
 	light* fuckingsun = (light*)Lights.sun_adapted._get();
 	sun::cascade& cascade = m_sun_cascades[cascade_ind];
@@ -147,15 +204,7 @@ void CRender::shadowmap_sun_cascade(u32 cascade_ind)
 		{
 			cascade.xform = m_cascade2_cache.xform;
 			fuckingsun->X.D.combine = m_cascade2_cache.xform;
-			if (Target->use_minmax_sm_this_frame())
-			{
-				static const shared_str rtNameSmapDepth(r2_RT_smap_depth);
-				RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
-				PIX_EVENT(SE_SUN_NEAR_MINMAX_GENERATE);
-				Target->create_minmax_SM();
-				RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth->pTexture);
-			}
-			return;
+			return false;
 		}
 	}
 
@@ -345,6 +394,18 @@ void CRender::shadowmap_sun_cascade(u32 cascade_ind)
 			FPU::m24r();
 		}
 	}
+	return true;
+}
+
+void CRender::draw_sun_cascade_smap(u32 cascade_ind)
+{
+	PROF_EVENT("Render Cascade: SMAP", PROF_CAT(Rendering));
+	PIX_EVENT(SHADOWMAP_SUN_CASCADE);
+
+	Lights.sun_adapted = Lights.sun_cascades[cascade_ind];
+	light* fuckingsun = (light*)Lights.sun_adapted._get();
+	sun::cascade& cascade = m_sun_cascades[cascade_ind];
+	const bool useFarCache = (cascade_ind == m_sun_cascades.size() - 1) && (ps_r4_sun_cascade_cache > 0) && TargetMain->rt_smap_depth_far;
 
 	auto smap = useFarCache ? TargetMain->rt_smap_depth_far : Target->rt_smap_depth;
 	if (useFarCache)
@@ -354,19 +415,11 @@ void CRender::shadowmap_sun_cascade(u32 cascade_ind)
 	}
 	Target->phase_smap_spot_clear(smap);
 
-	// Begin SMAP-render
-	{
-		PROF_EVENT("Render Cascade: SMAP traverse", PROF_CAT(Rendering));
-		phase = PHASE_SMAP;
-		cascade.GMCascade.traverse(pOutdoorSector, cascade.cull_frustum, cascade.cull_COP, cascade.cull_xform);
-		cascade.GMCascade.r_dsgraph_capture(false, true);
-	}
-
 	// Finalize & Cleanup
 	{
 		PROF_EVENT("Render Cascade: SMAP Finalize", PROF_CAT(Rendering));
 
-		fuckingsun->X.D.combine = cull_xform;
+		fuckingsun->X.D.combine = cascade.cull_xform;
 
 		// Render shadow-map
 		{
@@ -424,6 +477,17 @@ void CRender::shadowmap_sun_cascade(u32 cascade_ind)
 	RCache.set_xform_world(Fidentity);
 	RCache.set_xform_view(Device.mView);
 	RCache.set_xform_project(Device.mProject);
+}
+
+void CRender::shadowmap_sun_cascade(u32 cascade_ind)
+{
+	if (!prepare_sun_cascade(cascade_ind))
+		return;
+	phase = PHASE_SMAP;
+	sun::cascade& cascade = m_sun_cascades[cascade_ind];
+	cascade.GMCascade.traverse(pOutdoorSector, cascade.cull_frustum, cascade.cull_COP, cascade.cull_xform);
+	cascade.GMCascade.r_dsgraph_capture(false, true);
+	draw_sun_cascade_smap(cascade_ind);
 }
 
 void CRender::render_sun_cascade(u32 cascade_ind)

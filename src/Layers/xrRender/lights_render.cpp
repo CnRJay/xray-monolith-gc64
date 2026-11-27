@@ -4,6 +4,9 @@
 #include "SkeletonCustom.h"
 #if RENDER == R_R4
 #include "../../xrGame/debug_renderer.h"
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
+extern int ps_r4_parallel_cull;
 #endif
 
 extern int ps_r2_shadow_omnipart_vischeck;
@@ -141,6 +144,47 @@ void CRender::render_lights_shadowmaps(light_Package& LP)
 			size_factor *= 0.8f;
 	}
 
+	// Pre-cull static shadow geometry in parallel across all lights needing a rebuild
+	{
+		static xr_vector<light*> rebuild_lights;
+		rebuild_lights.clear();
+		for (light* L : LP.v_shadowed)
+		{
+			const bool hasDecor = (L->decor_object[0] && !L->decor_object[0]->getDestroy()) || (L->decor_object[1] && !L->decor_object[1]->getDestroy()) || (L->decor_object[2] && !L->decor_object[2]->getDestroy()) || (L->decor_object[3] && !L->decor_object[3]->getDestroy()) || (L->decor_object[4] && !L->decor_object[4]->getDestroy()) || (L->decor_object[5] && !L->decor_object[5]->getDestroy());
+			if (!hasDecor && L->m_moving_frames < 32u)
+				rebuild_lights.push_back(L);
+		}
+		if (!rebuild_lights.empty())
+		{
+			phase = PHASE_SMAP;
+			if (ps_r4_parallel_cull && !PortalTraverseDbg_Enabled() && rebuild_lights.size() >= 2)
+			{
+				tbb::parallel_for(tbb::blocked_range<size_t>(0, rebuild_lights.size(), 1),
+					[](const tbb::blocked_range<size_t>& r)
+					{
+						for (size_t i = r.begin(); i < r.end(); ++i)
+						{
+							light* L = rebuild_lights[i];
+							L->GMLight.RGraph.clear_static<false>();
+							L->GMLight.traverse((CSector*)L->SpatialComponent->spatial.sector, L->X.S.frustum, L->position, L->X.S.combine);
+							L->GMLight.r_dsgraph_capture_static();
+							L->m_moving_frames++;
+						}
+					});
+			}
+			else
+			{
+				for (light* L : rebuild_lights)
+				{
+					L->GMLight.RGraph.clear_static<false>();
+					L->GMLight.traverse((CSector*)L->SpatialComponent->spatial.sector, L->X.S.frustum, L->position, L->X.S.combine);
+					L->GMLight.r_dsgraph_capture_static();
+					L->m_moving_frames++;
+				}
+			}
+		}
+	}
+
 	// Render the shadowmaps into the shared atlas
 	for (light* L : LP.v_shadowed)
 	{
@@ -175,13 +219,6 @@ void CRender::render_lights_shadowmaps(light_Package& LP)
 			}
 			else
 			{
-				if (L->m_moving_frames < 32u)
-				{
-					L->GMLight.RGraph.clear_static<false>();
-					L->GMLight.traverse((CSector*)L->SpatialComponent->spatial.sector, L->X.S.frustum, L->position, L->X.S.combine);
-					L->GMLight.r_dsgraph_capture_static();
-					L->m_moving_frames++;
-				}
 				L->GMLight.r_dsgraph_capture_dynamic(L->ignore_object);
 			}
 		}
@@ -299,6 +336,46 @@ void CRender::render_lights(light_Package& LP)
 			LP.v_shadowed.swap(refactored);
 		}
 
+		{
+			static xr_vector<light*> rebuild_lights;
+			rebuild_lights.clear();
+			for (light* L : LP.v_shadowed)
+			{
+				const bool hasDecor = (L->decor_object[0] && !L->decor_object[0]->getDestroy()) || (L->decor_object[1] && !L->decor_object[1]->getDestroy()) || (L->decor_object[2] && !L->decor_object[2]->getDestroy()) || (L->decor_object[3] && !L->decor_object[3]->getDestroy()) || (L->decor_object[4] && !L->decor_object[4]->getDestroy()) || (L->decor_object[5] && !L->decor_object[5]->getDestroy());
+				if (!hasDecor && L->m_moving_frames < 32u)
+					rebuild_lights.push_back(L);
+			}
+			if (!rebuild_lights.empty())
+			{
+				phase = PHASE_SMAP;
+				if (ps_r4_parallel_cull && !PortalTraverseDbg_Enabled() && rebuild_lights.size() >= 2)
+				{
+					tbb::parallel_for(tbb::blocked_range<size_t>(0, rebuild_lights.size(), 1),
+						[](const tbb::blocked_range<size_t>& r)
+						{
+							for (size_t i = r.begin(); i < r.end(); ++i)
+							{
+								light* L = rebuild_lights[i];
+								L->GMLight.RGraph.clear_static<false>();
+								L->GMLight.traverse((CSector*)L->SpatialComponent->spatial.sector, L->X.S.frustum, L->position, L->X.S.combine);
+								L->GMLight.r_dsgraph_capture_static();
+								L->m_moving_frames++;
+							}
+						});
+				}
+				else
+				{
+					for (light* L : rebuild_lights)
+					{
+						L->GMLight.RGraph.clear_static<false>();
+						L->GMLight.traverse((CSector*)L->SpatialComponent->spatial.sector, L->X.S.frustum, L->position, L->X.S.combine);
+						L->GMLight.r_dsgraph_capture_static();
+						L->m_moving_frames++;
+					}
+				}
+			}
+		}
+
 		static xr_vector<light*> L_spot_s;
 		while (!LP.v_shadowed.empty())
 		{
@@ -331,13 +408,6 @@ void CRender::render_lights(light_Package& LP)
 					}
 					else
 					{
-						if (L->m_moving_frames < 32u)
-						{
-							L->GMLight.RGraph.clear_static<false>();
-							L->GMLight.traverse((CSector*)L->SpatialComponent->spatial.sector, L->X.S.frustum, L->position, L->X.S.combine);
-							L->GMLight.r_dsgraph_capture_static();
-							L->m_moving_frames++;
-						}
 						L->GMLight.r_dsgraph_capture_dynamic(L->ignore_object);
 					}
 

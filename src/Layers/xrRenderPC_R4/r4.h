@@ -246,6 +246,8 @@ public:
 
 	void render_sun_cascade(u32 cascade_ind);
 	void init_cacades();
+	bool prepare_sun_cascade(u32 cascade_ind);
+	void draw_sun_cascade_smap(u32 cascade_ind);
 	void shadowmap_sun_cascades();
 	void shadowmap_sun_cascade(u32 cascade_ind);
 	void render_sun_cascades();

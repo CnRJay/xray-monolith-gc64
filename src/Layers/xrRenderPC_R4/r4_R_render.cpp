@@ -173,6 +173,8 @@ static void svpCamera()
 	Device.matrices[1].mProjectHud = svp_proj_hud;
 }
 
+extern int ps_r4_parallel_cull;
+
 void CRender::renderGBuffer()
 {
 	PIX_EVENT(RENDER_GBUFFER);
@@ -187,10 +189,19 @@ void CRender::renderGBuffer()
 	ViewBase.CreateFromMatrix(main_ft, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
 
 	GM.traverse(RImplementation.pLastSector, ViewBase, Device.vCameraPosition, main_ft);
-	GM.r_dsgraph_capture_static();
-	GM.r_dsgraph_capture_dynamic();
-
-	Target->phase_scene_prepare();
+	if (ps_r4_parallel_cull && !PortalTraverseDbg_Enabled())
+	{
+		main_task_static.run([&GM]() { GM.r_dsgraph_capture_static(); });
+		GM.r_dsgraph_capture_dynamic();
+		Target->phase_scene_prepare();
+		main_task_static.wait();
+	}
+	else
+	{
+		GM.r_dsgraph_capture_static();
+		GM.r_dsgraph_capture_dynamic();
+		Target->phase_scene_prepare();
+	}
 
 	if (RImplementation.o.ssfx_motionvectors)
 	{
