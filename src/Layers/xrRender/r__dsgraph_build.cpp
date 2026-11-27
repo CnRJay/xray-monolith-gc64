@@ -72,31 +72,6 @@ void CDSGraphManager::r_dsgraph_insert_dynamic(dxRender_Visual *pVisual, Fmatrix
         owned_transforms.push_back(*xform);
         xform = &owned_transforms.back();
     }
-#if defined(USE_DX11) // True PIP: 3D Shader Based Scopes & Reflex Sights
-	if (!get_UI3D() && pVisual->shader._get())
-	{
-		auto sh_scope = pVisual->shader->E[0]._get();
-		if (nullptr != sh_scope && sh_scope->flags.iScopeLense > 0)
-		{
-			// Only want a single lens, if rendering the player HUD (bCaptureScopeLens)
-			if (RImplementation.Target->bCaptureScopeLens)
-			{
-				owned_transforms.push_back(*xform);
-				Fmatrix* scope_xform = &owned_transforms.back();
-				if (sh_scope->flags.iScopeLense == 3 && RGraph.mapScopeHUDSorted.empty())
-				{
-					// We must detect the lens surface immediately, ignoring all culling.
-					RGraph.mapScopeHUDSorted.emplace_back(0.f, 0.f, val_pObject, pVisual, scope_xform, sh_scope, get_HUD(), val_fCustomFOV);
-				}
-				else if (sh_scope->flags.iScopeLense == 10)
-				{
-					RGraph.mapReflexHUDSorted.emplace_back(0.f, 0.f, val_pObject, pVisual, scope_xform, sh_scope, get_HUD(), val_fCustomFOV);
-				}
-			}
-			return;
-		}
-	}
-#endif
     if (get_UI3D())
     {
         VERIFY(pVisual->shader._get());
