@@ -86,7 +86,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)host;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>LUAJIT_ENABLE_GC64;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level3</WarningLevel>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -105,7 +105,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ProfiledDX11|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>XRCORE_PROFILER;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>LUAJIT_ENABLE_GC64;XRCORE_PROFILER;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <OmitFramePointers>true</OmitFramePointers>
@@ -116,7 +116,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>LUAJIT_ENABLE_GC64;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <OmitFramePointers>true</OmitFramePointers>
@@ -137,7 +137,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release-AVX|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>LUAJIT_ENABLE_GC64;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <OmitFramePointers>true</OmitFramePointers>
@@ -159,7 +159,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Verified|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>USE_VERIFY_IN_RELEASE;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>LUAJIT_ENABLE_GC64;USE_VERIFY_IN_RELEASE;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <Optimization>Disabled</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <OmitFramePointers>true</OmitFramePointers>
@@ -178,7 +178,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>_DISABLE_VECTOR_ANNOTATION;_DISABLE_STRING_ANNOTATION;USE_VERIFY_IN_RELEASE;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>LUAJIT_ENABLE_GC64;_DISABLE_VECTOR_ANNOTATION;_DISABLE_STRING_ANNOTATION;USE_VERIFY_IN_RELEASE;WIN32;NDEBUG;_CRT_SECURE_NO_DEPRECATE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <Optimization>Disabled</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <OmitFramePointers>true</OmitFramePointers>
@@ -196,7 +196,7 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <CustomBuild Include="vm_x86.dasc">
+    <CustomBuild Include="vm_x64.dasc">
       <Message>Generating LuaJIT VM object and headers</Message>
       <Command>"$(ProjectDir)gen_luajit_artifacts.bat" "$(Platform)"</Command>
       <Outputs>lj_vm.obj;lj_bcdef.h;lj_ffdef.h;lj_libdef.h;lj_recdef.h;jit\vmdef.lua;lj_folddef.h;host\minilua.exe;host\buildvm.exe;host\buildvm_arch.h</Outputs>
@@ -216,9 +216,11 @@
     <ClCompile Include="lj_alloc.c" />
     <ClCompile Include="lj_api.c" />
     <ClCompile Include="lj_asm.c" />
+    <ClCompile Include="lj_assert.c" />
     <ClCompile Include="lj_bc.c" />
     <ClCompile Include="lj_bcread.c" />
     <ClCompile Include="lj_bcwrite.c" />
+    <ClCompile Include="lj_buf.c" />
     <ClCompile Include="lj_carith.c" />
     <ClCompile Include="lj_ccall.c" />
     <ClCompile Include="lj_ccallback.c" />
@@ -232,7 +234,6 @@
     <ClCompile Include="lj_debug.c" />
     <ClCompile Include="lj_dispatch.c" />
     <ClCompile Include="lj_profile.c" />
-    <ClCompile Include="lj_allocprof.c" />
     <ClCompile Include="lj_err.c" />
     <ClCompile Include="lj_ffrecord.c" />
     <ClCompile Include="lj_func.c" />
@@ -253,10 +254,13 @@
     <ClCompile Include="lj_opt_sink.c" />
     <ClCompile Include="lj_opt_split.c" />
     <ClCompile Include="lj_parse.c" />
+    <ClCompile Include="lj_prng.c" />
     <ClCompile Include="lj_record.c" />
     <ClCompile Include="lj_snap.c" />
     <ClCompile Include="lj_state.c" />
     <ClCompile Include="lj_str.c" />
+    <ClCompile Include="lj_strfmt.c" />
+    <ClCompile Include="lj_strfmt_num.c" />
     <ClCompile Include="lj_strscan.c" />
     <ClCompile Include="lj_tab.c" />
     <ClCompile Include="lj_trace.c" />

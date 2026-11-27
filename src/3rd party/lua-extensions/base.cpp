@@ -23,7 +23,7 @@ extern "C"{
 //#include "Libs.h"
 #include "script_additional_libs.h"
 
-static const struct luaL_reg R[] =
+static const struct luaL_Reg R[] =
 {
 	{ NULL,	    NULL },
 };

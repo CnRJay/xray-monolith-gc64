@@ -2,6 +2,13 @@
 #include "lj_def.h"
 #include "lj_arch.h"
 
+#if LJ_GC64
+void XR_INIT() {}
+void* XR_MMAP(size_t size) { (void)size; return NULL; }
+void XR_DESTROY(void* p, size_t size) { (void)p; (void)size; }
+void XR_EARLY_INIT() {}
+#else
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -147,3 +154,4 @@ void dump_map(void* ptr, size_t size, char c)
 	OutputDebugString("--------------------------------------------------------------------------------------------------------------------------------\r\n");
 #endif
 }
+#endif

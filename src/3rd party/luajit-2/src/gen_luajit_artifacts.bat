@@ -6,11 +6,15 @@ REM Determine DynASM path and platform flags
 echo [LuaJIT] Determine DynASM path and if platform is x64
 set "DYNASM=%~dp0..\dynasm\dynasm.lua"
 if /I "%~1"=="x64" (
-  echo [LuaJIT] Platform is x64, set -D P64
+  echo [LuaJIT] Platform is x64, set -D P64 ^(GC64^)
   set "DFLAGS=-D WIN -D JIT -D FFI -D P64"
+  set "DASC=vm_x64.dasc"
+  set "BUILDVM_DEFS=/DLUAJIT_ENABLE_GC64"
 ) else (
   echo [LuaJIT] Platform is not x64
   set "DFLAGS=-D WIN -D JIT -D FFI"
+  set "DASC=vm_x86.dasc"
+  set "BUILDVM_DEFS="
 )
 
 REM Build minilua if missing
@@ -22,12 +26,12 @@ if not exist "host\minilua.exe" (
 
 REM Generate buildvm_arch.h with DynASM
 echo [LuaJIT] Running DynASM to generate host\buildvm_arch.h
-"host\minilua.exe" "%DYNASM%" -LN %DFLAGS% -o "host\buildvm_arch.h" "vm_x86.dasc" || exit /b 1
+"host\minilua.exe" "%DYNASM%" -LN %DFLAGS% -o "host\buildvm_arch.h" "%DASC%" || exit /b 1
 
 REM Build buildvm if missing
 if not exist "host\buildvm.exe" (
   echo [LuaJIT] Building host\buildvm.exe
-  cl /nologo /c /O2 /Ob3 /Oi /Ot /Oy /GT /W3 /fp:precise /MT /GF /GS- /Zi /I "." /I "..\dynasm" host\buildvm.c host\buildvm_peobj.c host\buildvm_lib.c host\buildvm_asm.c host\buildvm_fold.c || exit /b 1
+  cl /nologo /c /O2 /Ob3 /Oi /Ot /Oy /GT /W3 /fp:precise /MT /GF /GS- /Zi %BUILDVM_DEFS% /I "." /I "..\dynasm" host\buildvm.c host\buildvm_peobj.c host\buildvm_lib.c host\buildvm_asm.c host\buildvm_fold.c || exit /b 1
   link /nologo /OPT:REF /OPT:ICF /out:host\buildvm.exe buildvm.obj buildvm_peobj.obj buildvm_lib.obj buildvm_asm.obj buildvm_fold.obj || exit /b 1
 )
 

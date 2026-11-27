@@ -13,6 +13,7 @@
 \*=========================================================================*/
 
 #include "luasocket.h"
+#include "luajit.h"
 #include "auxiliar.h"
 #include "except.h"
 #include "timeout.h"
@@ -96,6 +97,7 @@ static int base_open(lua_State *L) {
 /*-------------------------------------------------------------------------*\
 * Initializes all library modules.
 \*-------------------------------------------------------------------------*/
+#if !defined(LUAJIT_VERSION_NUM) || LUAJIT_VERSION_NUM < 20100
 void luaL_pushmodule(lua_State* L, const char* modname, int sizehint)
 {
     luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 16);
@@ -109,6 +111,7 @@ void luaL_pushmodule(lua_State* L, const char* modname, int sizehint)
     }
     lua_remove(L, -2);
 }
+#endif
 
 LUASOCKET_API int luaopen_socket_core(lua_State* L)
 {
