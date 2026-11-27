@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Native DX11 Compute 3D Froxel Volumetric Fog & Lighting (`r4_volumetric_froxels`)**:
+  - Replaced legacy `.peak` volumetric lights and low-resolution sliced/screen-space volumetrics with a native Frostbite/UE5-style DX11 Compute 3D Froxel volumetric pipeline (`r4_volumetric_froxels.h/.cpp` + 7 dedicated HLSL 5.0 compute/apply shaders in `gamedata/shaders/r3/`).
+  - Evaluates multi-cascade hardware-PCF sun shadow visibility (`froxel_sun_shadow.cs`) across cascades 0–2, live shadow-atlas spotlight cones (`froxel_spot_shadow.cs`), up to 64 dynamic point/spot lights via GPU `StructuredBuffer`, weather-driven height fog with animated 3D wind noise (`froxel_inject.cs`), dual-lobe Henyey-Greenstein phase + temporal reprojection (`froxel_light.cs`), and energy-conserving analytical Beer-Lambert transmittance integration (`froxel_integrate.cs`).
+  - Composites into the lit scene via a single hardware-trilinear 3D lookup with eye-adaptation exposure matching (`froxel_apply.vs/.ps`) and Beer-Lambert hardware blending, avoiding conflicts with mod-overridden `combine_1.ps` / `combine_volumetric.ps` shaders.
 - **True 2-Stage Decoupled Render Thread (`r__mt_decouple`)**:
   - Added a dedicated persistent Render Thread (`CRenderThread`) that overlaps Game Thread Frame N+1 (`FrameMove`, `xrSheduler`, `seqFrameMT`, `LuaGC`, `CalculateBonesThread`) with Render Thread Frame N DX11 submission and `Present()`, controlled via `r__mt_decouple` (`0–1`, default `1`).
   - Split DX11 rendering into `CRender::ExtractFrame()` (Safe Sync Window on Main Thread + TBB for `g_SpatialSpace`, `CObject::renderable_Render`, sun cascade/light culling, HUD/SVP optics, and bone matrix snapshotting) and `CRender::RenderSubmit()` (pure DX11 submission on Render Thread).
@@ -25,6 +29,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `r4_sun_cascade_cache` (`0–8`, default `1`): caches the far sun shadow cascade (cascade 2) in a dedicated `rt_smap_depth_far` target across frames, automatically invalidating on camera movement, sun movement, level loads, and device resets.
 
 ### Changed
+- **Removed Legacy `.peak` Volumetric System**:
+  - Removed LVutner's `.peak` volumetric code (`ps_pfx_volumetric_mode` / `pfx_volumetric_mode`, `CRenderTarget::accum_volumetric_lv`, `s_combine->E[5]` `pfx_volumetric_light`, and its MCM/XML options) across R2/R3/R4 in favor of the native Compute 3D Froxel volumetric pipeline.
 - **Upstream Multithreading Baseline**:
   - Merged all commits from `upstream/all-in-one-vs2022-wpo-mt` (`707ca7680`), adopting upstream's `CDSGraphManager`, Optick GPU/CPU profiler scopes, UI 3D icon atlas, and MT fixes.
 - **GitHub Actions CI & Tag-Gated Releases (DX11 Only)**:
@@ -66,3 +72,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 | `r__mt_details` | `0–1` | `1` | Parallelize grass/detail visibility culling across TBB workers |
 | `r4_parallel_cull` | `0–1` | `1` | Parallelize sun cascade, dynamic light, and main/SVP static culling |
 | `r__mt_decouple` | `0–1` | `1` | Overlap Game Thread Frame N+1 with dedicated Render Thread Frame N submission |
+| `r4_volumetric_froxels` | `0–1` | `1` | Enable Native DX11 Compute 3D Froxel Volumetric Fog & Lighting (`0` = legacy fallback) |
+| `r4_volumetric_quality` | `0–2` | `1` | Froxel 3D grid resolution (`0` = `128×72×48`, `1` = `160×90×64`, `2` = `240×135×96`) |
+| `r4_volumetric_range` | `30–250` | `120.0` | Maximum froxel volumetric fog & lighting distance (meters) |
+| `r4_volumetric_density` | `0.0–4.0` | `1.0` | Global atmospheric scattering & volumetric fog density multiplier |
+| `r4_volumetric_anisotropy` | `-0.5–0.92` | `0.65` | Henyey-Greenstein phase anisotropy controlling forward-scattering sun/spot beams |
+| `r4_volumetric_temporal` | `0.0–0.96` | `0.90` | Temporal reprojection history blend factor (`0` disables temporal filtering) |

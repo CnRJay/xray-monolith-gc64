@@ -325,6 +325,12 @@ int ps_r4_post_pingpong = 1;
 int ps_r4_sun_cascade_cache = 1;
 int ps_r__mt_details = 1;
 int ps_r4_parallel_cull = 1;
+int ps_r4_volumetric_froxels = 1;
+int ps_r4_volumetric_quality = 1;
+float ps_r4_volumetric_range = 120.0f;
+float ps_r4_volumetric_density = 1.0f;
+float ps_r4_volumetric_anisotropy = 0.65f;
+float ps_r4_volumetric_temporal = 0.90f;
 
 // HDR10 parameters
 float ps_r4_hdr10_whitepoint_nits = 400.0f; // r4-only, default = 400 nits
@@ -590,7 +596,6 @@ BOOL r_blood_decals_on_objects = FALSE;
 int opt_static = 2;
 int opt_dynamic = 2;
 
-int ps_pfx_volumetric_mode = 0;
 int ps_r__portal_traverse_stats = 0;
 int ps_r__gpu_timeline = 0;
 
@@ -1690,6 +1695,12 @@ void xrRender_initconsole()
 	CMD4(CCC_Integer, "r4_sun_cascade_cache", &ps_r4_sun_cascade_cache, 0, 8);
 	CMD4(CCC_Integer, "r__mt_details", &ps_r__mt_details, 0, 1);
 	CMD4(CCC_Integer, "r4_parallel_cull", &ps_r4_parallel_cull, 0, 1);
+	CMD4(CCC_Integer, "r4_volumetric_froxels", &ps_r4_volumetric_froxels, 0, 1);
+	CMD4(CCC_Integer, "r4_volumetric_quality", &ps_r4_volumetric_quality, 0, 2);
+	CMD4(CCC_Float, "r4_volumetric_range", &ps_r4_volumetric_range, 30.0f, 250.0f);
+	CMD4(CCC_Float, "r4_volumetric_density", &ps_r4_volumetric_density, 0.0f, 4.0f);
+	CMD4(CCC_Float, "r4_volumetric_anisotropy", &ps_r4_volumetric_anisotropy, -0.5f, 0.92f);
+	CMD4(CCC_Float, "r4_volumetric_temporal", &ps_r4_volumetric_temporal, 0.0f, 0.96f);
 	CMD4(CCC_Integer, "r__gpu_markers", &r__gpu_markers, 0, 1);
 	CMD4(CCC_Integer, "r__shader_debug", &r__shader_debug, 0, 1);
 
@@ -2002,8 +2013,6 @@ void xrRender_initconsole()
 	CMD1(CCC_memory_stats, "render_memory_stats");
 
 	CMD4(CCC_Vector4, "vignette_control", &ps_vignette_control, Fvector4().set(0.0f, 0.0f, 0.0f, 0.0f), Fvector4().set(1.0f, 1.0f, 1.0f, 1.0f));
-
-	CMD4(CCC_Integer, "pfx_volumetric_mode", &ps_pfx_volumetric_mode, 0, 1);
 
     CMD4(CCC_Float, "r__ssa_discard", &ps_r__ssaDISCARD, 0.f, 50.0f);
     CMD4(CCC_Float, "r__ssa_discard_exp", &ps_r__ssaDISCARD_exp, 0.1f, 3.0f);

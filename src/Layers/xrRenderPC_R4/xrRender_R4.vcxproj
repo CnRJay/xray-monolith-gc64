@@ -568,6 +568,7 @@
     <ClInclude Include="r2_types.h" />
     <ClInclude Include="r4.h" />
     <ClInclude Include="r4_rendertarget.h" />
+    <ClInclude Include="r4_volumetric_froxels.h" />
     <ClInclude Include="svp_target.h" />
     <ClInclude Include="svp_camera.h" />
     <ClInclude Include="svp_optics.h" />
@@ -799,6 +800,7 @@
     <ClCompile Include="svp_stats.cpp" />
     <ClCompile Include="r4_loader.cpp" />
     <ClCompile Include="r4_rendertarget.cpp" />
+    <ClCompile Include="r4_volumetric_froxels.cpp" />
     <ClCompile Include="r4_rendertarget_accum_direct.cpp" />
     <ClCompile Include="r4_rendertarget_accum_omnipart_geom.cpp" />
     <ClCompile Include="r4_rendertarget_accum_point.cpp" />

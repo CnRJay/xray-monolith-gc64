@@ -64,7 +64,6 @@ PAGE = filter_false(page {
 
 	list_bool { id = "r__actor_shadow_in_demo_record", def = "1"},
 	list_bool { id = "g_use_non_linear_inertia", def = "1"},
-	get_item_if_exists(list_bool { id = "pfx_volumetric_mode", def = "0"}),
 	get_item_if_exists(check { id = "r2_lights_details", def = false }),
 
 	line {},

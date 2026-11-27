@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "../xrRender/resourcemanager.h"
 #include "blender_light_occq.h"
+#include "r4_volumetric_froxels.h"
 #include "blender_light_mask.h"
 #include "blender_light_direct.h"
 #include "blender_light_point.h"
@@ -594,6 +595,11 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 		RenderTargetRemaps.push_back({ t, rt });
 		return rt;
 	};
+
+	if (isMain)
+	{
+		m_froxels = xr_new<CVolumetricFroxels>();
+	}
 
 	//	NORMAL
 	{
@@ -1679,6 +1685,7 @@ CRenderTarget::~CRenderTarget()
 	xr_delete(b_occq);
 	xr_delete(b_sunshafts);
 
+	xr_delete(m_froxels);
 	xr_delete(b_hdao_cs);
 	if (RImplementation.o.dx10_msaa)
 	{

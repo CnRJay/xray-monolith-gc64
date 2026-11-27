@@ -399,6 +399,9 @@
     <ClInclude Include="r4_rendertarget.h">
       <Filter>Core_Target</Filter>
     </ClInclude>
+    <ClInclude Include="r4_volumetric_froxels.h">
+      <Filter>Core_Target</Filter>
+    </ClInclude>
     <ClInclude Include="svp_target.h">
       <Filter>Core_Target</Filter>
     </ClInclude>
@@ -1105,6 +1108,9 @@
       <Filter>Visibility\HOM Occlusion</Filter>
     </ClCompile>
     <ClCompile Include="r4_rendertarget.cpp">
+      <Filter>Core_Target</Filter>
+    </ClCompile>
+    <ClCompile Include="r4_volumetric_froxels.cpp">
       <Filter>Core_Target</Filter>
     </ClCompile>
     <ClCompile Include="r4_rendertarget_accum_direct.cpp">

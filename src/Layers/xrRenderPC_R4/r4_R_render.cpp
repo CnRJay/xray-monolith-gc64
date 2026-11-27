@@ -12,6 +12,7 @@
 #include "../xrRender/SkeletonX.h"              // pip CSkeletonX for the skinned lens bone transform
 #include "svp_camera.h"                         // pip svpCamera + the hud geometry snapshot
 #include "svp_stats.h"                          // pip per-viewport render-stats overlay
+#include "r4_volumetric_froxels.h"
 
 // set all per-viewport camera globals from an explicit view/proj/proj_hud
 // called by SetActive, the main path still uses on_idle
@@ -1044,6 +1045,9 @@ void CRender::share_main_smaps()
 
 void CRender::renderSceneLighting(BOOL bSUN, bool svp, bool preExtracted)
 {
+	if (TargetMain && TargetMain->m_froxels)
+		TargetMain->m_froxels->BeginFrame(bSUN != 0);
+
 	// Directional light - fucking sun, cascades build their shadow map once on the main atlas and the
 	// accumulate is replayed into the SVP by the dual_accum hook (inside render_sun_cascade + below)
 	if (bSUN) //bSUN && Device.dwFrame & 1 --Delayed sun update. Worth to check it in future
@@ -1194,7 +1198,9 @@ void CRender::renderSceneLighting(BOOL bSUN, bool svp, bool preExtracted)
 	}
 
 	{
-		if (RImplementation.o.ssfx_volumetric)
+		if (ps_r4_volumetric_froxels && TargetMain && TargetMain->m_froxels)
+			TargetMain->m_froxels->DispatchVolumePasses();
+		else if (RImplementation.o.ssfx_volumetric)
 			Target->phase_ssfx_volumetric_blur();
 	}
 

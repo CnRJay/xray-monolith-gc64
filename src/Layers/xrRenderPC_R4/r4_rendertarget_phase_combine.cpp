@@ -3,6 +3,7 @@
 #include "../../xrEngine/environment.h"
 
 #include "../xrRender/dxEnvironmentRender.h"
+#include "r4_volumetric_froxels.h"
 #include "svp_stats.h" // pip combine sub timers for the breakdown panel
 
 #define STENCIL_CULL 0
@@ -565,7 +566,14 @@ void CRenderTarget::phase_combine()
 	// pip r__svp_skip_volumetric drops god rays on the scope pass (subtle at magnification)
 	if (!(svp_pass && ps_r__svp_skip_volumetric))
 	{
-		if (RImplementation.o.ssfx_volumetric)
+		if (ps_r4_volumetric_froxels && !svp_pass && m_froxels)
+		{
+			ID3D11RenderTargetView* targetRtv = RImplementation.o.dx10_msaa ? rt_Generic_0_r->pRT : rt_Generic_0->pRT;
+			m_froxels->ApplyToScene(targetRtv, rt_Position->pTexture->get_SRView(),
+				rt_LUM_pool[0]->pTexture->get_SRView(),
+				Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, RImplementation.o.dx10_msaa != 0);
+		}
+		else if (RImplementation.o.ssfx_volumetric)
 		{
 			if (m_bHasActiveVolumetric || m_bHasActiveVolumetric_spot)
 				phase_combine_volumetric();

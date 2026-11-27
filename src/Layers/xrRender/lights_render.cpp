@@ -1,4 +1,7 @@
 #include "stdafx.h"
+#if RENDER == R_R4
+#include "../xrRenderPC_R4/r4_volumetric_froxels.h"
+#endif
 #include "../../xrEngine/xr_object.h"
 #include "FBasicVisual.h"
 #include "SkeletonCustom.h"
@@ -274,7 +277,7 @@ void CRender::render_lights(light_Package& LP)
 	{
 		Target->accum_spot(L);
 		render_indirect(L);
-		if (L->flags.bVolumetric && RImplementation.o.advancedpp && ps_r2_ls_flags.is(R2FLAG_VOLUMETRIC_LIGHTS))
+		if (!ps_r4_volumetric_froxels && L->flags.bVolumetric && RImplementation.o.advancedpp && ps_r2_ls_flags.is(R2FLAG_VOLUMETRIC_LIGHTS))
 		{
 			PIX_EVENT(ACCUM_VOLUMETRIC);
 			float w = float(Device.dwWidth);
@@ -283,10 +286,7 @@ void CRender::render_lights(light_Package& LP)
 			if (RImplementation.o.ssfx_volumetric)
 				Target->set_viewport_size(HW.pContext, w / RImplementation.o.volsize, h / RImplementation.o.volsize);
 
-			if (ps_pfx_volumetric_mode == 1)
-				Target->accum_volumetric_lv(L);
-			else
-				Target->accum_volumetric(L);
+			Target->accum_volumetric(L);
 
 			if (RImplementation.o.ssfx_volumetric)
 				Target->set_viewport_size(HW.pContext, w, h);
@@ -458,6 +458,9 @@ void CRender::render_lights(light_Package& LP)
 
 			if (!L_spot_s.empty())
 			{
+				if (ps_r4_volumetric_froxels && TargetMain && TargetMain->m_froxels)
+					TargetMain->m_froxels->AccumulateShadowedSpots(L_spot_s, TargetMain->rt_smap_depth->pTexture->get_SRView());
+
 				PROF_EVENT("ACCUM_SPOT", PROF_CAT(Rendering));
 				PIX_EVENT(SPOT_LIGHTS_ACCUM_SH);
 				Target->phase_accumulator();
@@ -467,6 +470,9 @@ void CRender::render_lights(light_Package& LP)
 			}
 		}
 	}
+
+	if (ps_r4_volumetric_froxels && TargetMain && TargetMain->m_froxels)
+		TargetMain->m_froxels->CollectDynamicLights(LP.v_point, LP.v_spot);
 
 	Target->phase_accumulator();
 
@@ -674,7 +680,7 @@ void CRender::render_lights_submit(light_Package& LP)
 	{
 		Target->accum_spot(L);
 		render_indirect(L);
-		if (L->flags.bVolumetric && RImplementation.o.advancedpp && ps_r2_ls_flags.is(R2FLAG_VOLUMETRIC_LIGHTS))
+		if (!ps_r4_volumetric_froxels && L->flags.bVolumetric && RImplementation.o.advancedpp && ps_r2_ls_flags.is(R2FLAG_VOLUMETRIC_LIGHTS))
 		{
 			PIX_EVENT(ACCUM_VOLUMETRIC);
 			float w = float(RV.dwWidth);
@@ -683,10 +689,7 @@ void CRender::render_lights_submit(light_Package& LP)
 			if (RImplementation.o.ssfx_volumetric)
 				Target->set_viewport_size(HW.pContext, w / RImplementation.o.volsize, h / RImplementation.o.volsize);
 
-			if (ps_pfx_volumetric_mode == 1)
-				Target->accum_volumetric_lv(L);
-			else
-				Target->accum_volumetric(L);
+			Target->accum_volumetric(L);
 
 			if (RImplementation.o.ssfx_volumetric)
 				Target->set_viewport_size(HW.pContext, w, h);
@@ -759,6 +762,9 @@ void CRender::render_lights_submit(light_Package& LP)
 
 			if (!L_spot_s.empty())
 			{
+				if (ps_r4_volumetric_froxels && TargetMain && TargetMain->m_froxels)
+					TargetMain->m_froxels->AccumulateShadowedSpots(L_spot_s, TargetMain->rt_smap_depth->pTexture->get_SRView());
+
 				PROF_EVENT("ACCUM_SPOT", PROF_CAT(Rendering));
 				PIX_EVENT(SPOT_LIGHTS_ACCUM_SH);
 				Target->phase_accumulator();
@@ -774,6 +780,9 @@ void CRender::render_lights_submit(light_Package& LP)
 			}
 		}
 	}
+
+	if (ps_r4_volumetric_froxels && TargetMain && TargetMain->m_froxels)
+		TargetMain->m_froxels->CollectDynamicLights(LP.v_point, LP.v_spot);
 
 	Target->phase_accumulator();
 
@@ -1080,10 +1089,7 @@ void CRender::render_lights(light_Package& LP)
 								Target->set_viewport_size(HW.pContext, w / RImplementation.o.volsize, h / RImplementation.o.volsize);
 #endif
 
-							if (ps_pfx_volumetric_mode == 1)
-								Target->accum_volumetric_lv(L);
-							else
-								Target->accum_volumetric(L);
+							Target->accum_volumetric(L);
 
 #ifdef USE_DX11
 							// Restore resolution

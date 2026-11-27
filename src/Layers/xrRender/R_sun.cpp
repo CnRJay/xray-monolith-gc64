@@ -5,6 +5,7 @@
 
 #include "R_sun_support.h"
 #if RENDER == R_R4
+#include "../xrRenderPC_R4/r4_volumetric_froxels.h"
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
 #endif
@@ -179,6 +180,15 @@ void CRender::render_sun_cascades_submit()
 		if (useFarCache)
 			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
 
+		if (ps_r4_volumetric_froxels && TargetMain->m_froxels)
+		{
+			auto smap = useFarCache ? TargetMain->rt_smap_depth_far : TargetMain->rt_smap_depth;
+			const float zMin = (i == 0) ? 0.0f : m_sun_cascades[i - 1].size * 0.45f;
+			const float zMax = (i == cascadeCount - 1) ? ps_r4_volumetric_range : m_sun_cascades[i].size * 0.45f;
+			TargetMain->m_froxels->EvaluateSunCascade(i, smap->pTexture->get_SRView(),
+				m_sun_cascades[i].xform, zMin, zMax, float(o.smapsize), m_sun_cascades[i].bias);
+		}
+
 		if (Device.m_SecondViewport.IsSVPActive() && TargetSVP)
 		{
 			TargetSVP->SetActive();
@@ -282,6 +292,15 @@ void CRender::render_sun_cascades()
 
 		if (useFarCache)
 			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
+
+		if (ps_r4_volumetric_froxels && TargetMain->m_froxels)
+		{
+			auto smap = useFarCache ? TargetMain->rt_smap_depth_far : TargetMain->rt_smap_depth;
+			const float zMin = (i == 0) ? 0.0f : m_sun_cascades[i - 1].size * 0.45f;
+			const float zMax = (i == cascadeCount - 1) ? ps_r4_volumetric_range : m_sun_cascades[i].size * 0.45f;
+			TargetMain->m_froxels->EvaluateSunCascade(i, smap->pTexture->get_SRView(),
+				m_sun_cascades[i].xform, zMin, zMax, float(o.smapsize), m_sun_cascades[i].bias);
+		}
 
 		if (Device.m_SecondViewport.IsSVPActive() && TargetSVP)
 		{

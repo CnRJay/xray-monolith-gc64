@@ -6,6 +6,7 @@
 #include "../xrRender/r__dsgraph_types.h"
 #include "SvpDlss.h"
 class light;
+class CVolumetricFroxels;
 
 // pip SVP scene render extent for the color/depth/MV targets, full display-res (svp_height) at gate 0
 // so r__svp_render_scale is inert until the DLSS scaffolding is active (r__svp_dlss != 0)
@@ -562,7 +563,7 @@ public:
 	void accum_reflected(light* L);
 	//	Igor: for volumetric lights
 	void accum_volumetric(light* L);
-	void accum_volumetric_lv(light* L);
+	CVolumetricFroxels* m_froxels = nullptr;
 	void phase_bloom();
 	void phase_luminance();
 	void phase_combine();
