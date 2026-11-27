@@ -19,6 +19,8 @@ private:
 	u32 dwWidth;
 	u32 dwHeight;
 	u32 dwAccumulatorClearMark;
+	ref_rt* m_remap_generic0_rt = nullptr;
+	ref_rt* m_remap_generic_rt = nullptr;
 public:
 	enum eStencilOptimizeMode
 	{
@@ -466,6 +468,8 @@ public:
 	void draw_scope(ref_shader e, std::function<void(R_dsgraph::DSGraphItem<float, true>* N)> bind);
 	void phase_3DSSReticle(); // Redotix99: for 3D Shader Based Scopes
 	void phase_apply_distortion();
+	ref_rt& post_dest_rt();
+	void post_commit(ref_rt& dest_rt);
 	void phase_lut();
 	void phase_smaa();
 	void phase_scene_prepare();

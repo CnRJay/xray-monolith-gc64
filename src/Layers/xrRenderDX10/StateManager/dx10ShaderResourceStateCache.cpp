@@ -118,6 +118,17 @@ void dx10ShaderResourceStateCache::SetPSResource(u32 uiSlot, ID3DShaderResourceV
 	}
 }
 
+void dx10ShaderResourceStateCache::UnbindPSResource(ID3DShaderResourceView* pRes)
+{
+	if (!pRes)
+		return;
+	for (u32 slot = 0; slot < CBackend::mtMaxPixelShaderTextures; ++slot)
+	{
+		if (m_PSViews[slot] == pRes)
+			SetPSResource(slot, nullptr);
+	}
+}
+
 void dx10ShaderResourceStateCache::SetGSResource(u32 uiSlot, ID3DShaderResourceView* pRes)
 {
 	VERIFY(uiSlot<CBackend::mtMaxGeometryShaderTextures);

@@ -12,6 +12,7 @@ public:
 	void Apply();
 
 	void SetPSResource(u32 uiSlot, ID3DShaderResourceView* pRes);
+	void UnbindPSResource(ID3DShaderResourceView* pRes);
 	void SetGSResource(u32 uiSlot, ID3DShaderResourceView* pRes);
 	void SetVSResource(u32 uiSlot, ID3DShaderResourceView* pRes);
 #ifdef USE_DX11

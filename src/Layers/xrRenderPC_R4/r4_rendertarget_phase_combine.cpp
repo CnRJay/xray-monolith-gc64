@@ -70,13 +70,14 @@ void CRenderTarget::phase_apply_distortion()
 		RCache.Vertex.Unlock(3, g_combine->vb_stride);
 		RCache.set_Geometry(g_combine);
 
-		u_setrt(rt_Color, nullptr, nullptr, nullptr, RImplementation.Target->baseZB);
+		ref_rt& dest_rt = post_dest_rt();
+		u_setrt(dest_rt, nullptr, nullptr, nullptr, RImplementation.Target->baseZB);
 		RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 3, 0, 1);
 
 		// Ensure the later combine pass does not apply distortion
 		bDistort = FALSE;
 
-		HW.pContext->CopyResource(rt_Generic_0->pSurface, rt_Color->pSurface);
+		post_commit(dest_rt);
 	}
 }
 

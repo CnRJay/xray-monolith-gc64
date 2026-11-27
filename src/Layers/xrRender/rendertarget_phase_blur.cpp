@@ -968,7 +968,7 @@ void CRenderTarget::phase_ssfx_fog_scattering()
 
 	set_viewport_size(HW.pContext, w, h);
 
-	ref_rt& dest_rt = RImplementation.o.dx10_msaa ? rt_Generic : rt_Color;
+	ref_rt& dest_rt = post_dest_rt();
 
 	// Fog Scattering
 	u_setrt(dest_rt, nullptr, nullptr, nullptr);
@@ -990,7 +990,7 @@ void CRenderTarget::phase_ssfx_fog_scattering()
 
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
-	HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), dest_rt->pTexture->surface_get());
+	post_commit(dest_rt);
 
 }
 
@@ -1006,7 +1006,7 @@ void CRenderTarget::phase_ssfx_motion_blur()
 	p0.set(0.0f, 0.0f);
 	p1.set(1.0f, 1.0f);
 
-	ref_rt& dest_rt = RImplementation.o.dx10_msaa ? rt_Generic : rt_Color;
+	ref_rt& dest_rt = post_dest_rt();
 
 	// Motion Blur
 	u_setrt(dest_rt, nullptr, nullptr, nullptr);
@@ -1029,7 +1029,7 @@ void CRenderTarget::phase_ssfx_motion_blur()
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
-	HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), dest_rt->pTexture->surface_get());
+	post_commit(dest_rt);
 }
 
 #endif

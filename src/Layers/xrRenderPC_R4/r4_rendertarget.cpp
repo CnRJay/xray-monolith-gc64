@@ -402,6 +402,40 @@ void CRenderTarget::SetActive(bool force)
 	RCache.set_RT(nullptr, 3);
 	RCache.set_ZB(baseZB);
 }
+
+extern int ps_r4_post_pingpong;
+
+ref_rt& CRenderTarget::post_dest_rt()
+{
+	if (ps_r4_post_pingpong)
+		return rt_Generic;
+	return RImplementation.o.dx10_msaa ? rt_Generic : rt_Color;
+}
+
+void CRenderTarget::post_commit(ref_rt& dest_rt)
+{
+	if (ps_r4_post_pingpong && &dest_rt == &rt_Generic)
+	{
+		SRVSManager.UnbindPSResource(rt_Generic_0->pTexture->get_SRView());
+		SRVSManager.Apply();
+		RCache.set_RT(nullptr, 0);
+
+		std::swap(rt_Generic_0, rt_Generic);
+		if (m_remap_generic0_rt)
+			*m_remap_generic0_rt = rt_Generic_0;
+		if (m_remap_generic_rt)
+			*m_remap_generic_rt = rt_Generic;
+
+		static const shared_str rtNameGeneric0(r2_RT_generic0);
+		static const shared_str rtNameGeneric(r2_RT_generic);
+		RCache.override_Texture(rtNameGeneric0, rt_Generic_0->pTexture);
+		RCache.override_Texture(rtNameGeneric, rt_Generic->pTexture);
+	}
+	else
+	{
+		HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), dest_rt->pTexture->surface_get());
+	}
+}
 #endif
 
 CRenderTarget::CRenderTarget()
@@ -630,12 +664,16 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 		//LV - we should change their formats into D3DFMT_A16B16G16R16F for better HDR support.
 		if (RImplementation.o.dx11_hdr10) {
 			rt_Generic_0 = createUnique(r2_RT_generic0, w, h, D3DFMT_A16B16G16R16F, 1);
+			m_remap_generic0_rt = &RenderTargetRemaps.back().second;
 			rt_Generic_1 = createUnique(r2_RT_generic1, w, h, D3DFMT_A16B16G16R16F, 1);
 			rt_Generic = createUnique(r2_RT_generic, w, h, D3DFMT_A16B16G16R16F, 1);
+			m_remap_generic_rt = &RenderTargetRemaps.back().second;
 		} else {
 			rt_Generic_0 = createUnique(r2_RT_generic0, w, h, D3DFMT_A8R8G8B8, 1);
+			m_remap_generic0_rt = &RenderTargetRemaps.back().second;
 			rt_Generic_1 = createUnique(r2_RT_generic1, w, h, D3DFMT_A8R8G8B8, 1);
 			rt_Generic = createUnique(r2_RT_generic, w, h, D3DFMT_A8R8G8B8, 1);
+			m_remap_generic_rt = &RenderTargetRemaps.back().second;
 		}
 
 		if (isMain)

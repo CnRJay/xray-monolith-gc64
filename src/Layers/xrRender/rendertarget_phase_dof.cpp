@@ -54,7 +54,10 @@ void CRenderTarget::phase_dof()
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 	////////////////////////////////////////////////////////////////////////////
-#if defined(USE_DX10) || defined(USE_DX11)
+#if defined(USE_DX11)
+	ref_rt& dest_rt = post_dest_rt();
+	u_setrt(dest_rt, nullptr, nullptr, nullptr);
+#elif defined(USE_DX10)
 	ref_rt& dest_rt = RImplementation.o.dx10_msaa ? rt_Generic : rt_Color;
 	u_setrt(dest_rt, nullptr, nullptr, nullptr);
 #else
@@ -80,7 +83,9 @@ void CRenderTarget::phase_dof()
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
 	//Resolve RT
-#if defined(USE_DX10) || defined(USE_DX11)
+#if defined(USE_DX11)
+	post_commit(dest_rt);
+#elif defined(USE_DX10)
 	HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), dest_rt->pTexture->surface_get());
 #endif
 };
