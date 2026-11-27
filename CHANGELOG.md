@@ -39,6 +39,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Packaged release archives in drag-and-drop Anomaly root layout (`bin/AnomalyDX11.exe` + unpacked `gamedata/`) with automated `CHANGELOG.md` release notes extraction and a separate PDB archive.
 
 ### Performance
+- **Runtime AVX2 Bone Palette Upload & Optick CPU Hotspot Wins**:
+  - Added runtime CPUID-dispatched AVX2 bulk 4×4→3×4 matrix transpose (`BonePaletteSIMD.h/.cpp`, `BonePaletteSIMD_AVX2.cpp` with per-file `/arch:AVX2` and SSE2 fallback) for `CSkeletonX::_Render` `SEND_MATRICES` (both current `sbones_array` and `sbones_array_prev` motion-vector palettes), replacing ~108,900 scalar `RCache.set_ca` calls/frame with single direct CB writes.
+  - Inlined `R_constants::GetCBuffer` into `dx10R_Backend_Runtime.h` with a switch dispatch and removed its per-call `PROF_EVENT` macro (~69,000 calls/frame on Render Thread).
+  - Cached per-viewport interactive grass bender arrays once per frame in `FTreeVisual::Render` and uploaded via `RCache.set_c_bytes` instead of rebuilding and dirtying constant buffers on every tree draw (~3,860 draws/frame).
+  - Overlapped `CRender::extract_sun_cascades()` (disjoint `GMCascade` instances, no HOM dependency) ahead of `HOM.MT_RENDER()` inside `CRender::ExtractFrame()` so sun shadow culling runs concurrently with `Secondary Task 1.1` HOM rasterization instead of blocking Main Thread on `m_mt_render_guard`.
 - **Intel Masked Software Occlusion Culling (Runtime AVX2 / AVX-512)**:
   - Integrated Intel Masked Occlusion Culling (`moc.vcxproj`) with runtime CPUID dispatch for AVX2 and AVX-512 alongside the legacy HOM occluder.
 - **DX11 GPU & Geometry Optimizations**:
@@ -56,6 +61,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Disabled unused renderers in single-renderer configurations in `src/engine-vs2026.sln`.
 
 ### Fixed
+- **True PIP Scope Raise Crash & Render Thread Resource Safety**:
+  - Fixed a crash when raising weapons with a PIP scope under `r__mt_decouple 1` caused by `TargetMain->EnsureScopeShaders()` (on hipfire lens capture) and `TargetSVP->EnsureScopeShaders()` (in `svp_nearblur_pass`) invoking `CResourceManager::_CreateShader` / Lua shader compilation on the Render Thread concurrently with Main Thread Frame N+1 Lua execution.
+  - Pre-initialized scope shaders on both `TargetMain` and `TargetSVP` during `ExtractFrame()` / `EnsureTargetSVP()`, added a `CRenderThread::IsOnRenderThread()` guard inside `EnsureScopeShaders()`, and pre-created all SVP alias `ref_texture` handles (`$user$svp_nearblur_src`, `$user$svp_nearblur_pos`, `r2_RT_secondVP`, `r2_RT_generic2`, `r2_RT_heat`, `$user$svp_tonemap`) on the Main Thread to eliminate per-frame Render Thread `CResourceManager::_CreateTexture` calls.
+  - Switched `RCache.Invalidate()` to `RCache.Invalidate(false)` in `phase_3DSSReticle()`, `phase_scope_debug()`, and `share_main_smaps()` so `r4_post_pingpong 1` texture overrides stay intact while aiming through PIP scopes, and switched SVP Render Thread reads of `Device.dwFrame` / `Device.matrices[1]` / `Device.matrices_previous[1]` to `Device.m_rt_view`.
 - **3DSS / True PIP Scope Lens Capture & TAA Motion Vectors**:
   - Removed a stale pre-`tlip-pip` `bCaptureScopeLens` early-return block in `CDSGraphManager::r_dsgraph_insert_dynamic()` that discarded all `iScopeLense > 0` visuals before `tlip-pip`'s lens/reflex capture could run (which caused scopes to render as empty hollow tubes).
   - Removed duplicate `Device.matrices_previous[0..1] = Device.matrices[0..1]` overwrites in `CRenderDevice::on_idle()` that were zeroing out previous-frame camera view/projection matrices (`m_v_prev`/`m_p_prev`) and breaking SSS TAA camera motion vectors.
