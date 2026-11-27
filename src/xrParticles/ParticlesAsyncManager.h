@@ -1,4 +1,7 @@
 #pragma once
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include "../xrGame/ParticlesObject.h"
 
 class CPS_Instance;
@@ -20,5 +23,7 @@ public:
 	CParticlesAsync();
 
 private:
-	volatile bool IsStarted = false;
+	std::atomic<bool> IsStarted{ false };
+	std::mutex m_wait_mutex;
+	std::condition_variable m_wait_cv;
 };

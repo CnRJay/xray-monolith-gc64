@@ -4,6 +4,8 @@
 #include "../Include/xrRender/ParticleCustom.h"
 #include "../Include/xrRender/RenderVisual.h"
 #include "../xrEngine/IGame_Persistent.h"
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 static CParticlesAsync Instance;
 
@@ -20,44 +22,67 @@ void CParticlesAsync::Play()
 
 void CParticlesAsync::Start()
 {
-	Instance.IsStarted = true;
+	Instance.IsStarted.store(true, std::memory_order_release);
+
+	auto& active = g_pGamePersistent->ps_active;
+	const size_t count = active.size();
 
 	{
 		PROF_EVENT("Particle Update", PROF_CAT(VFX));
-        for (intrusive_ptr<CPS_Instance>& particle: g_pGamePersistent->ps_active)
-        {
-            if (particle->m_bDead)
-                continue;
-
-            Instance.UpdateParticle(particle);
-        }
-    }
-
-    PROF_EVENT("Particle Shedule", PROF_CAT(VFX));
-    for (intrusive_ptr<CPS_Instance>& particle : g_pGamePersistent->ps_active)
-	{
-		particle->Update(Device.dwTimeDelta);
+		if (count >= 16)
+		{
+			tbb::parallel_for(tbb::blocked_range<size_t>(0, count, 8),
+				[&](const tbb::blocked_range<size_t>& r)
+				{
+					for (size_t i = r.begin(); i < r.end(); ++i)
+					{
+						if (!active[i]->m_bDead)
+							Instance.UpdateParticle(active[i]);
+					}
+				});
+		}
+		else
+		{
+			for (size_t i = 0; i < count; ++i)
+			{
+				if (!active[i]->m_bDead)
+					Instance.UpdateParticle(active[i]);
+			}
+		}
 	}
 
-	Instance.IsStarted = false;
+	{
+		PROF_EVENT("Particle Shedule", PROF_CAT(VFX));
+		for (intrusive_ptr<CPS_Instance>& particle : active)
+			particle->Update(Device.dwTimeDelta);
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(Instance.m_wait_mutex);
+		Instance.IsStarted.store(false, std::memory_order_release);
+	}
+	Instance.m_wait_cv.notify_all();
 }
 
 void CParticlesAsync::Wait()
 {
-	if (psDeviceFlags.test(mtParticles))
+	if (!psDeviceFlags.test(mtParticles))
+		return;
+
+	if (!Instance.IsStarted.load(std::memory_order_acquire))
+		return;
+
+	PROF_EVENT("Particles Wait", PROF_CAT(Wait));
+	std::unique_lock<std::mutex> lock(Instance.m_wait_mutex);
+	Instance.m_wait_cv.wait(lock, []()
 	{
-		PROF_EVENT("Particles Wait", PROF_CAT(Wait));
-        xrSpinWait w;
-		while (Instance.IsStarted)
-		{
-            w();
-		}
-	}
+		return !Instance.IsStarted.load(std::memory_order_acquire);
+	});
 }
 
 void CParticlesAsync::ForceUpdate(intrusive_ptr<CPS_Instance> Obj)
 {
-	if (!Instance.IsStarted)
+	if (!Instance.IsStarted.load(std::memory_order_acquire))
 		return;
 
 	Instance.UpdateParticle(Obj);
@@ -65,7 +90,7 @@ void CParticlesAsync::ForceUpdate(intrusive_ptr<CPS_Instance> Obj)
 
 bool CParticlesAsync::NeedForceUpdate()
 {
-	return Instance.IsStarted;
+	return Instance.IsStarted.load(std::memory_order_acquire);
 }
 
 CParticlesAsync::CParticlesAsync()
