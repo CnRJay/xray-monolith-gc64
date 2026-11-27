@@ -350,10 +350,13 @@ void CRenderTarget::phase_combine()
 		RCache.Vertex.Unlock(4, g_combine->vb_stride);
 
 		dxEnvDescriptorMixerRender& envdescren = *(dxEnvDescriptorMixerRender*)(&*envdesc.m_pDescriptorMixer);
+		const STextureList& env_textures = (CRenderThread::IsOnRenderThread() && envdescren.rt_snapshot_valid)
+			? envdescren.rt_sky_r_textures_env
+			: envdescren.sky_r_textures_env;
 
 		// Setup textures
-		ID3DBaseTexture* e0 = _menu_pp ? 0 : envdescren.sky_r_textures_env[0].second->surface_get();
-		ID3DBaseTexture* e1 = _menu_pp ? 0 : envdescren.sky_r_textures_env[1].second->surface_get();
+		ID3DBaseTexture* e0 = (_menu_pp || env_textures.size() < 1 || !env_textures[0].second) ? 0 : env_textures[0].second->surface_get();
+		ID3DBaseTexture* e1 = (_menu_pp || env_textures.size() < 2 || !env_textures[1].second) ? 0 : env_textures[1].second->surface_get();
 		t_envmap_0->surface_set(e0);
 		_RELEASE(e0);
 		t_envmap_1->surface_set(e1);

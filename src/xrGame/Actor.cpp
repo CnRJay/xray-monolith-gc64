@@ -2324,6 +2324,8 @@ void CActor::renderable_Render(IDSGraphManager* DM)
 		{
             if (validRendererForShadow)
             {
+                static xrCriticalSection s_actor_shadow_cs;
+                xrCriticalSectionGuard shadow_guard(&s_actor_shadow_cs);
                 static u32 renderFrame = 0;
                 bool needAdjust = false;
                 if (Device.dwFrame != renderFrame)
@@ -2341,8 +2343,9 @@ void CActor::renderable_Render(IDSGraphManager* DM)
 
                     // Render full body from legs controller without hiding bones for shadow correctness
                     // Solves potential issues with manipulating actor's XFORM
+                    if (needAdjust)
                         m_legs_controller.update(this, true);
-                        m_legs_controller.render(DM, true);
+                    m_legs_controller.render(DM, true);
 
                         // Ideally the active item also should be duplicated but leave this for now
                         // Move active item

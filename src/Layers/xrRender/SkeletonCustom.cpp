@@ -508,6 +508,7 @@ void CKinematics::Release()
 
 void CKinematics::LL_SetBoneVisible(u16 bone_id, BOOL val, BOOL bRecursive)
 {
+	xrCriticalSectionGuard guard(&UCalc_Mutex);
 	VERIFY(bone_id < LL_BoneCount());
 	if (bone_id >= LL_BoneCount())
 		return;
@@ -541,6 +542,7 @@ void CKinematics::LL_SetBoneVisible(u16 bone_id, BOOL val, BOOL bRecursive)
 
 void CKinematics::LL_SetBonesVisible(u64 mask)
 {
+	xrCriticalSectionGuard guard(&UCalc_Mutex);
 	visimask.assign(0);
 	for (u32 bone_id = 0; bone_id < bones->size(); bone_id++)
 	{
@@ -572,6 +574,7 @@ bool CKinematics::CopyBonesFrom(IKinematics* _from)
 	if (!from || from == this)
 		return false;
 
+	xrCriticalSectionGuard guard(&UCalc_Mutex);
 	// Calculate now, so that the renderer doesn't recalculate the bones this frame and overwrite the copy
 	CalculateBones_Invalidate();
 	CalculateBones(TRUE);

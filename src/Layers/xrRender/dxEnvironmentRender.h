@@ -69,11 +69,17 @@ public:
 	virtual void Destroy();
 	virtual void Clear();
 	virtual void lerp(IEnvDescriptorRender* inA, IEnvDescriptorRender* inB);
+	void SnapshotForRT();
 	//private:
 public:
 	STextureList sky_r_textures;
 	STextureList sky_r_textures_env;
 	STextureList clouds_r_textures;
+
+	STextureList rt_sky_r_textures;
+	STextureList rt_sky_r_textures_env;
+	STextureList rt_clouds_r_textures;
+	bool rt_snapshot_valid = false;
 };
 
 class dxEnvironmentRender : public IEnvironmentRender
@@ -83,6 +89,7 @@ public:
 	virtual void Copy(IEnvironmentRender& _in);
 
 	virtual void OnFrame(CEnvironment& env);
+	void SyncSkyTextures(CEnvironment& env);
 	virtual void OnLoad();
 	virtual void OnUnload();
 	virtual void RenderSky(CEnvironment& env, bool OnlyMV = false);
