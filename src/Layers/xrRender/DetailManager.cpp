@@ -6,6 +6,8 @@
 #pragma hdrstop
 
 #include "DetailManager.h"
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 #include "cl_intersect.h"
 
 #include "../../xrCore/profiler.h"
@@ -292,8 +294,15 @@ void CDetailManager::Unload()
 extern ECORE_API float r_ssaDISCARD;
 extern float ps_r__ssaDISCARD_exp;
 extern float ps_r__ssaDISCARD_fade_k;
+extern int ps_r__mt_details;
+
 void CDetailManager::UpdateVisibleM()
 {
+#ifndef _EDITOR
+	// Ensure HOM rasterization is finished before worker threads read HOM.visible().
+	RImplementation.HOM.MT_RENDER();
+#endif
+
 	Fvector EYE = RDEVICE.vCameraPosition_saved;
 
 	CFrustum View;
@@ -314,55 +323,45 @@ void CDetailManager::UpdateVisibleM()
 	}
 #endif
 
-	CFrustum View_old;
-	Fmatrix Viewm_old = RDEVICE.mFullTransform;
-	View_old.CreateFromMatrix(Viewm_old, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
+	const float fade_limit = dm_fade * dm_fade;
+	const float fade_start = 1.f;
+	const float fade_range = fade_limit - fade_start;
+	const float r_ssaCHEAP = 16 * r_ssaDISCARD;
+	const float fade_start_ssa = r_ssaDISCARD * ps_r__ssaDISCARD_fade_k;
+	const u32 curFrame = RDEVICE.dwFrame;
+	const bool fastUpdate = !!ps_r2_ls_flags.test(R2FLAG_FAST_DETAILS_UPDATE);
+	const bool noScale = !!psDeviceFlags2.test(rsNoScale);
+	const u32 dwCC = dm_cache1_count * dm_cache1_count;
 
-	float fade_limit = dm_fade;
-	fade_limit = fade_limit * fade_limit;
-	float fade_start = 1.f;
-	fade_start = fade_start * fade_start;
-	float fade_range = fade_limit - fade_start;
-	float r_ssaCHEAP = 16 * r_ssaDISCARD;
-    float fade_start_ssa = r_ssaDISCARD * ps_r__ssaDISCARD_fade_k;
+	if (m_row_visibles.size() != dm_cache1_line)
+		m_row_visibles.resize(dm_cache1_line);
+	for (u32 i = 0; i < dm_cache1_line; ++i)
+		m_row_visibles[i].clear_not_free();
 
-	// Initialize 'vis' and 'cache'
-	// Collect objects for rendering
 	RDEVICE.Statistic->RenderDUMP_DT_VIS.Begin();
-	for (u32 _mz = 0; _mz < dm_cache1_line; _mz++)
+
+	auto process_row = [&](u32 _mz)
 	{
+		auto& rowOut = m_row_visibles[_mz];
 		for (u32 _mx = 0; _mx < dm_cache1_line; _mx++)
 		{
 			CacheSlot1& MS = cache_level1[_mz][_mx];
 			if (MS.empty)
-			{
 				continue;
-			}
+
 			u32 mask = 0xff;
 			u32 res = View.testSphere(MS.vis.sphere.P, MS.vis.sphere.R, mask);
 			u32 mask_svp = 0xff;
 			u32 res_svp = bSVP ? ViewSVP.testSphere(MS.vis.sphere.P, MS.vis.sphere.R, mask_svp) : fcvNone;
 			if (fcvNone == res && fcvNone == res_svp)
-			{
-				continue; // invisible-view frustum
-			}
-			// test slots
-
-			u32 dwCC = dm_cache1_count * dm_cache1_count;
+				continue;
 
 			for (u32 _i = 0; _i < dwCC; _i++)
 			{
 				Slot* PS = *MS.slots[_i];
 				Slot& S = *PS;
-
-				//				if ( ( _i + 1 ) < dwCC );
-				//					_mm_prefetch( (char *) *MS.slots[ _i + 1 ]  , _MM_HINT_T1 );
-
-				// if slot empty - continue
 				if (S.empty)
-				{
 					continue;
-				}
 
 				u32 slot_res = res;
 				if (fcvPartial == res)
@@ -377,36 +376,29 @@ void CDetailManager::UpdateVisibleM()
 					slot_res_svp = ViewSVP.testSphere(S.vis.sphere.P, S.vis.sphere.R, _mask_svp);
 				}
 				if (fcvNone == slot_res && fcvNone == slot_res_svp)
-				{
 					continue;
-				}
 #ifndef _EDITOR
 				if (!RImplementation.HOM.visible(S.vis))
-				{
-					continue; // invisible-occlusion
-				}
+					continue;
 #endif
-				// Add to visibility structures
-				if (RDEVICE.dwFrame > S.frame)
+				if (curFrame > S.frame)
 				{
-					// Calc fade factor	(per slot)
 					float dist_sq = EYE.distance_to_sqr(S.vis.sphere.P);
 					if (dist_sq > fade_limit)
 					{
 						S.hidden = true;
 						continue;
 					}
-					if (dist_sq > fade_limit) continue;
 					float alpha = (dist_sq < fade_start) ? 0.f : (dist_sq - fade_start) / fade_range;
 					float alpha_i = 1.f - alpha;
 					float dist_sq_rcp = 1.f / dist_sq;
+					u32 slot_hash = GetFvectorHash(S.vis.sphere.P);
 
-					if(ps_r2_ls_flags.test(R2FLAG_FAST_DETAILS_UPDATE))
-						S.frame			= RDEVICE.dwFrame+1;
+					if (fastUpdate)
+						S.frame = curFrame + 1;
 					else
-						S.frame			= RDEVICE.dwFrame+Random.randI(15,30);
+						S.frame = curFrame + 15u + ((slot_hash >> 16) & 15u);
 
-                    u32 slot_hash = GetFvectorHash(S.vis.sphere.P);
 					for (int sp_id = 0; sp_id < dm_obj_in_slot; sp_id++)
 					{
 						SlotPart& sp = S.G[sp_id];
@@ -421,56 +413,44 @@ void CDetailManager::UpdateVisibleM()
 						if (bSVP && fcvNone != slot_res_svp)
 							Rq_drcp *= svp_ssa_boost;
 
-						SlotItem **siIT = &(*sp.items.begin()), **siEND = &(*sp.items.end());
+						SlotItem** siIT = &(*sp.items.begin());
+						SlotItem** siEND = &(*sp.items.end());
 						for (; siIT != siEND; siIT++)
 						{
 							SlotItem& Item = *(*siIT);
-							float scale = psDeviceFlags2.test(rsNoScale)
-								              ? (Item.scale)
-								              : (Item.scale * alpha_i);
-							float ssa = psDeviceFlags2.test(rsNoScale) ? scale : scale * scale * Rq_drcp;
+							float scale = noScale ? Item.scale : (Item.scale * alpha_i);
+							float ssa = noScale ? scale : scale * scale * Rq_drcp;
 							if (ssa < r_ssaDISCARD)
 							{
 								Item.alpha_target = 0;
 								continue;
 							}
 
-                            // demonized: same logic as in r_dsgraph_insert_static
-                            if (ssa < fade_start_ssa)
-                            {
-                                // Base probability of survival
-                                float survival_chance = (ssa - r_ssaDISCARD) / (fade_start_ssa - r_ssaDISCARD);
-
-                                // Get the index of this specific grass blade inside the slot
-                                u32 item_index = (u32)(siIT - &(*sp.items.begin()));
-
-                                // Mix the Slot's world position with the Item's index using a prime multiplier
-                                // This ensures every blade of grass in the level has a unique, stable seed
-                                u32 blade_hash = slot_hash ^ (item_index * 0x9E3779B9u);
-
-                                // Convert to [0.0, 1.0) float
-                                constexpr float hash_to_float = 1.0f / 4294967296.0f;
-                                float val = blade_hash * hash_to_float;
-
-                                // If the object's hash value is higher than its survival chance, cull it
-                                if (val > _powf(survival_chance, ps_r__ssaDISCARD_exp))
-                                {
-                                    Item.alpha_target = 0;
-                                    continue;
-                                }
-                            }
+							if (ssa < fade_start_ssa)
+							{
+								float survival_chance = (ssa - r_ssaDISCARD) / (fade_start_ssa - r_ssaDISCARD);
+								u32 item_index = (u32)(siIT - &(*sp.items.begin()));
+								u32 blade_hash = slot_hash ^ (item_index * 0x9E3779B9u);
+								constexpr float hash_to_float = 1.0f / 4294967296.0f;
+								float val = blade_hash * hash_to_float;
+								if (val > _powf(survival_chance, ps_r__ssaDISCARD_exp))
+								{
+									Item.alpha_target = 0;
+									continue;
+								}
+							}
 
 							u32 vis_id = 0;
 							if (ssa > r_ssaCHEAP) vis_id = Item.vis_ID;
 
 							Fmatrix& M = Item.mRotY_calculated;
 							M = Item.mRotY;
-							M._11*=scale; M._21*=scale; M._31*=scale;
-							M._12*=scale; M._22*=scale; M._32*=scale;
-							M._13*=scale; M._23*=scale; M._33*=scale;
+							M._11 *= scale; M._21 *= scale; M._31 *= scale;
+							M._12 *= scale; M._22 *= scale; M._32 *= scale;
+							M._13 *= scale; M._23 *= scale; M._33 *= scale;
 
 							sp.r_items[vis_id].push_back(*siIT);
-							
+
 							if (S.hidden)
 							{
 								Item.alpha = 0;
@@ -479,7 +459,6 @@ void CDetailManager::UpdateVisibleM()
 							Item.alpha_target = 1;
 							Item.distance = dist_sq;
 							Item.position = S.vis.sphere.P;
-							//2							visible[vis_id][sp.id].push_back(&Item);
 						}
 					}
 				}
@@ -488,21 +467,37 @@ void CDetailManager::UpdateVisibleM()
 					SlotPart& sp = S.G[sp_id];
 					if (sp.id == DetailSlot::ID_Empty) continue;
 					if (!sp.r_items[0].empty())
-					{
-						m_visibles[0][sp.id].push_back(&sp.r_items[0]);
-					}
+						rowOut.push_back({ 0, (u16)sp.id, &sp.r_items[0] });
 					if (!sp.r_items[1].empty())
-					{
-						m_visibles[1][sp.id].push_back(&sp.r_items[1]);
-					}
+						rowOut.push_back({ 1, (u16)sp.id, &sp.r_items[1] });
 					if (!sp.r_items[2].empty())
-					{
-						m_visibles[2][sp.id].push_back(&sp.r_items[2]);
-					}
+						rowOut.push_back({ 2, (u16)sp.id, &sp.r_items[2] });
 				}
 			}
 		}
+	};
+
+	if (ps_r__mt_details && dm_cache1_line >= 8)
+	{
+		tbb::parallel_for(tbb::blocked_range<u32>(0, dm_cache1_line, 2),
+			[&](const tbb::blocked_range<u32>& r)
+			{
+				for (u32 _mz = r.begin(); _mz < r.end(); ++_mz)
+					process_row(_mz);
+			});
 	}
+	else
+	{
+		for (u32 _mz = 0; _mz < dm_cache1_line; ++_mz)
+			process_row(_mz);
+	}
+
+	for (u32 _mz = 0; _mz < dm_cache1_line; ++_mz)
+	{
+		for (const DetailVisEntry& e : m_row_visibles[_mz])
+			m_visibles[e.vis_id][e.obj_id].push_back(e.items);
+	}
+
 	RDEVICE.Statistic->RenderDUMP_DT_VIS.End();
 }
 

@@ -208,6 +208,14 @@ public:
 
 	PSS poolSI; // pool из которого выделяются SlotItem
 
+	struct DetailVisEntry
+	{
+		u16 vis_id;
+		u16 obj_id;
+		SlotItemVec* items;
+	};
+	xr_vector<xr_vector<DetailVisEntry>> m_row_visibles;
+
 	void UpdateVisibleM();
 	void UpdateVisibleS();
 public:

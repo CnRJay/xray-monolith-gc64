@@ -316,6 +316,7 @@ float ps_r4_full_detail_distance_scale = 0.5f; // r4-only
 int ps_r4_cbuffer_skip_unchanged = 1;
 int ps_r4_post_pingpong = 1;
 int ps_r4_sun_cascade_cache = 1;
+int ps_r__mt_details = 1;
 
 // HDR10 parameters
 float ps_r4_hdr10_whitepoint_nits = 400.0f; // r4-only, default = 400 nits
@@ -1618,6 +1619,7 @@ void xrRender_initconsole()
 	CMD4(CCC_Integer, "r4_cbuffer_skip_unchanged", &ps_r4_cbuffer_skip_unchanged, 0, 1);
 	CMD4(CCC_Integer, "r4_post_pingpong", &ps_r4_post_pingpong, 0, 1);
 	CMD4(CCC_Integer, "r4_sun_cascade_cache", &ps_r4_sun_cascade_cache, 0, 8);
+	CMD4(CCC_Integer, "r__mt_details", &ps_r__mt_details, 0, 1);
 	CMD4(CCC_Integer, "r__scope_debug", &scope_debug, 0, 4);
 
 	CMD4(CCC_Integer, "r__heatvision", &ps_r2_heatvision, 0, 1); //--DSR-- HeatVision
