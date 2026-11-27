@@ -28,6 +28,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Automated GitHub Release patch notes extraction from `CHANGELOG.md`.
 
 ### Performance
+- **Multithreading Worker Parallelization (`feat/true-mt`)**:
+  - Parallelized `CalculateBonesThread` across TBB workers (`mt_ParallelBones`) and replaced global `::Random` jitter in `UCalc_Visibox` with a thread-safe hash to eliminate cross-thread RNG contention.
+  - Parallelized `CParticlesAsync` simulation across TBB workers and replaced `xrSpinWait` busy-spinning with `std::condition_variable` to eliminate wasted CPU cycles while waiting on the particle worker.
+  - Parallelized `CDetailManager::UpdateVisibleM()` across `cache_level1` rows (`r__mt_details`, default `1`) with lock-free per-row buckets and deterministic hashing.
+  - Parallelized `CDSGraphManager` static scene-graph culling (`r4_parallel_cull`, default `1`) across uncached sun shadow cascades, shadowed dynamic lights, and overlapped main/SVP static culling with dynamic capture and scene preparation.
 - **True PIP (SVP) Pipeline Overhaul**:
   - Skipped allocating Main-only render targets and LUTs on `TargetSVP` (13 `rt_ssfx_bloom*`, `rt_Bloom_1/2`, `rt_pp_bloom`, `rt_dof`, `rt_fakescope`, `rt_secondVP`, `rt_ui_pda`, `rt_HDR10_HalfRes`, `t_ss_async`, 3D material LUT, noise LUTs) and eliminated the `phase_svp_capture()` `CopyResource` by binding `TargetSVP->rt_Generic_0` directly as `r2_RT_secondVP`.
   - Merged scope `IMAGE`, `RETICLE`, `SHADOW`, and `LENS` passes into a single draw call (`scope_color_write.ps`) and early-returned `phase_3DSSReticle()` when no scope/reflex mesh is present, eliminating two full-resolution copies on every non-scoped frame.
@@ -55,3 +60,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 | `r4_cbuffer_skip_unchanged` | `0–1` | `1` | Skip `Map(WRITE_DISCARD)` on unchanged constant buffers |
 | `r4_post_pingpong` | `0–1` | `1` | Ping-pong `rt_Generic_0`/`rt_Generic` across post-process passes |
 | `r4_sun_cascade_cache` | `0–8` | `1` | Cache far sun shadow cascade (`1` = 4-frame cadence; `0` = off) |
+| `r__mt_details` | `0–1` | `1` | Parallelize grass/detail visibility culling across TBB workers |
+| `r4_parallel_cull` | `0–1` | `1` | Parallelize sun cascade, dynamic light, and main/SVP static culling |
