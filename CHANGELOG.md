@@ -56,6 +56,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Disabled unused renderers in single-renderer configurations in `src/engine-vs2026.sln`.
 
 ### Fixed
+- **Decoupled Render Thread OCCQ Deferral**:
+  - Deferred GPU light occlusion queries (`light::vis_prepare()` / `draw_occq_volume()`) out of `CRender::ExtractFrame()` (where `phase_occq()` and PART-0 depth are not yet bound) onto the Render Thread right after PART-0 depth fill, fixing a null vertex shader crash in `CBackend::ApplyVertexLayout` under `r__mt_decouple 1`.
 - **Multithreading & Renderer Thread-Safety Fixes**:
   - Gave `CalculateBonesThread` its own `vCameraPosition_bones` / `mFullTransform_bones` camera snapshot so same-frame SVP `SetActive` viewport flips cannot race with bone visibility queries.
   - Replaced global `::Random.randI` inside `CHOM::visible(vis_data&)` with a deterministic hash delay so parallel grass and static culling workers never contend on the global RNG state.
