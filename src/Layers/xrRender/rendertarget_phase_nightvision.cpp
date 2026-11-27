@@ -374,102 +374,86 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void(R_dsgraph::DSGr
 //  Redotix99: for 3D Shader Based Scopes 		(sorry for using the nightvision phase file)
 void CRenderTarget::phase_3DSSReticle()
 {
-	PIX_EVENT(PHASE_SCOPE_RETICLE);
-	HW.pContext->CopyResource(rt_Generic_2->pTexture->surface_get(), RImplementation.Target->rt_Position->pTexture->surface_get());
+	const bool hasScope = !RImplementation.GMBase.RGraph.mapScopeHUDSorted.empty();
+	const bool hasReflex = !RImplementation.GMBase.RGraph.mapReflexHUDSorted.empty();
+	if (!hasScope && !hasReflex)
+		return;
 
-	if (!Device.m_SecondViewport.IsSVPActive())
-		HW.pContext->CopyResource(rt_secondVP->pTexture->surface_get(), rt_Generic_0->pTexture->surface_get());
+	PIX_EVENT(PHASE_SCOPE_RETICLE);
 
 	u_setrt(RImplementation.Target->rt_Generic_0, nullptr, RImplementation.Target->rt_Position, RImplementation.Target->baseZB);
-
-
 	RCache.set_CullMode(CULL_CCW);
 	RCache.set_Stencil(FALSE);
 	RCache.set_ColorWriteEnable();
 
-	draw_reflex();
+	if (hasReflex)
+		draw_reflex();
 
-	{   PIX_EVENT(SCOPE_PHASE_JITTERFIX);
+	if (!hasScope)
+	{
+		u_setrt(RImplementation.Target->rt_Generic_0, RImplementation.Target->rt_Position, RImplementation.Target->baseZB);
+		return;
+	}
 
-		// Write a dark color to the jittered geometry position to ensure
-		//  no light/sky bleed
+	const bool svp = Device.m_SecondViewport.IsSVPActive();
+	if (!svp)
+	{
+		HW.pContext->CopyResource(rt_Generic_2->pTexture->surface_get(), RImplementation.Target->rt_Position->pTexture->surface_get());
+		HW.pContext->CopyResource(rt_secondVP->pTexture->surface_get(), rt_Generic_0->pTexture->surface_get());
+	}
+
+	{
+		PIX_EVENT(SCOPE_PHASE_JITTERFIX);
 		draw_scope(s_scope_color_write, [](auto N) -> void {
 			RCache.set_c("scope_phase", SCOPE_PHASE_JITTERFIX);
 		});
 	}
 
-	{   // Remap gbuffer bindings to where the scope was rendered
-		auto f = [&](LPCSTR name, ref_rt& target) -> void {
-			ref_texture t;
-			t.create(name);
-			RCache.override_Texture(t->cName, target->pTexture);
-		};
+	static const shared_str rtNameSecondVP(r2_RT_secondVP);
+	static const shared_str rtNameGeneric2(r2_RT_generic2);
+	static const shared_str rtNameHeat(r2_RT_heat);
 
-		auto svp = Device.m_SecondViewport.IsSVPActive();
-		
-		f(r2_RT_secondVP, svp ? RImplementation.TargetSVP->rt_Generic_0 : RImplementation.TargetMain->rt_secondVP);		
-		f(r2_RT_generic2, svp ? RImplementation.TargetSVP->rt_Position : RImplementation.TargetMain->rt_Generic_2);
-		f(r2_RT_heat,     svp ? RImplementation.TargetSVP->rt_Heat : RImplementation.TargetMain->rt_Heat);
+	RCache.override_Texture(rtNameSecondVP, svp ? RImplementation.TargetSVP->rt_Generic_0->pTexture : RImplementation.TargetMain->rt_secondVP->pTexture);
+	RCache.override_Texture(rtNameGeneric2, svp ? RImplementation.TargetSVP->rt_Position->pTexture : RImplementation.TargetMain->rt_Generic_2->pTexture);
+	RCache.override_Texture(rtNameHeat, svp ? RImplementation.TargetSVP->rt_Heat->pTexture : RImplementation.TargetMain->rt_Heat->pTexture);
 
-		u_setrt(RImplementation.TargetMain->rt_Generic_0, nullptr, RImplementation.TargetMain->rt_Position, RImplementation.TargetMain->baseZB);
-	}
+	u_setrt(RImplementation.TargetMain->rt_Generic_0, nullptr, RImplementation.TargetMain->rt_Position, RImplementation.TargetMain->baseZB);
 
-	{   PIX_EVENT(SCOPE_PHASE_IMAGE);
-		draw_scope(s_scope_color_write, [](auto N) -> void {
-			RCache.set_c("scope_phase", SCOPE_PHASE_IMAGE);
+	{
+		PIX_EVENT(SCOPE_PHASE_COMPOSITE);
+		const auto* srcTarget = svp ? RImplementation.TargetSVP : RImplementation.TargetMain;
+		const auto* dstTarget = RImplementation.TargetMain;
 
-			{	// Set screen_res to the gbuffer size
-				auto t = Device.m_SecondViewport.IsSVPActive() ? RImplementation.TargetSVP : RImplementation.TargetMain;
-				RCache.set_c("screen_res", Fvector4({(float)t->Width, (float)t->Height, 1.0f/(float)t->Width, 1.0f/(float)t->Height}));
-			}
+		const auto& P = Device.m_SecondViewport;
+		Fvector up = { 0, 1, 0 };
+		P.objective.m_W.transform_dir(up);
+		Device.mView.transform_dir(up);
+		up.z = 0.0f;
+		up.normalize_safe();
+		const float angle = acosf(clampr(up.dotproduct({ 0, 1, 0 }), -1.0f, 1.0f)) * (up.x > 0 ? 1.0f : -1.0f);
 
-			{	// Resolution of the view we are rendering into
-				auto t = RImplementation.TargetMain;
-				RCache.set_c("output_res", Fvector4({(float)t->Width, (float)t->Height, 1.0f/(float)t->Width, 1.0f/(float)t->Height}));
-			}
-
-			auto P = Device.m_SecondViewport;
-			Fvector up = {0,1,0};
-			P.objective.m_W.transform_dir(up);
-			Device.mView.transform_dir(up);
-
-			up.z = 0.0;
-			up.normalize();
-			auto angle = acos(up.dotproduct({0,1,0})) * (up.x > 0 ? 1 : -1);
-
+		draw_scope(s_scope_color_write, [srcTarget, dstTarget, angle](auto N) -> void {
+			RCache.set_c("scope_phase", SCOPE_PHASE_IMAGE | SCOPE_PHASE_RETICLE | SCOPE_PHASE_SHADOW | SCOPE_PHASE_LENS);
+			RCache.set_c("screen_res", Fvector4({ (float)srcTarget->Width, (float)srcTarget->Height, 1.0f / (float)srcTarget->Width, 1.0f / (float)srcTarget->Height }));
+			RCache.set_c("output_res", Fvector4({ (float)dstTarget->Width, (float)dstTarget->Height, 1.0f / (float)dstTarget->Width, 1.0f / (float)dstTarget->Height }));
 			RCache.set_c("hack_tex_angle", angle);
 		});
 	}
-	
-	RImplementation.TargetMain->SetActive(true); // Force set main target to fully invalidate rcache
-	u_setrt(RImplementation.TargetMain->rt_Generic_0, nullptr, RImplementation.TargetMain->rt_Position, RImplementation.TargetMain->baseZB);
 
-	{   PIX_EVENT(SCOPE_PHASE_RETICLE);
-		draw_scope(s_scope_color_write, [](auto N) -> void {
-			RCache.set_c("scope_phase", SCOPE_PHASE_RETICLE);
-		});
-	}
+	// Restore main target texture overrides without nuking the entire RCache.
+	RCache.override_Texture(rtNameSecondVP, RImplementation.TargetMain->rt_secondVP->pTexture);
+	RCache.override_Texture(rtNameGeneric2, RImplementation.TargetMain->rt_Generic_2->pTexture);
+	RCache.override_Texture(rtNameHeat, RImplementation.TargetMain->rt_Heat->pTexture);
 
-	{   PIX_EVENT(SCOPE_PHASE_SHADOW);
-		draw_scope(s_scope_color_write, [](auto N) -> void {
-			RCache.set_c("scope_phase", SCOPE_PHASE_SHADOW);
-		});
-	}
-
-	{   PIX_EVENT(SCOPE_PHASE_LENS);
-		draw_scope(s_scope_color_write, [](auto N) -> void {
-			RCache.set_c("scope_phase", SCOPE_PHASE_LENS);
-		});
-	}
-
-	{   PIX_EVENT(SCOPE_PHASE_CUSTOM_DEPTH);
-		// I don't think we need to stencil this?
-		// Some hud items in front of scopes may have incorrect blur, but this should be hardly noticeable
-		// Allow a custom shader to override the depth for DOF calculations
+	if (ps_r2_ls_flags.test(R2FLAG_DOF))
+	{
+		PIX_EVENT(SCOPE_PHASE_CUSTOM_DEPTH);
+		const auto* dstTarget = RImplementation.TargetMain;
 		u_setrt(RImplementation.Target->rt_Position, nullptr, nullptr, nullptr, RImplementation.Target->baseZB);
-		draw_scope(s_scope_depth_write, [](auto _) -> void {
+		draw_scope(s_scope_depth_write, [dstTarget](auto _) -> void {
 			RCache.set_c("scope_phase", SCOPE_PHASE_DEPTHWRITE | SCOPE_PHASE_CUSTOM_DEPTH);
 			RCache.set_c("scope_depth_value", 1);
+			RCache.set_c("output_res", Fvector4({ (float)dstTarget->Width, (float)dstTarget->Height, 1.0f / (float)dstTarget->Width, 1.0f / (float)dstTarget->Height }));
 		});
 	}
 

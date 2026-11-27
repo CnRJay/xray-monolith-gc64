@@ -6,10 +6,11 @@
 #include "common.h"
 #include "scope_defines.h"
 
-#define ASPECT_CORRECT_TC(tc) (tc - 0.5) * float2(screen_res.x/screen_res.y, 1.0) + 0.5;
-#define ASPECT_UNCORRECT_TC(tc) (tc - 0.5) * float2(screen_res.y/screen_res.x, 1.0) + 0.5;
+#define ASPECT_CORRECT_TC(tc) (tc - 0.5) * float2(output_res.x/output_res.y, 1.0) + 0.5;
+#define ASPECT_UNCORRECT_TC(tc) (tc - 0.5) * float2(output_res.y/output_res.x, 1.0) + 0.5;
 
 int scope_phase;
+static int scope_active_phase;
 
 struct Scope
 {
@@ -106,7 +107,7 @@ float2 ndc2(float4 p) {
 float hack_tex_angle;
 
 float2 SCOPECOORD_TO_TEXCOORD(float2 sc) {
-	if (!isSVPActive() && scope_phase & SCOPE_PHASE_IMAGE) {
+	if (!isSVPActive() && (scope_active_phase & SCOPE_PHASE_IMAGE)) {
 		// This is fake pip mode, so we have to correct the coordinates
 		// FIXME: These coordinates need to be rotated to align with eye up
 		float screen_delta  = length(ddy(scope.hpos.xy * output_res.zw));

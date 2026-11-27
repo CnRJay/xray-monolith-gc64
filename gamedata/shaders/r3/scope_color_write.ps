@@ -17,11 +17,6 @@ float4 scope_custom_lens(Scope s);
 
 float4 main(v_out I) : SV_Target 
 {
-    scope = new_Scope(I);
-
-    bool valid = VALID(scope.sfp);
-
-    float4 o;
     if (scope_phase == 0) {
         discard;
     }
@@ -30,22 +25,35 @@ float4 main(v_out I) : SV_Target
         return float4(0,0,0,1);
     }
 
+    scope_active_phase = scope_phase;
+    scope = new_Scope(I);
+
+    float4 o = float4(0, 0, 0, 0);
+    bool has_color = false;
+
     if (scope_phase & SCOPE_PHASE_IMAGE) {
+        scope_active_phase = SCOPE_PHASE_IMAGE;
         o = float4(scope_custom_image(scope), 1);
+        has_color = true;
     }
     if (scope_phase & SCOPE_PHASE_RETICLE) {
-        o = scope_custom_reticle(scope);
+        scope_active_phase = SCOPE_PHASE_RETICLE;
+        float4 r = scope_custom_reticle(scope);
         if (scope_debug >= 3 && scope.dbg.a > 0.5)
-            o = scope.dbg;
+            r = scope.dbg;
+        o = has_color ? float4(lerp(o.rgb, r.rgb, r.a), o.a) : r;
+        has_color = true;
     }
-
     if (scope_phase & SCOPE_PHASE_SHADOW) {
+        scope_active_phase = SCOPE_PHASE_SHADOW;
         float c = scope_custom_shadow(scope);
-        o = float4(0,0,0,c);
+        o = has_color ? float4(o.rgb * (1.0 - c), o.a) : float4(0, 0, 0, c);
+        has_color = true;
     }
-
     if (scope_phase & SCOPE_PHASE_LENS) {
-        o = scope_custom_lens(scope);
+        scope_active_phase = SCOPE_PHASE_LENS;
+        float4 l = scope_custom_lens(scope);
+        o = has_color ? float4(lerp(o.rgb, l.rgb, l.a), o.a) : l;
     }
 
     return o;
