@@ -126,7 +126,10 @@ static class cl_pos_decompress_params : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		const Fmatrix& projection = Device.mProject;
+		const bool on_rt = CRenderThread::IsOnRenderThread();
+		const Fmatrix& projection = on_rt ? Device.m_rt_view.mProject : Device.mProject;
+		const float w = (float)(on_rt ? Device.m_rt_view.dwWidth : Device.dwWidth);
+		const float h = (float)(on_rt ? Device.m_rt_view.dwHeight : Device.dwHeight);
 		const bool svp_projection = Device.true_pip_on
 			&& Device.m_SecondViewport.m_render_pass_is_svp;
 		if (svp_projection && _valid(projection._11) && _valid(projection._22)
@@ -137,16 +140,18 @@ static class cl_pos_decompress_params : public R_constant_setup
 			RCache.set_c(C,
 				(1.f + projection._31) * inv_x,
 				(projection._32 - 1.f) * inv_y,
-				2.f * inv_x / (float)Device.dwWidth,
-				-2.f * inv_y / (float)Device.dwHeight);
+				2.f * inv_x / w,
+				-2.f * inv_y / h);
 			return;
 		}
 
-		float VertTan = -1.0f * tanf(deg2rad(Device.fFOV / 2.0f));
-		float HorzTan = - VertTan / Device.fASPECT;
+		const float fov = on_rt ? Device.m_rt_view.fFOV : Device.fFOV;
+		const float aspect = on_rt ? Device.m_rt_view.fASPECT : Device.fASPECT;
+		float VertTan = -1.0f * tanf(deg2rad(fov / 2.0f));
+		float HorzTan = - VertTan / aspect;
 
-		RCache.set_c(C, HorzTan, VertTan, (2.0f * HorzTan) / (float)Device.dwWidth,
-		             (2.0f * VertTan) / (float)Device.dwHeight);
+		RCache.set_c(C, HorzTan, VertTan, (2.0f * HorzTan) / w,
+		             (2.0f * VertTan) / h);
 	}
 } binder_pos_decompress_params;
 
@@ -154,8 +159,10 @@ static class cl_pos_decompress_params2 : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, (float)Device.dwWidth, (float)Device.dwHeight, 1.0f / (float)Device.dwWidth,
-		             1.0f / (float)Device.dwHeight);
+		const bool on_rt = CRenderThread::IsOnRenderThread();
+		const float w = (float)(on_rt ? Device.m_rt_view.dwWidth : Device.dwWidth);
+		const float h = (float)(on_rt ? Device.m_rt_view.dwHeight : Device.dwHeight);
+		RCache.set_c(C, w, h, 1.0f / w, 1.0f / h);
 	}
 } binder_pos_decompress_params2;
 
@@ -163,8 +170,7 @@ static class cl_water_intensity : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		CEnvDescriptor& E = *g_pGamePersistent->Environment().CurrentEnv;
-		float fValue = E.m_fWaterIntensity;
+		float fValue = Device.m_rt_env.valid ? Device.m_rt_env.water_intensity : g_pGamePersistent->Environment().CurrentEnv->m_fWaterIntensity;
 		RCache.set_c(C, fValue, fValue, fValue, 0);
 	}
 } binder_water_intensity;
@@ -678,7 +684,12 @@ void CRender::model_Delete(IRenderVisual*& V, BOOL bDiscard)
 {
 	dxRender_Visual* pVisual = (dxRender_Visual*)V;
     if (Models)
-	    Models->Delete(pVisual, bDiscard);
+    {
+        if (!bDiscard && Device.IsDecoupledRenderBusy())
+            Models->DeleteDeffered(pVisual);
+        else
+            Models->Delete(pVisual, bDiscard);
+    }
 	V = 0;
 }
 

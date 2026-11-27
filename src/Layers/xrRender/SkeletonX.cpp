@@ -22,6 +22,7 @@
 
 shared_str s_bones_array_const;
 shared_str s_bones_array_prev_const;
+SFrameBoneArena g_rt_bone_arena;
 
 #if RENDER == R_R4
 struct SSvpHudBoneSnapshot
@@ -195,32 +196,49 @@ void CSkeletonX::_Copy(CSkeletonX* B)
 //////////////////////////////////////////////////////////////////////
 void CSkeletonX::_Render(ref_geom& hGeom, u32 vCount, u32 iOffset, u32 pCount)
 {
-	xrCriticalSectionGuard guard(&Parent->UCalc_Mutex);
 	PROF_EVENT("CSkeletonX::_Render");
 	Fmatrix p_WV, p_WVP;
 	CBoneInstance* render_bones = Parent->bone_instances;
+	const Fmatrix* arena_bones = nullptr;
 
 #if RENDER == R_R4
 	const bool frozen_pose = g_svp_hud_frozen_pass;
 	const bool suppress_history = frozen_pose && !g_svp_hud_history_write;
-	if (frozen_pose && s_svp_hud_bone_frame == Device.dwFrame)
+	if (frozen_pose && s_svp_hud_bone_frame == Device.m_rt_view.dwFrame)
 	{
 		SSvpHudBoneSnapshot* snapshot = svp_hud_bones_of(Parent);
 		if (snapshot && snapshot->bones.size() == Parent->LL_BoneCount())
 			render_bones = snapshot->bones.data();
 	}
+	else if (g_rt_bone_arena.active &&
+		Parent->m_rt_bone_frame == g_rt_bone_arena.frame_id &&
+		Parent->m_rt_bone_count == Parent->LL_BoneCount() &&
+		static_cast<size_t>(Parent->m_rt_bone_offset) + Parent->m_rt_bone_count <= g_rt_bone_arena.matrices.size())
+	{
+		arena_bones = g_rt_bone_arena.matrices.data() + Parent->m_rt_bone_offset;
+	}
 #else
 	const bool suppress_history = false;
 #endif
+
+	const bool need_lock = (arena_bones == nullptr) || (RenderMode == RM_SKINNING_SOFT);
+	if (need_lock)
+		Parent->UCalc_Mutex.Enter();
+
+	auto get_bone_xform = [&](u16 idx) -> const Fmatrix&
+	{
+		return arena_bones ? arena_bones[idx] : render_bones[idx].mRenderTransform;
+	};
 
 #ifdef USE_DX11 //
 	if (RImplementation.o.ssfx_motionvectors)
 	{
 		const bool svp = Device.m_SecondViewport.IsSVPFrame(); // pip this viewport's prev-matrix slot
-		if (!suppress_history && Device.dwViewport > Parent->CurrentFrame)
+		const u32 cur_vp = Device.m_rt_view.dwViewport;
+		if (!suppress_history && cur_vp > Parent->CurrentFrame)
 		{
 			// Save current frame
-			Parent->CurrentFrame = Device.dwViewport;
+			Parent->CurrentFrame = cur_vp;
 
 			// Save prev m_W and save current m_W for the next frame
 			Parent->Matrix_Prev[svp].set(Parent->Matrix_Temp[svp]);
@@ -231,7 +249,7 @@ void CSkeletonX::_Render(ref_geom& hGeom, u32 vCount, u32 iOffset, u32 pCount)
 			{
 				CBoneInstance& Bone = Parent->LL_GetBoneInstance(b);
 				Bone.mRenderTransform_prev[svp].set(Bone.mRenderTransform_temp[svp]);
-				Bone.mRenderTransform_temp[svp].set(render_bones[b].mRenderTransform);
+				Bone.mRenderTransform_temp[svp].set(get_bone_xform(b));
 			}
 		}
 
@@ -266,7 +284,7 @@ void CSkeletonX::_Render(ref_geom& hGeom, u32 vCount, u32 iOffset, u32 pCount)
 		{
 			PROF_EVENT("RM_SINGLE");
 			Fmatrix W;
-			W.mul_43(RCache.xforms.m_w, render_bones[u16(RMS_boneid)].mRenderTransform);
+			W.mul_43(RCache.xforms.m_w, get_bone_xform(u16(RMS_boneid)));
 			RCache.set_xform_world(W);
 			//
 			RCache.set_Geometry(hGeom);
@@ -289,7 +307,7 @@ void CSkeletonX::_Render(ref_geom& hGeom, u32 vCount, u32 iOffset, u32 pCount)
 				u32 count = RMS_bonecount;
 				for (u32 mid = 0; mid < count; mid++)
 				{
-					Fmatrix& M = render_bones[u16(mid)].mRenderTransform;
+					const Fmatrix& M = get_bone_xform(u16(mid));
 					u32 id = mid * 3;
 					RCache.set_ca(&*array, id + 0, M._11, M._21, M._31, M._41);
 					RCache.set_ca(&*array, id + 1, M._12, M._22, M._32, M._42);
@@ -325,6 +343,9 @@ void CSkeletonX::_Render(ref_geom& hGeom, u32 vCount, u32 iOffset, u32 pCount)
 		}
 		break;
 	}
+
+	if (need_lock)
+		Parent->UCalc_Mutex.Leave();
 }
 
 void CSkeletonX::_Render_soft(ref_geom& hGeom, u32 vCount, u32 iOffset, u32 pCount, CBoneInstance* bones)

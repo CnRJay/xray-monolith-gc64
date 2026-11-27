@@ -121,14 +121,15 @@ struct FTreeVisual_setup
 
 	void calculate()
 	{
-		dwFrame = Device.dwFrame;
+		const bool on_rt = CRenderThread::IsOnRenderThread();
+		dwFrame = on_rt ? Device.m_rt_view.dwFrame : Device.dwFrame;
+		const float time_global = on_rt ? Device.m_rt_view.fTimeGlobal : Device.fTimeGlobal;
 
 		// Calc wind-vector3, scale
-		float tm_rot = PI_MUL_2 * Device.fTimeGlobal / ps_r__Tree_w_rot;
+		float tm_rot = PI_MUL_2 * time_global / ps_r__Tree_w_rot;
 
 #ifdef TREE_WIND_EFFECT
-		CEnvDescriptor& E = *g_pGamePersistent->Environment().CurrentEnv;
-		float fValue = E.m_fTreeAmplitudeIntensity;
+		float fValue = Device.m_rt_env.valid ? Device.m_rt_env.tree_amplitude_intensity : g_pGamePersistent->Environment().CurrentEnv->m_fTreeAmplitudeIntensity;
 		wind.set(_sin(tm_rot), 0, _cos(tm_rot), 0);
 		wind.normalize();
 #if RENDER!=R_R1
@@ -143,7 +144,7 @@ struct FTreeVisual_setup
 
 		// setup constants
 		wave.set(ps_r__Tree_Wave.x, ps_r__Tree_Wave.y, ps_r__Tree_Wave.z,
-		         Device.fTimeGlobal * ps_r__Tree_w_speed); // wave
+		         time_global * ps_r__Tree_w_speed); // wave
 		wave.div(PI_MUL_2);
 	}
 };
@@ -151,9 +152,11 @@ struct FTreeVisual_setup
 void FTreeVisual::Render(float LOD)
 {
 	PROF_EVENT("FTreeVisual::Render");
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const u32 cur_vp = on_rt ? Device.m_rt_view.dwViewport : Device.dwViewport;
 	const bool svp = Device.m_SecondViewport.IsSVPFrame(); // pip this viewport's prev-wind slot
 	static FTreeVisual_setup tvs, prev_tvs[2];
-	if (tvs.dwFrame != Device.dwViewport)
+	if (tvs.dwFrame != cur_vp)
 	{
 		prev_tvs[svp] = tvs; // Save previous frame calculations
 		tvs.calculate();
@@ -193,6 +196,8 @@ void FTreeVisual::Render(float LOD)
 		RCache.set_c(c_c_BendersSetup, ps_ssfx_int_grass_params_1);
 
 		// Grass benders data ( Player + Characters )
+		const bool use_snap = Device.m_rt_env.valid;
+		const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
 		IGame_Persistent::grass_data& GData = g_pGamePersistent->grass_shader_data;
 		Fvector4 player_pos = { 0, 0, 0, 0 };
 		int BendersQty = _min(16, ps_ssfx_grass_interactive.y + 1);
@@ -200,7 +205,7 @@ void FTreeVisual::Render(float LOD)
 		// Add Player?
 		if (ps_ssfx_grass_interactive.x > 0)
 		{
-			player_pos.set(Device.vCameraPosition.x, Device.vCameraPosition.y, Device.vCameraPosition.z, -1);
+			player_pos.set(cam_pos.x, cam_pos.y, cam_pos.z, -1);
 		}
 
 		Fvector4* c_grass;
@@ -219,8 +224,16 @@ void FTreeVisual::Render(float LOD)
 
 			for (int Bend = 1; Bend < BendersQty; Bend++)
 			{
-				c_grass[Bend].set(GData.pos[Bend].x, GData.pos[Bend].y, GData.pos[Bend].z, GData.radius_curr[Bend]);
-				c_grass[Bend + 16].set(GData.dir[Bend].x, GData.dir[Bend].y, GData.dir[Bend].z, GData.str[Bend]);
+				if (use_snap)
+				{
+					c_grass[Bend].set(Device.m_rt_env.grass_pos[Bend]);
+					c_grass[Bend + 16].set(Device.m_rt_env.grass_dir[Bend]);
+				}
+				else
+				{
+					c_grass[Bend].set(GData.pos[Bend].x, GData.pos[Bend].y, GData.pos[Bend].z, GData.radius_curr[Bend]);
+					c_grass[Bend + 16].set(GData.dir[Bend].x, GData.dir[Bend].y, GData.dir[Bend].z, GData.str[Bend]);
+				}
 			}
 		}
 
@@ -237,8 +250,16 @@ void FTreeVisual::Render(float LOD)
 		{
 			for (int Bend = 0; Bend < BendersQty; Bend++)
 			{
-				c_prevgrass[Bend].set(GData.prev_pos[Bend]);
-				c_prevgrass[Bend + 16].set(GData.prev_dir[Bend]);
+				if (use_snap)
+				{
+					c_prevgrass[Bend].set(Device.m_rt_env.grass_prev_pos[Bend]);
+					c_prevgrass[Bend + 16].set(Device.m_rt_env.grass_prev_dir[Bend]);
+				}
+				else
+				{
+					c_prevgrass[Bend].set(GData.prev_pos[Bend]);
+					c_prevgrass[Bend + 16].set(GData.prev_dir[Bend]);
+				}
 			}
 		}
 	}

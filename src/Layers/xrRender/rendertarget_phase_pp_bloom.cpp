@@ -12,8 +12,8 @@ void CRenderTarget::phase_pp_bloom()
 	u32 C = color_rgba(0, 0, 0, 255);
 
 	//Full resolution
-	float w = float(Device.dwWidth);
-	float h = float(Device.dwHeight);	
+	float w = float(Device.m_rt_view.dwWidth);
+	float h = float(Device.m_rt_view.dwHeight);	
 
 	Fvector2 p0, p1;
 #if defined(USE_DX10) || defined(USE_DX11)	

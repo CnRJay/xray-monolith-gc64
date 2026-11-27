@@ -150,11 +150,13 @@ class cl_fog_plane : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RV = Device.m_rt_view;
+		const auto& RE = Device.m_rt_env;
+		if (marker != RV.dwFrame || CRenderThread::IsOnRenderThread())
 		{
 			// Plane
 			Fvector4 plane;
-			Fmatrix& M = Device.mFullTransform;
+			const Fmatrix& M = CRenderThread::IsOnRenderThread() ? RV.mFullTransform : Device.mFullTransform;
 			plane.x = -(M._14 + M._13);
 			plane.y = -(M._24 + M._23);
 			plane.z = -(M._34 + M._33);
@@ -163,8 +165,8 @@ class cl_fog_plane : public R_constant_setup
 			plane.mul(denom);
 
 			// Near/Far
-			float A = g_pGamePersistent->Environment().CurrentEnv->fog_near;
-			float B = 1 / (g_pGamePersistent->Environment().CurrentEnv->fog_far - A);
+			float A = RE.valid ? RE.fog_near : g_pGamePersistent->Environment().CurrentEnv->fog_near;
+			float B = 1 / ((RE.valid ? RE.fog_far : g_pGamePersistent->Environment().CurrentEnv->fog_far) - A);
 			result.set(-plane.x * B, -plane.y * B, -plane.z * B, 1 - (plane.w - A) * B); // view-plane
 		}
 		RCache.set_c(C, result);
@@ -181,11 +183,12 @@ class cl_fog_params : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (marker != Device.m_rt_view.dwFrame || RE.valid)
 		{
 			// Near/Far
-			float n = g_pGamePersistent->Environment().CurrentEnv->fog_near;
-			float f = g_pGamePersistent->Environment().CurrentEnv->fog_far;
+			float n = RE.valid ? RE.fog_near : g_pGamePersistent->Environment().CurrentEnv->fog_near;
+			float f = RE.valid ? RE.fog_far : g_pGamePersistent->Environment().CurrentEnv->fog_far;
 			float r = 1 / (f - n);
 			result.set(-n * r, n, f, r);
 		}
@@ -203,7 +206,12 @@ class cl_fog_color : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (RE.valid)
+		{
+			result.set(RE.fog_color.x, RE.fog_color.y, RE.fog_color.z, RE.fog_density);
+		}
+		else if (marker != Device.dwFrame)
 		{
 			CEnvDescriptor& desc = *g_pGamePersistent->Environment().CurrentEnv;
 			result.set(desc.fog_color.x, desc.fog_color.y, desc.fog_color.z, desc.fog_density);
@@ -221,7 +229,12 @@ static class cl_wind_params : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (RE.valid)
+		{
+			result.set(RE.wind_direction, RE.wind_velocity, 0.0f, 0.0f);
+		}
+		else if (marker != Device.dwFrame)
 		{
 			CEnvDescriptor& E = *g_pGamePersistent->Environment().CurrentEnv;
 			result.set(E.wind_direction, E.wind_velocity, 0.0f, 0.0f);
@@ -238,7 +251,7 @@ class cl_times : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		float t = RDEVICE.fTimeGlobal;
+		float t = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.fTimeGlobal : RDEVICE.fTimeGlobal;
 		RCache.set_c(C, t, t * 10, t / 10, _sin(t));
 	}
 };
@@ -250,7 +263,7 @@ class cl_game_times : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		float t = g_pGamePersistent->Environment().GetGameTime();
+		float t = Device.m_rt_env.valid ? Device.m_rt_env.game_time : g_pGamePersistent->Environment().GetGameTime();
 		RCache.set_c(C, t, t / DAY_LENGTH, t / (DAY_LENGTH / 24), floor(t / (DAY_LENGTH / 24)));
 	}
 };
@@ -262,7 +275,7 @@ class cl_eye_P : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		Fvector& V = RDEVICE.vCameraPosition;
+		const Fvector& V = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.vCameraPosition : RDEVICE.vCameraPosition;
 		RCache.set_c(C, V.x, V.y, V.z, 1);
 	}
 };
@@ -533,7 +546,16 @@ class cl_sun0_color : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (RE.valid)
+		{
+			#if RENDER==R_R1
+				result.set(RE.sun_color.x * ps_r2_sun_lumscale * ps_r2_sun_lumscale_color.x, RE.sun_color.y * ps_r2_sun_lumscale * ps_r2_sun_lumscale_color.y, RE.sun_color.z * ps_r2_sun_lumscale * ps_r2_sun_lumscale_color.z, 0);
+			#else
+				result.set(RE.sun_color.x, RE.sun_color.y, RE.sun_color.z, 0);
+			#endif
+		}
+		else if (marker != Device.dwFrame)
 		{
 			CEnvDescriptor& desc = *g_pGamePersistent->Environment().CurrentEnv;
 			#if RENDER==R_R1 //Lumscale control for R1
@@ -555,7 +577,12 @@ class cl_sun0_dir_w : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (RE.valid)
+		{
+			result.set(RE.sun_dir.x, RE.sun_dir.y, RE.sun_dir.z, 0);
+		}
+		else if (marker != Device.dwFrame)
 		{
 			CEnvDescriptor& desc = *g_pGamePersistent->Environment().CurrentEnv;
 			result.set(desc.sun_dir.x, desc.sun_dir.y, desc.sun_dir.z, 0);
@@ -573,11 +600,13 @@ class cl_sun0_dir_e : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (RE.valid || marker != Device.dwFrame)
 		{
 			Fvector D;
-			CEnvDescriptor& desc = *g_pGamePersistent->Environment().CurrentEnv;
-			Device.mView.transform_dir(D, desc.sun_dir);
+			const Fvector3& sdir = RE.valid ? RE.sun_dir : g_pGamePersistent->Environment().CurrentEnv->sun_dir;
+			const Fmatrix& V = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.mView : Device.mView;
+			V.transform_dir(D, sdir);
 			D.normalize();
 			result.set(D.x, D.y, D.z, 0);
 		}
@@ -595,7 +624,12 @@ class cl_amb_color : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (RE.valid)
+		{
+			result.set(RE.ambient.x, RE.ambient.y, RE.ambient.z, RE.weight);
+		}
+		else if (marker != Device.dwFrame)
 		{
 			CEnvDescriptorMixer& desc = *g_pGamePersistent->Environment().CurrentEnv;
 			result.set(desc.ambient.x, desc.ambient.y, desc.ambient.z, desc.weight);
@@ -613,7 +647,12 @@ class cl_hemi_color : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (RE.valid)
+		{
+			result.set(RE.hemi_color.x, RE.hemi_color.y, RE.hemi_color.z, RE.hemi_color.w);
+		}
+		else if (marker != Device.dwFrame)
 		{
 			CEnvDescriptor& desc = *g_pGamePersistent->Environment().CurrentEnv;
 			result.set(desc.hemi_color.x, desc.hemi_color.y, desc.hemi_color.z, desc.hemi_color.w);
@@ -631,7 +670,12 @@ class cl_sky_color : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		if (marker != Device.dwFrame)
+		const auto& RE = Device.m_rt_env;
+		if (RE.valid)
+		{
+			result.set(RE.sky_color.x, RE.sky_color.y, RE.sky_color.z, RE.sky_rotation);
+		}
+		else if (marker != Device.dwFrame)
 		{
 			CEnvDescriptor& desc = *g_pGamePersistent->Environment().CurrentEnv;
 			result.set(desc.sky_color.x, desc.sky_color.y, desc.sky_color.z, desc.sky_rotation);
@@ -646,8 +690,9 @@ static class cl_screen_res : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, (float)RDEVICE.dwWidth, (float)RDEVICE.dwHeight, 1.0f / (float)RDEVICE.dwWidth,
-		             1.0f / (float)RDEVICE.dwHeight);
+		const u32 w = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwWidth : RDEVICE.dwWidth;
+		const u32 h = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwHeight : RDEVICE.dwHeight;
+		RCache.set_c(C, (float)w, (float)h, 1.0f / (float)w, 1.0f / (float)h);
 	}
 } binder_screen_res;
 
@@ -657,9 +702,11 @@ static class cl_screen_params : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		float fov = float(Device.fFOV);
-		float aspect = float(Device.fASPECT);
-		result.set(fov, aspect, tan(deg2rad(fov) / 2), g_pGamePersistent->Environment().CurrentEnv->far_plane * 0.75f);
+		const bool on_rt = CRenderThread::IsOnRenderThread();
+		float fov = on_rt ? Device.m_rt_view.fFOV : float(Device.fFOV);
+		float aspect = on_rt ? Device.m_rt_view.fASPECT : float(Device.fASPECT);
+		float far_p = Device.m_rt_env.valid ? Device.m_rt_env.far_plane : g_pGamePersistent->Environment().CurrentEnv->far_plane;
+		result.set(fov, aspect, tan(deg2rad(fov) / 2), far_p * 0.75f);
 		RCache.set_c(C, result);
 	}
 };
@@ -670,7 +717,7 @@ static class cl_hud_params : public R_constant_setup //--#SM+#--
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, g_pGamePersistent->m_pGShaderConstants->hud_params);
+		RCache.set_c(C, Device.m_rt_env.valid ? Device.m_rt_env.hud_params : g_pGamePersistent->m_pGShaderConstants->hud_params);
 	}
 }	binder_hud_params;
 
@@ -678,7 +725,7 @@ static class cl_hud_fov_params : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, g_pGamePersistent->m_pGShaderConstants->hud_fov_params);
+		RCache.set_c(C, Device.m_rt_env.valid ? Device.m_rt_env.hud_fov_params : g_pGamePersistent->m_pGShaderConstants->hud_fov_params);
 	}
 }	binder_hud_fov_params;
 
@@ -686,7 +733,7 @@ static class cl_script_params : public R_constant_setup //--#SM+#--
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, g_pGamePersistent->m_pGShaderConstants->m_script_params);
+		RCache.set_c(C, Device.m_rt_env.valid ? Device.m_rt_env.script_params : g_pGamePersistent->m_pGShaderConstants->m_script_params);
 	}
 }	binder_script_params;
 
@@ -694,7 +741,7 @@ static class cl_blend_mode : public R_constant_setup //--#SM+#--
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, g_pGamePersistent->m_pGShaderConstants->m_blender_mode);
+		RCache.set_c(C, Device.m_rt_env.valid ? Device.m_rt_env.blender_mode : g_pGamePersistent->m_pGShaderConstants->m_blender_mode);
 	}
 }	binder_blend_mode;
 
@@ -705,8 +752,8 @@ static class cl_rain_params : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		float rainDensity = g_pGamePersistent->Environment().CurrentEnv->rain_density;
-		float rainWetness = g_pGamePersistent->Environment().wetness_factor;
+		float rainDensity = Device.m_rt_env.valid ? Device.m_rt_env.rain_density : g_pGamePersistent->Environment().CurrentEnv->rain_density;
+		float rainWetness = Device.m_rt_env.valid ? Device.m_rt_env.wetness_factor : g_pGamePersistent->Environment().wetness_factor;
 
 		RCache.set_c(C, rainDensity, rainWetness, 0.0f, 0.0f);
 	}
@@ -719,10 +766,10 @@ static class cl_actor_params : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		float actorHealth = g_pGamePersistent->actor_data.health;
-		float actorStamina = g_pGamePersistent->actor_data.stamina;
-		float actorBleeding = g_pGamePersistent->actor_data.bleeding;
-		int actorHelmet = g_pGamePersistent->actor_data.helmet;
+		float actorHealth = Device.m_rt_env.valid ? Device.m_rt_env.actor_health : g_pGamePersistent->actor_data.health;
+		float actorStamina = Device.m_rt_env.valid ? Device.m_rt_env.actor_stamina : g_pGamePersistent->actor_data.stamina;
+		float actorBleeding = Device.m_rt_env.valid ? Device.m_rt_env.actor_bleeding : g_pGamePersistent->actor_data.bleeding;
+		int actorHelmet = Device.m_rt_env.valid ? Device.m_rt_env.actor_helmet : g_pGamePersistent->actor_data.helmet;
 
 		RCache.set_c(C, actorHealth, actorStamina, actorBleeding, actorHelmet);
 	}
@@ -734,7 +781,7 @@ static class cl_inv_v : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, Device.mInvView);
+		RCache.set_c(C, CRenderThread::IsOnRenderThread() ? Device.m_rt_view.mInvView : Device.mInvView);
 	}
 } binder_inv_v;
 
@@ -761,9 +808,9 @@ static class cl_pda_params : public R_constant_setup
 
 	virtual void setup(R_constant* C)
 	{
-		float pda_factor = g_pGamePersistent->pda_shader_data.pda_display_factor;
-		float pda_psy_factor = g_pGamePersistent->pda_shader_data.pda_psy_influence;
-		float pda_display_brightness = g_pGamePersistent->pda_shader_data.pda_displaybrightness;
+		float pda_factor = Device.m_rt_env.valid ? Device.m_rt_env.pda_display_factor : g_pGamePersistent->pda_shader_data.pda_display_factor;
+		float pda_psy_factor = Device.m_rt_env.valid ? Device.m_rt_env.pda_psy_influence : g_pGamePersistent->pda_shader_data.pda_psy_influence;
+		float pda_display_brightness = Device.m_rt_env.valid ? Device.m_rt_env.pda_display_brightness : g_pGamePersistent->pda_shader_data.pda_displaybrightness;
 		RCache.set_c(C, pda_factor, pda_psy_factor, pda_display_brightness, 0.0f);
 	}
 
@@ -776,7 +823,7 @@ static class cl_near_far_plane : public R_constant_setup
 	virtual void setup(R_constant* C)
 	{
 		float nearPlane = float(VIEWPORT_NEAR);
-		float farPlane = g_pGamePersistent->Environment().CurrentEnv->far_plane;
+		float farPlane = Device.m_rt_env.valid ? Device.m_rt_env.far_plane : g_pGamePersistent->Environment().CurrentEnv->far_plane;
 		result.set(nearPlane, farPlane, 0, 0);
 		RCache.set_c(C, result);
 	}
@@ -1041,7 +1088,7 @@ static class ssfx_wind_anim : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, g_pGamePersistent->Environment().wind_anim);
+		RCache.set_c(C, Device.m_rt_env.valid ? Device.m_rt_env.wind_anim : g_pGamePersistent->Environment().wind_anim);
 	}
 }    ssfx_wind_anim;
 
@@ -1049,7 +1096,7 @@ static class ssfx_wind_anim_prev : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, Device.wind_anim_prev);
+		RCache.set_c(C, CRenderThread::IsOnRenderThread() ? Device.m_rt_view.wind_anim_prev : Device.wind_anim_prev);
 	}
 }    ssfx_wind_anim_prev;
 
@@ -1164,9 +1211,18 @@ static class ssfx_bloom_1 : public R_constant_setup
 		Fvector4 BloomSetup = { 0,0,0,0 };
 		if (ps_ssfx_bloom_use_presets)
 		{
-			BloomSetup.x = g_pGamePersistent->Environment().CurrentEnv->bloom_threshold;
-			BloomSetup.y = g_pGamePersistent->Environment().CurrentEnv->bloom_exposure;
-			BloomSetup.w = g_pGamePersistent->Environment().CurrentEnv->bloom_sky_intensity;
+			if (Device.m_rt_env.valid)
+			{
+				BloomSetup.x = Device.m_rt_env.bloom_threshold;
+				BloomSetup.y = Device.m_rt_env.bloom_exposure;
+				BloomSetup.w = Device.m_rt_env.bloom_sky_intensity;
+			}
+			else
+			{
+				BloomSetup.x = g_pGamePersistent->Environment().CurrentEnv->bloom_threshold;
+				BloomSetup.y = g_pGamePersistent->Environment().CurrentEnv->bloom_exposure;
+				BloomSetup.w = g_pGamePersistent->Environment().CurrentEnv->bloom_sky_intensity;
+			}
 		}
 		else
 		{
@@ -1223,8 +1279,11 @@ static class ssfx_jitter : public R_constant_setup
 				{  0.0f,  1.0f }
 			};
 
-			JitterX = TAA_Offset[ Device.dwFrame % 4 ].x / Device.dwWidth;
-			JitterY = TAA_Offset[ Device.dwFrame % 4 ].y / Device.dwHeight;
+			const u32 f = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwFrame : Device.dwFrame;
+			const u32 w = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwWidth : Device.dwWidth;
+			const u32 h = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwHeight : Device.dwHeight;
+			JitterX = TAA_Offset[ f % 4 ].x / w;
+			JitterY = TAA_Offset[ f % 4 ].y / h;
 		}
 #endif
 
@@ -1237,7 +1296,7 @@ static class ssfx_fTimeDelta : public R_constant_setup
 {
 	virtual void setup(R_constant* C)
 	{
-		RCache.set_c(C, Device.fTimeDelta, 0, 0, 0);
+		RCache.set_c(C, CRenderThread::IsOnRenderThread() ? Device.m_rt_view.fTimeDelta : Device.fTimeDelta, 0, 0, 0);
 	}
 }    ssfx_fTimeDelta;
 

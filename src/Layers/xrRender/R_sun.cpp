@@ -93,6 +93,120 @@ void CRender::shadowmap_sun_cascades()
 	PIX_EVENT(SHADOWMAP_SUN_CASCADES);
 }
 
+void CRender::extract_sun_cascades()
+{
+	PROF_EVENT("Extract Sun Cascades", PROF_CAT(Visibility));
+
+	m_rt_sun_need_shafts = Target->need_to_render_sunshafts();
+	m_rt_sun_last_chain = m_sun_cascades.back().reset_chain;
+	if (m_rt_sun_need_shafts)
+		m_sun_cascades[m_sun_cascades.size() - 1].reset_chain = true;
+
+	const u32 cascadeCount = (u32)m_sun_cascades.size();
+	xr_vector<u32> activeCascades;
+	activeCascades.reserve(cascadeCount);
+	m_rt_sun_needs_render.assign(cascadeCount, 0);
+
+	for (u32 i = 0; i < cascadeCount; ++i)
+	{
+		m_rt_sun_needs_render[i] = prepare_sun_cascade(i) ? 1 : 0;
+		if (m_rt_sun_needs_render[i])
+			activeCascades.push_back(i);
+	}
+
+	if (!activeCascades.empty())
+	{
+		PROF_EVENT("Extract Cascades: Parallel Static Cull", PROF_CAT(Visibility));
+		phase = PHASE_SMAP;
+		if (ps_r4_parallel_cull && !PortalTraverseDbg_Enabled() && activeCascades.size() >= 2)
+		{
+			tbb::parallel_for(tbb::blocked_range<size_t>(0, activeCascades.size(), 1),
+				[this, &activeCascades](const tbb::blocked_range<size_t>& r)
+				{
+					for (size_t idx = r.begin(); idx < r.end(); ++idx)
+					{
+						sun::cascade& c = m_sun_cascades[activeCascades[idx]];
+						c.GMCascade.traverse(pOutdoorSector, c.cull_frustum, c.cull_COP, c.cull_xform);
+						c.GMCascade.r_dsgraph_capture_static();
+					}
+				});
+		}
+		else
+		{
+			for (u32 ci : activeCascades)
+			{
+				sun::cascade& c = m_sun_cascades[ci];
+				c.GMCascade.traverse(pOutdoorSector, c.cull_frustum, c.cull_COP, c.cull_xform);
+				c.GMCascade.r_dsgraph_capture_static();
+			}
+		}
+
+		// Capture dynamic shadow casters now while g_SpatialSpace and CObjects are quiescent.
+		for (u32 ci : activeCascades)
+		{
+			m_sun_cascades[ci].GMCascade.r_dsgraph_capture_dynamic();
+		}
+	}
+}
+
+void CRender::render_sun_cascades_submit()
+{
+	PIX_EVENT(RENDER_SUN_CASCADES);
+
+	TargetMain->SetActive();
+	const u32 cascadeCount = (u32)m_sun_cascades.size();
+	static const shared_str rtNameSmapDepth(r2_RT_smap_depth);
+
+	for (u32 i = 0; i < cascadeCount; ++i)
+	{
+		const bool useFarCache = (ps_r4_sun_cascade_cache > 0) && (i == cascadeCount - 1) && TargetMain->rt_smap_depth_far;
+		const bool needsRender = (i < m_rt_sun_needs_render.size()) && (m_rt_sun_needs_render[i] != 0);
+
+		TargetMain->SetActive();
+		if (needsRender)
+		{
+			phase = PHASE_SMAP;
+			draw_sun_cascade_smap(i);
+		}
+		else if (useFarCache && Target->use_minmax_sm_this_frame())
+		{
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
+			PIX_EVENT(SE_SUN_NEAR_MINMAX_GENERATE);
+			Target->create_minmax_SM();
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth->pTexture);
+		}
+
+		if (useFarCache)
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
+
+		if (Device.m_SecondViewport.IsSVPActive() && TargetSVP)
+		{
+			TargetSVP->SetActive();
+			if (useFarCache)
+				RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
+			render_sun_cascade(i);
+		}
+		TargetMain->SetActive();
+		if (useFarCache)
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth_far->pTexture);
+		render_sun_cascade(i);
+
+		if (useFarCache)
+			RCache.override_Texture(rtNameSmapDepth, TargetMain->rt_smap_depth->pTexture);
+	}
+
+	if (m_rt_sun_need_shafts)
+		m_sun_cascades[m_sun_cascades.size() - 1].reset_chain = m_rt_sun_last_chain;
+
+	if (Device.m_SecondViewport.IsSVPActive() && TargetSVP)
+	{
+		TargetSVP->SetActive();
+		TargetSVP->increment_light_marker();
+		TargetSVP->accum_direct_blend();
+		TargetMain->SetActive();
+	}
+}
+
 void CRender::render_sun_cascades()
 {
 	PIX_EVENT(RENDER_SUN_CASCADES);
@@ -454,9 +568,9 @@ void CRender::draw_sun_cascade_smap(u32 cascade_ind)
 	if (useFarCache)
 	{
 		m_cascade2_cache.valid = true;
-		m_cascade2_cache.last_frame = Device.dwFrame;
+		m_cascade2_cache.last_frame = Device.m_rt_view.dwFrame;
 		m_cascade2_cache.xform = cascade.xform;
-		m_cascade2_cache.cam_pos = Device.vCameraPosition;
+		m_cascade2_cache.cam_pos = Device.m_rt_view.vCameraPosition;
 		m_cascade2_cache.sun_dir = fuckingsun->direction;
 	}
 
@@ -472,8 +586,8 @@ void CRender::draw_sun_cascade_smap(u32 cascade_ind)
 	}
 
 	RCache.set_xform_world(Fidentity);
-	RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
+	RCache.set_xform_view(Device.m_rt_view.mView);
+	RCache.set_xform_project(Device.m_rt_view.mProject);
 }
 
 void CRender::shadowmap_sun_cascade(u32 cascade_ind)
@@ -515,8 +629,8 @@ void CRender::render_sun_cascade(u32 cascade_ind)
 	}
 
 	RCache.set_xform_world(Fidentity);
-	RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
+	RCache.set_xform_view(Device.m_rt_view.mView);
+	RCache.set_xform_project(Device.m_rt_view.mProject);
 }
 #else
 void CRender::render_sun_cascades()
@@ -891,7 +1005,7 @@ void CRender::render_sun_cascade(u32 cascade_ind)
 
 	// Restore XForms
 	RCache.set_xform_world(Fidentity);
-	RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
+	RCache.set_xform_view(Device.m_rt_view.mView);
+	RCache.set_xform_project(Device.m_rt_view.mProject);
 }
 #endif

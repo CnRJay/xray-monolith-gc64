@@ -41,6 +41,9 @@ namespace xr_imgui
         // Interface implementations
         void OnFrame() final;
         void OnRender() final;
+        void CaptureFrame();
+        void RenderCaptured();
+        void ClearCaptured();
 
         void OnAppActivate() final;
         void OnAppDeactivate() final;

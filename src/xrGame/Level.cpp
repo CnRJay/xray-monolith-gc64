@@ -1352,6 +1352,12 @@ void CLevel::OnRender()
 		CUIPdaWnd* pda = &CurrentGameUI()->GetPdaMenu();
 		if (psActorFlags.test(AF_3D_PDA) && pda->IsShown())
 		{
+			const bool decoupled_rec = Device.m_decoupled_ui_recording;
+			if (decoupled_rec)
+			{
+				UIRender->EndRecord();
+				UIRender->BeginRecord(0);
+			}
 			RENDER_SCOPE(ui_pda_3d);
 			ps_r4_hdr10_pda = 1; // !!! HACK !!!
 
@@ -1393,7 +1399,16 @@ void CLevel::OnRender()
 				if (is_top)
 					cursor->OnRender();
 			}
-			Render->RenderToTarget(Render->rtPDA);
+			if (decoupled_rec)
+			{
+				UIRender->EndRecord();
+				Device.m_decoupled_pda_pending = true;
+				UIRender->BeginRecord(1, false);
+			}
+			else
+			{
+				Render->RenderToTarget(Render->rtPDA);
+			}
 
 			ps_r4_hdr10_pda = 0;
 		}
@@ -1405,7 +1420,8 @@ void CLevel::OnRender()
 		}
 	}
 
-	inherited::OnRender();
+	if (!Device.m_decoupled_ui_recording)
+		inherited::OnRender();
 	if (!game)
 		return;
 	Game().OnRender();
@@ -1414,10 +1430,10 @@ void CLevel::OnRender()
 		BulletManager().Render();
 	}
 
-	if (!Device.true_pip_on && Device.m_SecondViewport.IsSVPFrame())
+	if (!Device.m_decoupled_ui_recording && !Device.true_pip_on && Device.m_SecondViewport.IsSVPFrame())
 		Render->RenderToTarget(Render->rtSVP);
 
-	if (use_reshade)
+	if (!Device.m_decoupled_ui_recording && use_reshade)
 	{
 		RENDER_SCOPE(reshade);
 		render_reshade_effects();

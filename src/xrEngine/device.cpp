@@ -41,6 +41,11 @@
 
 #include "Rain.h"
 #include "../Layers/xrRender/svp_console.h"
+#include "../Include/xrRender/UIRender.h"
+
+extern bool use_reshade;
+extern void render_reshade_effects();
+extern ENGINE_API int ps_r4_hdr10_pda;
 
 #pragma comment( lib, "d3dx9.lib" )
 
@@ -341,6 +346,135 @@ void CRenderDevice::prepare_matrices()
 	m_pRender->SetCacheXform_prev(mView_prev, mProject_prev);
 }
 
+void CRenderDevice::SnapshotRenderFrame()
+{
+	m_rt_view.dwWidth = dwWidth;
+	m_rt_view.dwHeight = dwHeight;
+	m_rt_view.fWidth_2 = fWidth_2;
+	m_rt_view.fHeight_2 = fHeight_2;
+	m_rt_view.fFOV = fFOV;
+	m_rt_view.fASPECT = fASPECT;
+	m_rt_view.dwFrame = dwFrame;
+	m_rt_view.dwViewport = dwViewport;
+	m_rt_view.fTimeGlobal = fTimeGlobal;
+	m_rt_view.fTimeDelta = fTimeDelta;
+	m_rt_view.dwTimeGlobal = dwTimeGlobal;
+
+	m_rt_view.vCameraPosition = vCameraPosition;
+	m_rt_view.vCameraDirection = vCameraDirection;
+	m_rt_view.vCameraTop = vCameraTop;
+	m_rt_view.vCameraRight = vCameraRight;
+	m_rt_view.vCameraPosition_saved = vCameraPosition_saved;
+
+	m_rt_view.mView = mView;
+	m_rt_view.mProject = mProject;
+	m_rt_view.mProjectHud = mProjectHud;
+	m_rt_view.mFullTransform = mFullTransform;
+	m_rt_view.mFullTransformHud = mFullTransformHud;
+	m_rt_view.mInvView = mInvView;
+	m_rt_view.mInvProject = mInvProject;
+	m_rt_view.mInvProjectHud = mInvProjectHud;
+	m_rt_view.mInvFullTransform = mInvFullTransform;
+	m_rt_view.mView_saved = mView_saved;
+	m_rt_view.mProject_saved = mProject_saved;
+	m_rt_view.mFullTransform_saved = mFullTransform_saved;
+
+	m_rt_view.mView_prev = mView_prev;
+	m_rt_view.mProject_prev = mProject_prev;
+	m_rt_view.mFullTransform_prev = mFullTransform_prev;
+	m_rt_view.mViewHud = mViewHud;
+	m_rt_view.mViewHud_prev = mViewHud_prev;
+	m_rt_view.mProjectHud_prev = mProjectHud_prev;
+	m_rt_view.mFullTransformHud_prev = mFullTransformHud_prev;
+	m_rt_view.mViewCam = mViewCam;
+	m_rt_view.mProjectCam = mProjectCam;
+	m_rt_view.mFullTransformCam = mFullTransformCam;
+	m_rt_view.mViewCam_prev = mViewCam_prev;
+	m_rt_view.mProjectCam_prev = mProjectCam_prev;
+	m_rt_view.mFullTransformCam_prev = mFullTransformCam_prev;
+	m_rt_view.mProjectCamAttached = mProjectCamAttached;
+	m_rt_view.mFullTransformCamAttached = mFullTransformCamAttached;
+	m_rt_view.mProject3DIcons = mProject3DIcons;
+	m_rt_view.mFullTransform3DIcons = mFullTransform3DIcons;
+
+	m_rt_view.matrices[0] = matrices[0];
+	m_rt_view.matrices[1] = matrices[1];
+	m_rt_view.matrices_previous[0] = matrices_previous[0];
+	m_rt_view.matrices_previous[1] = matrices_previous[1];
+	m_rt_view.wind_anim_prev = wind_anim_prev;
+	m_rt_view.wind_anim_saved = wind_anim_saved;
+
+	if (g_pGamePersistent)
+	{
+		CEnvironment& env = g_pGamePersistent->Environment();
+		if (env.CurrentEnv)
+		{
+			const CEnvDescriptorMixer& desc = *env.CurrentEnv;
+			m_rt_env.fog_near = desc.fog_near;
+			m_rt_env.fog_far = desc.fog_far;
+			m_rt_env.fog_density = desc.fog_density;
+			m_rt_env.fog_color = desc.fog_color;
+			m_rt_env.sky_color = desc.sky_color;
+			m_rt_env.sky_rotation = desc.sky_rotation;
+			m_rt_env.clouds_color = desc.clouds_color;
+			m_rt_env.weight = desc.weight;
+			m_rt_env.ambient = desc.ambient;
+			m_rt_env.hemi_color = desc.hemi_color;
+			m_rt_env.sun_color = desc.sun_color;
+			m_rt_env.sun_dir = desc.sun_dir;
+			m_rt_env.far_plane = desc.far_plane;
+			m_rt_env.rain_density = desc.rain_density;
+			m_rt_env.rain_color = desc.rain_color;
+			m_rt_env.wind_direction = desc.wind_direction;
+			m_rt_env.wind_velocity = desc.wind_velocity;
+#ifdef TREE_WIND_EFFECT
+			m_rt_env.tree_amplitude_intensity = desc.m_fTreeAmplitudeIntensity;
+#endif
+			m_rt_env.water_intensity = desc.m_fWaterIntensity;
+			m_rt_env.bloom_threshold = desc.bloom_threshold;
+			m_rt_env.bloom_exposure = desc.bloom_exposure;
+			m_rt_env.bloom_sky_intensity = desc.bloom_sky_intensity;
+		}
+		m_rt_env.wetness_factor = env.wetness_factor;
+		m_rt_env.wind_strength_factor = env.wind_strength_factor;
+		m_rt_env.game_time = env.GetGameTime();
+		m_rt_env.wind_anim = env.wind_anim;
+
+		if (g_pGamePersistent->m_pGShaderConstants)
+		{
+			m_rt_env.hud_params = g_pGamePersistent->m_pGShaderConstants->hud_params;
+			m_rt_env.hud_fov_params = g_pGamePersistent->m_pGShaderConstants->hud_fov_params;
+			m_rt_env.script_params = g_pGamePersistent->m_pGShaderConstants->m_script_params;
+			m_rt_env.blender_mode = g_pGamePersistent->m_pGShaderConstants->m_blender_mode;
+		}
+
+		m_rt_env.actor_health = g_pGamePersistent->actor_data.health;
+		m_rt_env.actor_stamina = g_pGamePersistent->actor_data.stamina;
+		m_rt_env.actor_bleeding = g_pGamePersistent->actor_data.bleeding;
+		m_rt_env.actor_helmet = g_pGamePersistent->actor_data.helmet;
+
+		m_rt_env.pda_display_factor = g_pGamePersistent->pda_shader_data.pda_display_factor;
+		m_rt_env.pda_psy_influence = g_pGamePersistent->pda_shader_data.pda_psy_influence;
+		m_rt_env.pda_display_brightness = g_pGamePersistent->pda_shader_data.pda_displaybrightness;
+
+		const IGame_Persistent::grass_data& gd = g_pGamePersistent->grass_shader_data;
+		for (int i = 0; i < 16; ++i)
+		{
+			m_rt_env.grass_pos[i].set(gd.pos[i].x, gd.pos[i].y, gd.pos[i].z, gd.radius_curr[i]);
+			m_rt_env.grass_dir[i].set(gd.dir[i].x, gd.dir[i].y, gd.dir[i].z, gd.str[i]);
+			m_rt_env.grass_prev_pos[i] = gd.prev_pos[i];
+			m_rt_env.grass_prev_dir[i] = gd.prev_dir[i];
+			m_rt_env.grass_str[i] = gd.str[i];
+			m_rt_env.grass_radius_curr[i] = gd.radius_curr[i];
+		}
+		m_rt_env.valid = true;
+	}
+	else
+	{
+		m_rt_env.valid = false;
+	}
+}
+
 void CRenderDevice::on_idle()
 {
 
@@ -384,6 +518,7 @@ void CRenderDevice::on_idle()
 
 	if (g_loading_events.size())
 	{
+		FlushRenderThread();
 		// Loads lower the perf hub's gate, so the hub skips the frames they span
 		frame_record_on = false;
 		{
@@ -401,6 +536,273 @@ void CRenderDevice::on_idle()
 		PROF_EVENT("Start xrSASH Benchmark", PROF_CAT(Debug));
 		g_SASH.StartBenchmark();
 	}
+
+	const bool can_decouple =
+		ps_r__mt_decouple != 0 &&
+		m_render_thread.IsRunning() &&
+		::Render && ::Render->SupportsDecoupledRender() &&
+		b_is_Active && !dwPrecacheFrame && !Paused() &&
+		g_pGameLevel && g_hud &&
+		!(g_pGamePersistent && g_pGamePersistent->OnRenderPPUI_query()) &&
+		!(g_pGamePersistent && g_pGamePersistent->m_pMainMenu && g_pGamePersistent->m_pMainMenu->CanSkipSceneRendering());
+
+	if (can_decouple)
+	{
+		// Stage 1: FrameMove + GameThread + CalculateBones for Frame N overlap with Render Thread executing Frame N-1.
+		if (frame_record_on)
+			frame_record.start = CPU::QPC();
+		FrameMove();
+		const bool record = frame_record_on;
+
+		vCameraPosition_bones = vCameraPosition;
+		mFullTransform_bones.mul(mProject, mView);
+
+		Device.isRendering = true;
+		Device.LuaGCDone = false;
+		Device.LuaGCCount = 0;
+
+		if (mt_calc_bones)
+			secondary_tasks.run(&XRay::Engine::CalculateBonesThread);
+		else
+			XRay::Engine::CalculateBonesThread();
+		secondary_tasks.run(&XRay::Engine::GameThread);
+
+		if (record)
+			frame_record.cap[0] = CPU::QPC();
+#ifdef ECO_RENDER
+		if (Device.Paused() || IsMainMenuActive() || ps_framelimiter)
+		{
+			PROF_EVENT("Eco Render", PROF_CAT(Wait));
+			if (refresh_rate == 0)
+				refresh_rate = GetMonitorRefresh();
+			float rr = ps_framelimiter ? (1.f / ps_framelimiter) : refresh_rate;
+			time_span = std::chrono::duration_cast<std::chrono::duration<float>>(tcurrentf - tlastf);
+			while (time_span.count() < rr)
+			{
+				tcurrentf = std::chrono::high_resolution_clock::now();
+				time_span = std::chrono::duration_cast<std::chrono::duration<float>>(tcurrentf - tlastf);
+			}
+			tlastf = std::chrono::high_resolution_clock::now();
+		}
+#endif
+		if (record)
+			frame_record.cap[1] = CPU::QPC();
+
+		// Sync barrier: join Frame N-1 Render Thread and Frame N secondary game tasks.
+		FlushRenderThread();
+		Device.isRendering = false;
+
+		if (record)
+			frame_record.join[0] = CPU::QPC();
+		{
+			PROF_EVENT("secondary_tasks.wait", PROF_CAT(Wait));
+			extern int ps_r__svp_stats;
+			extern float svp_stats_join_ms;
+			const bool timed = ps_r__svp_stats != 0;
+			CTimer join_timer;
+			if (timed) join_timer.Start();
+			secondary_tasks.wait();
+			if (timed) svp_stats_join_ms = join_timer.GetElapsed_ms_f();
+		}
+		if (record)
+		{
+			frame_record.join[1] = CPU::QPC();
+			frame_record.frame = dwFrame;
+		}
+
+		if (psLua_ParallelGC_debug && psLua_ParallelGC && Device.LuaGCDebug)
+			Device.LuaGCDebug();
+
+		if (m_rt_needs_reset.exchange(false, std::memory_order_acq_rel))
+		{
+			Reset();
+			return;
+		}
+
+		// Safe sync window: both threads are quiescent. Drain deferred deletions from Frame N-1.
+		if (Device.ModelDefferClear)
+			Device.ModelDefferClear();
+		{
+			PROF_EVENT("seqParallelBeforRender", PROF_CAT(GameLogic));
+			xrCriticalSectionGuard guard(&Device.seqParallelBeforRenderCS);
+			for (size_t it = 0; it < Device.seqParallelBeforRender.size(); ++it)
+			{
+				auto Callback = Device.seqParallelBeforRender[it];
+				if (Callback)
+					Callback();
+			}
+			Device.seqParallelBeforRender.clear();
+		}
+
+		if (g_pGamePersistent != nullptr)
+		{
+			PROF_EVENT("Update Particles", PROF_CAT(VFX));
+			g_pGamePersistent->UpdateParticles();
+		}
+		secondary_tasks.run(&XRay::Engine::PreRenderThread);
+
+		START_PROFILE("Matrices", PROF_CAT(Camera));
+		mFullTransform.mul(mProject, mView);
+		mFullTransformHud.mul(mProjectHud, mView);
+		mFullTransformCam.mul(mProjectCam, mView);
+		mFullTransformCamAttached.mul(mProjectCamAttached, mView);
+		mFullTransform3DIcons.mul(mProject3DIcons, mView);
+		m_pRender->SetCacheXform(mView, mProject);
+
+		Device.matrices_previous[0] = Device.matrices[0];
+		Device.matrices_previous[1] = Device.matrices[1];
+		Device.matrices[0].mView = mView;
+		Device.matrices[0].mProject = mProject;
+		Device.matrices[0].mProjectHud = mProjectHud;
+
+		mViewHud_prev = mViewHud;
+		mProjectHud_prev = mProjectHud;
+		mFullTransformHud_prev = mFullTransformHud;
+		mViewCam_prev = mViewCam;
+		mProjectCam_prev = mProjectCam;
+		mFullTransformCam_prev = mFullTransformCam;
+
+		Device.matrices_previous[0] = Device.matrices[0];
+		Device.matrices_previous[1] = Device.matrices[1];
+
+		extern int g_svp_hud_true_fov;
+		const float hud_fov_deg = (g_svp_hud_true_fov && true_pip_on && m_SecondViewport.IsSVPActive()
+			&& g_pGamePersistent && g_pGamePersistent->m_pGShaderConstants->hud_params.x > 0.999f) ? fFOV : psHUD_FOV * 83.f;
+		mProjectHud.build_projection(deg2rad(hud_fov_deg), fASPECT, R_VIEWPORT_NEAR, g_pGamePersistent->Environment().CurrentEnv->far_plane);
+		mProjectCam.build_projection(deg2rad(psCamAttachedFOV * psCAM_ATTACHED_FOV), fASPECT, R_VIEWPORT_NEAR, g_pGamePersistent->Environment().CurrentEnv->far_plane);
+		mProjectCamAttached = mProjectCam;
+
+		Device.matrices[0].mView = mView;
+		Device.matrices[0].mProject = mProject;
+		Device.matrices[0].mProjectHud = mProjectHud;
+
+		prepare_matrices();
+
+		mFullTransform_prev = mFullTransform_saved;
+		mViewHud.set(mView);
+		mViewCam.set(mView);
+		mFullTransformHud.mul(mProjectHud, mViewHud);
+		mFullTransformCam.mul(mProjectCam, mViewCam);
+		mFullTransformCamAttached = mFullTransformCam;
+
+		if (true_pip_on)
+			Device.matrices[0].mProjectHud = mProjectHud;
+
+		IGame_Persistent::grass_data& GData = g_pGamePersistent->grass_shader_data;
+		GData.prev_pos[0].set(Device.vCameraPosition.x, Device.vCameraPosition.y, Device.vCameraPosition.z, -1);
+		GData.prev_dir[0].set(0.0f, -99.0f, 0.0f, 1.0f);
+		for (int pBend = 1; pBend < _min(16, ps_ssfx_grass_interactive.y + 1); pBend++)
+		{
+			GData.prev_pos[pBend].set(GData.pos[pBend].x, GData.pos[pBend].y, GData.pos[pBend].z, GData.radius_curr[pBend]);
+			GData.prev_dir[pBend].set(GData.dir[pBend].x, GData.dir[pBend].y, GData.dir[pBend].z, GData.str[pBend]);
+		}
+
+		wind_anim_prev = wind_anim_saved;
+		wind_anim_saved = g_pGamePersistent->Environment().wind_anim;
+		D3DXMatrixInverse((D3DXMATRIX*)&mInvFullTransform, 0, (D3DXMATRIX*)&mFullTransform);
+
+		vCameraPosition_saved = vCameraPosition;
+		mFullTransform_saved = mFullTransform;
+		mView_saved = mView;
+		mProject_saved = mProject;
+		STOP_PROFILE;
+
+		secondary_tasks.run(&XRay::Engine::PreRenderPostTransformsThread);
+
+		// Snapshot + Scene Extraction on Main Thread + TBB (while Rain/Particles/Details finish in parallel).
+		SnapshotRenderFrame();
+		::Render->ExtractFrame();
+		secondary_tasks.wait();
+		// Re-snapshot after ExtractFrame so SVP camera matrices[1] and latched viewport state are captured.
+		SnapshotRenderFrame();
+
+		// Record all 2D UI / 3D PDA / 3D HUD Item UI / BulletManager / HUD / Console / ImGui on Main Thread.
+		m_decoupled_ui_recording = true;
+		m_decoupled_pda_pending = false;
+		UIRender->BeginRecord(2);
+		if (g_hud && g_hud->RenderActiveItemUIQuery())
+			g_hud->RenderActiveItemUI();
+		UIRender->EndRecord();
+		UIRender->BeginRecord(3);
+		if (g_hud && g_hud->RenderCamAttachedUIQuery())
+			g_hud->RenderCamAttachedUI();
+		UIRender->EndRecord();
+		UIRender->BeginRecord(1);
+		seqRender.Process(rp_Render);
+		if (psDeviceFlags.test(rsCameraPos) || psDeviceFlags.test(rsStatistic) || Statistic->errors.size())
+		{
+			PROF_EVENT("Record statistics", PROF_CAT(Debug));
+			Statistic->Show();
+		}
+		UIRender->EndRecord();
+		m_decoupled_ui_recording = false;
+
+		const bool pda_pending = m_decoupled_pda_pending;
+		const bool reshade_active = use_reshade;
+
+		// Stage 2: Hand Frame N submission + Present to the Dedicated Render Thread and immediately return for Frame N+1!
+		m_render_thread.Submit([this, pda_pending, reshade_active]()
+		{
+#ifndef DEDICATED_SERVER
+			Statistic->RenderTOTAL_Real.FrameStart();
+			Statistic->RenderTOTAL_Real.Begin();
+
+			const auto state = m_pRender->GetDeviceState();
+			if (state == IRenderDeviceRender::dsNeedReset)
+			{
+				m_rt_needs_reset.store(true, std::memory_order_release);
+				Statistic->RenderTOTAL_Real.End();
+				Statistic->RenderTOTAL_Real.FrameEnd();
+				return;
+			}
+			if (state != IRenderDeviceRender::dsOK)
+			{
+				Statistic->RenderTOTAL_Real.End();
+				Statistic->RenderTOTAL_Real.FrameEnd();
+				return;
+			}
+
+			m_pRender->Begin();
+			FPU::m24r();
+			g_bRendering = true;
+
+			if (pda_pending)
+			{
+				ps_r4_hdr10_pda = 1;
+				UIRender->Replay(0);
+				::Render->RenderToTarget(::Render->rtPDA);
+				ps_r4_hdr10_pda = 0;
+			}
+
+			::Render->RenderSubmit();
+
+			if (reshade_active)
+			{
+				RENDER_SCOPE(reshade);
+				render_reshade_effects();
+			}
+
+			UIRender->Replay(1);
+			m_imgui.RenderCaptured();
+
+			g_bRendering = false;
+			if (g_SASH.IsBenchmarkRunning())
+				g_SASH.DisplayFrame(m_rt_view.fTimeGlobal);
+			m_pRender->End();
+
+			Statistic->RenderTOTAL_Real.End();
+			Statistic->RenderTOTAL_Real.FrameEnd();
+			Statistic->RenderTOTAL.accum = Statistic->RenderTOTAL_Real.accum;
+#endif
+		});
+
+		return;
+	}
+
+	// Coupled fallback path (MainMenu, Paused, Precache, Inactive, or r__mt_decouple 0): drain Render Thread first.
+	FlushRenderThread();
+	if (m_rt_needs_reset.exchange(false, std::memory_order_acq_rel))
+		Reset();
 
 	if (Device.ModelDefferClear)
 	{
@@ -531,6 +933,7 @@ void CRenderDevice::on_idle()
 
 	vCameraPosition_bones = vCameraPosition;
 	mFullTransform_bones = mFullTransform;
+	SnapshotRenderFrame();
 
 	STOP_PROFILE;
 
@@ -647,6 +1050,7 @@ void CRenderDevice::message_loop_editor()
 void CRenderDevice::Screenshot()
 {
 	PROF_EVENT(PROF_CAT(IO));
+	FlushRenderThread();
 	Render->Screenshot();
 }
 
@@ -719,6 +1123,7 @@ void CRenderDevice::Run()
 	// Start extra threads
 	thread_spawn(mt_FreezeThread, "Freeze detecting thread", 0, 0);
 	thread_spawn(mt_DiscordThread, "X-RAY Discord thread", 0, 0);
+	m_render_thread.Start();
 
 	// Message cycle
 	seqAppStart.Process(rp_AppStart);
@@ -726,6 +1131,9 @@ void CRenderDevice::Run()
 	//m_pRender->ClearTarget();
 	SetForegroundWindow(m_hWnd);
 	message_loop();
+
+	FlushRenderThread();
+	m_render_thread.Stop();
 
 	seqAppEnd.Process(rp_AppEnd);
 

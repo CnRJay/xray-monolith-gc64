@@ -22,12 +22,12 @@ void CRenderTarget::accum_point(light* L)
 	Fvector L_clr;
 	L_clr.set(L->color.r, L->color.g, L->color.b);
 	L_spec = u_diffuse2s(L_clr);
-	Device.mView.transform_tiny(L_pos, L->position);
+	Device.m_rt_view.mView.transform_tiny(L_pos, L->position);
 
 	// Xforms
 	RCache.set_xform_world(L->m_xform);
-	RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
+	RCache.set_xform_view(Device.m_rt_view.mView);
+	RCache.set_xform_project(Device.m_rt_view.mProject);
 	const BOOL near_intersect = enable_scissor(L);
 	// built per call so the svp replay of this light clips to its own viewport
 	Irect scissor_rect;

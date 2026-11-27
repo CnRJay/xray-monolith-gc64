@@ -65,6 +65,11 @@ public:
 
 	virtual void CacheSetXformWorld(const Fmatrix& M) = 0;
 	virtual void CacheSetCullMode(CullMode) = 0;
+
+	virtual void BeginRecord(int /*bucket*/, bool /*clear*/ = true) {}
+	virtual void EndRecord() {}
+	virtual void Replay(int /*bucket*/) {}
+	virtual bool IsRecording() const { return false; }
 };
 
 #endif	//	UIRender_included

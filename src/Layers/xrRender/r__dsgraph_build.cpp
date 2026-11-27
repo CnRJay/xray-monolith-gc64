@@ -65,7 +65,9 @@ void CDSGraphManager::r_dsgraph_insert_dynamic(dxRender_Visual *pVisual, Fmatrix
 	Fvector Center;
 	xform->transform_tiny(Center, pVisual->vis.sphere.P);
     // Attachments can submit the same visual at several instance transforms in one pass.
-    if (!get_UI3D() && val_pObject && !val_pObject->dcast_CObject())
+    // Under decoupled rendering, always own a snapshot of the dynamic transform so Frame N+1
+    // updates to CObject::XFORM() never race with Render Thread Frame N submission.
+    if (!get_UI3D() && (g_rt_bone_arena.active || (val_pObject && !val_pObject->dcast_CObject())))
     {
         owned_transforms.push_back(*xform);
         xform = &owned_transforms.back();
@@ -658,6 +660,8 @@ void CDSGraphManager::add_Dynamic(IRenderVisual* piVisual, Fmatrix* xform)
 				pV->CalculateBones(TRUE);
 			else if (i_mask[CDSGraphManager::fl_normal])
 				pV->CalculateWallmarks();
+			if (g_rt_bone_arena.active)
+				pV->SnapshotBonesForRT();
 			add_leafs_Dynamic(pV->children, xform);
 		}
 	}return;
@@ -727,6 +731,8 @@ void CDSGraphManager::add_Dynamic(dxRender_Visual* pVisual, Fmatrix* xform)
 				pV->CalculateBones(TRUE);
 			else if (i_mask[CDSGraphManager::fl_normal])
 				pV->CalculateWallmarks();
+			if (g_rt_bone_arena.active)
+				pV->SnapshotBonesForRT();
 			add_leafs_Dynamic(pV->children, xform);
 		}
 	}break;

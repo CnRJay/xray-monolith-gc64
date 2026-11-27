@@ -26,6 +26,9 @@ void CRenderDevice::Destroy(void)
 {
 	if (!b_is_Ready) return;
 
+	FlushRenderThread();
+	m_render_thread.Stop();
+
 	Log("Destroying Direct3D...");
 
 	ShowCursor(TRUE);
@@ -69,6 +72,7 @@ extern ENGINE_API u32 psCurrentVidMode[];
 void CRenderDevice::Reset(bool precache)
 {
 	PROF_EVENT("CRenderDevice::Reset", PROF_CAT(Rendering));
+	FlushRenderThread();
 	if (use_reshade)
 		unregister_reshade();
 
@@ -145,6 +149,8 @@ bool CRenderDevice::ChangeOutputMonitor(HMONITOR hTargetMon)
 		Msg("* vid_monitor: already on target monitor, no-op");
 		return true;
 	}
+
+	FlushRenderThread();
 
 	struct SwapGuard
 	{

@@ -40,9 +40,63 @@ public:
 	virtual void CacheSetXformWorld(const Fmatrix& M);
 	virtual void CacheSetCullMode(CullMode);
 
+	virtual void BeginRecord(int bucket, bool clear = true) override;
+	virtual void EndRecord() override;
+	virtual void Replay(int bucket) override;
+	virtual bool IsRecording() const override { return m_recording_bucket >= 0; }
+
+	void RecordFontQuads(const ref_shader& shader, const FVF::TL* verts, u32 count);
+
 private:
+	struct UICmd
+	{
+		enum Type : u8
+		{
+			cmdSetShader,
+			cmdSetAlphaRef,
+			cmdSetScissor,
+			cmdSetXformWorld,
+			cmdSetCullMode,
+			cmdDrawTL,
+			cmdDrawLIT,
+			cmdDrawFontQuads,
+		};
+		Type type = cmdSetShader;
+		u8 prim_type = 0;
+		bool has_scissor = false;
+		int int_arg = 0;
+		u32 vert_offset = 0;
+		u32 vert_count = 0;
+		u32 shader_idx = 0;
+		Irect scissor{};
+		Fmatrix xform{};
+	};
+
+	struct UICmdBucket
+	{
+		xr_vector<UICmd> cmds;
+		xr_vector<ref_shader> shaders;
+		xr_vector<FVF::TL> tl_verts;
+		xr_vector<FVF::LIT> lit_verts;
+
+		void clear()
+		{
+			cmds.clear();
+			shaders.clear();
+			tl_verts.clear();
+			lit_verts.clear();
+		}
+	};
+
+	static constexpr int kNumBuckets = 4;
+	UICmdBucket m_buckets[kNumBuckets];
+	int m_recording_bucket = -1;
+	ref_shader m_recorded_shader;
+	u32 m_rec_vert_start = 0;
+
 	ref_geom hGeom_TL;
 	ref_geom hGeom_LIT;
+	ref_geom hGeom_Font;
 
 	ePrimitiveType PrimitiveType;
 	ePointType m_PointType;

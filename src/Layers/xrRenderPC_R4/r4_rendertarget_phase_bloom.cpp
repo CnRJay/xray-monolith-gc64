@@ -82,8 +82,8 @@ void CRenderTarget::phase_bloom()
 
 	// Transfer into Bloom1
 	{
-		float _w = float(Device.dwWidth);
-		float _h = float(Device.dwHeight);
+		float _w = float(Device.m_rt_view.dwWidth);
+		float _h = float(Device.m_rt_view.dwHeight);
 		float _2w = _w / 2;
 		float tw = BLOOM_size_X;
 		float _2h = _h / 2;
@@ -133,7 +133,7 @@ void CRenderTarget::phase_bloom()
 
 		// Perform combine (all scalers must account for 4 samples + final diffuse multiply);
 		float s = ps_r2_ls_bloom_threshold; // scale
-		f_bloom_factor = .9f * f_bloom_factor + .1f * ps_r2_ls_bloom_speed * Device.fTimeDelta; // speed
+		f_bloom_factor = .9f * f_bloom_factor + .1f * ps_r2_ls_bloom_speed * Device.m_rt_view.fTimeDelta; // speed
 		if (!RImplementation.o.dx10_msaa)
 			RCache.set_Element(s_bloom->E[0]);
 		else
@@ -355,7 +355,7 @@ void CRenderTarget::phase_bloom()
 
 			// Perform filtering
 			Fvector4 w0, w1;
-			float kernel = ps_r2_ls_bloom_kernel_g * float(Device.dwHeight) / float(Device.dwWidth);
+			float kernel = ps_r2_ls_bloom_kernel_g * float(Device.m_rt_view.dwHeight) / float(Device.m_rt_view.dwWidth);
 			CalcGauss_wave(w0, w1, kernel, kernel / 3.f, ps_r2_ls_bloom_kernel_scale);
 			u_setrt(rt_Bloom_1,NULL,NULL,NULL); // No need for ZBuffer at all
 			RCache.set_Element(s_bloom->E[2]);
@@ -391,8 +391,8 @@ void CRenderTarget::phase_ssfx_bloom()
 	u32 Offset = 0;
 	u32 C = color_rgba(0, 0, 0, 0);
 
-	float w = float(Device.dwWidth);
-	float h = float(Device.dwHeight);
+	float w = float(Device.m_rt_view.dwWidth);
+	float h = float(Device.m_rt_view.dwHeight);
 
 	// BLOOM BUILD ////////////////////////////////////////////////////
 	// Half resolution is the max size for everything
@@ -549,5 +549,5 @@ void CRenderTarget::phase_ssfx_bloom()
 
 
 	// Restore Viewport
-	set_viewport_size(HW.pContext, Device.dwWidth, Device.dwHeight);
+	set_viewport_size(HW.pContext, Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight);
 }

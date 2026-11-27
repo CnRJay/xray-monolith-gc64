@@ -10,7 +10,7 @@ void CRenderTarget::u_calc_tc_noise(Fvector2& p0, Fvector2& p1)
 	VERIFY2(tw && th, "Noise scale can't be zero in any way");
 
 	// calculate shift from FPSes
-	im_noise_time -= Device.fTimeDelta;
+	im_noise_time -= Device.m_rt_view.fTimeDelta;
 	if (im_noise_time < 0)
 	{
 		im_noise_shift_w = ::Random.randI(tw ? tw : 1);
@@ -23,8 +23,8 @@ void CRenderTarget::u_calc_tc_noise(Fvector2& p0, Fvector2& p1)
 	u32 shift_h = im_noise_shift_h;
 	float start_u = (float(shift_w) + .5f) / (tw);
 	float start_v = (float(shift_h) + .5f) / (th);
-	u32 _w = Device.dwWidth;
-	u32 _h = Device.dwHeight;
+	u32 _w = Device.m_rt_view.dwWidth;
+	u32 _h = Device.m_rt_view.dwHeight;
 	u32 cnt_w = _w / tw;
 	u32 cnt_h = _h / th;
 	float end_u = start_u + float(cnt_w) + 1;
@@ -39,7 +39,7 @@ void CRenderTarget::u_calc_tc_duality_ss(Fvector2& r0, Fvector2& r1, Fvector2& l
 	// Calculate ordinaty TCs from blur and SS
 	float tw = float(dwWidth);
 	float th = float(dwHeight);
-	if (dwHeight != Device.dwHeight) param_blur = 1.f;
+	if (dwHeight != Device.m_rt_view.dwHeight) param_blur = 1.f;
 	Fvector2 shift, p0, p1;
 	shift.set(.5f / tw, .5f / th);
 	shift.mul(param_blur);
@@ -114,7 +114,7 @@ struct TL_2c3uv
 void CRenderTarget::phase_pp()
 {
 	// combination/postprocess
-	u_setrt(Device.dwWidth, Device.dwHeight, baseRT, NULL, NULL, baseZB);
+	u_setrt(Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, baseRT, NULL, NULL, baseZB);
 	//	Element 0 for for normal post-process
 	//	Element 4 for color map post-process
 	bool bCMap = u_need_CM();
@@ -142,8 +142,8 @@ void CRenderTarget::phase_pp()
 
 	// Draw full-screen quad textured with our scene image
 	u32 Offset;
-	float _w = float(Device.dwWidth);
-	float _h = float(Device.dwHeight);
+	float _w = float(Device.m_rt_view.dwWidth);
+	float _h = float(Device.m_rt_view.dwHeight);
 
 	Fvector2 n0, n1, r0, r1, l0, l1;
 	u_calc_tc_duality_ss(r0, r1, l0, l1);

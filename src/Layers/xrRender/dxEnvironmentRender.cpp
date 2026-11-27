@@ -305,13 +305,20 @@ void dxEnvironmentRender::RenderSky(CEnvironment& env, bool OnlyMV)
 	dxEnvDescriptorMixerRender& mixRen = *(dxEnvDescriptorMixerRender*)&*env.CurrentEnv->m_pDescriptorMixer;
 
 	// draw sky box
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const bool use_snap = Device.m_rt_env.valid;
+	const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
+	const float sky_rot = use_snap ? Device.m_rt_env.sky_rotation : env.CurrentEnv->sky_rotation;
+	const Fvector3& sky_col = use_snap ? Device.m_rt_env.sky_color : env.CurrentEnv->sky_color;
+	const float env_weight = use_snap ? Device.m_rt_env.weight : env.CurrentEnv->weight;
+
 	Fmatrix mSky;
-	mSky.rotateY(env.CurrentEnv->sky_rotation);
-	mSky.translate_over(Device.vCameraPosition);
+	mSky.rotateY(sky_rot);
+	mSky.translate_over(cam_pos);
 
 	u32 i_offset, v_offset;
-	u32 C = color_rgba(iFloor(env.CurrentEnv->sky_color.x * 255.f), iFloor(env.CurrentEnv->sky_color.y * 255.f),
-	                   iFloor(env.CurrentEnv->sky_color.z * 255.f), iFloor(env.CurrentEnv->weight * 255.f));
+	u32 C = color_rgba(iFloor(sky_col.x * 255.f), iFloor(sky_col.y * 255.f),
+	                   iFloor(sky_col.z * 255.f), iFloor(env_weight * 255.f));
 
 	// Fill index buffer
 	u16* pib = RCache.Index.Lock(20 * 3, i_offset);
@@ -374,11 +381,17 @@ void dxEnvironmentRender::RenderClouds(CEnvironment& env)
 	PROF_EVENT("EnvironmentRender::RenderClouds");
 	::Render->rmFar();
 
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const bool use_snap = Device.m_rt_env.valid;
+	const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
+	const float sky_rot = use_snap ? Device.m_rt_env.sky_rotation : env.CurrentEnv->sky_rotation;
+	const Fvector4& clouds_col = use_snap ? Device.m_rt_env.clouds_color : env.CurrentEnv->clouds_color;
+
 	Fmatrix mXFORM, mScale;
 	mScale.scale(10, 0.4f, 10);
-	mXFORM.rotateY(env.CurrentEnv->sky_rotation);
+	mXFORM.rotateY(sky_rot);
 	mXFORM.mulB_43(mScale);
-	mXFORM.translate_over(Device.vCameraPosition);
+	mXFORM.translate_over(cam_pos);
 
 	Fvector wd0, wd1;
 	Fvector4 wind_dir;
@@ -387,8 +400,8 @@ void dxEnvironmentRender::RenderClouds(CEnvironment& env)
 	wind_dir.set(wd0.x, wd0.z, wd1.x, wd1.z).mul(0.5f).add(0.5f).mul(255.f);
 	u32 i_offset, v_offset;
 	u32 C0 = color_rgba(iFloor(wind_dir.x), iFloor(wind_dir.y), iFloor(wind_dir.w), iFloor(wind_dir.z));
-	u32 C1 = color_rgba(iFloor(env.CurrentEnv->clouds_color.x * 255.f), iFloor(env.CurrentEnv->clouds_color.y * 255.f),
-	                    iFloor(env.CurrentEnv->clouds_color.z * 255.f), iFloor(env.CurrentEnv->clouds_color.w * 255.f));
+	u32 C1 = color_rgba(iFloor(clouds_col.x * 255.f), iFloor(clouds_col.y * 255.f),
+	                    iFloor(clouds_col.z * 255.f), iFloor(clouds_col.w * 255.f));
 
 	// Fill index buffer
 	u16* pib = RCache.Index.Lock(env.CloudsIndices.size(), i_offset);

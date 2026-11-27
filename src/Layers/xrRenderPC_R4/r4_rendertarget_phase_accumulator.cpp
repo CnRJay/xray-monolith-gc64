@@ -3,7 +3,8 @@
 void CRenderTarget::phase_accumulator()
 {
 	// Targets
-	if (dwAccumulatorClearMark == Device.dwFrame)
+	const u32 cur_frame = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwFrame : Device.dwFrame;
+	if (dwAccumulatorClearMark == cur_frame)
 	{
 		// normal operation - setup
 		if (!RImplementation.o.dx10_msaa)
@@ -20,7 +21,7 @@ void CRenderTarget::phase_accumulator()
 	else
 	{
 		// initial setup
-		dwAccumulatorClearMark = Device.dwFrame;
+		dwAccumulatorClearMark = cur_frame;
 
 		// clear
 		if (!RImplementation.o.dx10_msaa)

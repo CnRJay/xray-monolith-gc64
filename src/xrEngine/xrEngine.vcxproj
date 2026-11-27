@@ -935,6 +935,7 @@
     <ClInclude Include="Effector.h" />
     <ClInclude Include="EffectorPP.h" />
     <ClInclude Include="EngineThreading.h" />
+    <ClInclude Include="RenderThread.h" />
     <ClInclude Include="Engine.h" />
     <ClInclude Include="EngineAPI.h" />
     <ClInclude Include="EnnumerateVertices.h" />
@@ -1055,6 +1056,7 @@
     <ClCompile Include="Effector.cpp" />
     <ClCompile Include="EffectorPP.cpp" />
     <ClCompile Include="EngineThreading.cpp" />
+    <ClCompile Include="RenderThread.cpp" />
     <ClCompile Include="Engine.cpp" />
     <ClCompile Include="EngineAPI.cpp" />
     <ClCompile Include="Envelope.cpp" />

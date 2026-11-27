@@ -449,6 +449,9 @@ public:
 	// Main
 	virtual void Calculate() = 0;
 	virtual void Render() = 0;
+	virtual bool SupportsDecoupledRender() const { return false; }
+	virtual void ExtractFrame() {}
+	virtual void RenderSubmit() {}
 	virtual void RenderUI3DDirect() = 0;
 	// Renderers without an atlas use RenderUI3DDirect for each icon.
 	// Return allocated dimensions, not pending console settings; resolution is the live icon scale.

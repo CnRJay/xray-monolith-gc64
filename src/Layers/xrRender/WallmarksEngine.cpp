@@ -414,8 +414,7 @@ void CWallmarksEngine::UpdateWallmarks()
     if (marks.empty())
         return;
 
-    // Toggle the lock if update is going to be in a separate thread
-    // xrCriticalSectionGuard g(lock);
+    xrCriticalSectionGuard g(lock);
     for (wm_slot* slot : marks)
     {
         // static wallmarks
@@ -463,19 +462,20 @@ float r_wallmarks_ssa_k = 0.5f;
 void CWallmarksEngine::Render()
 {
 	//	if (marks.empty())			return;
-	// Projection and xform
-	float _43 = Device.mProject._43;
-	Device.mProject._43 -= ps_r__WallmarkSHIFT;
+	// Projection and xform (never mutate Device.mView/mProject in place — Render Thread safe)
+	const auto& RV = Device.m_rt_view;
+	Fmatrix mWMProj = RV.mProject;
+	mWMProj._43 -= ps_r__WallmarkSHIFT;
 	RCache.set_xform_world(Fidentity);
-	RCache.set_xform_project(Device.mProject);
+	RCache.set_xform_project(mWMProj);
 
-	Fmatrix mSavedView = Device.mView;
+	Fmatrix mWMView;
 	Fvector mViewPos;
-	Fvector vCameraPosition = Device.mInvView.c; // vCameraPosition may not be correct in SVP frame
+	Fvector vCameraPosition = RV.mInvView.c; // vCameraPosition may not be correct in SVP frame
 
-	mViewPos.mad(vCameraPosition, Device.vCameraDirection, ps_r__WallmarkSHIFT_V);
-	Device.mView.build_camera_dir(mViewPos, Device.vCameraDirection, Device.vCameraTop);
-	RCache.set_xform_view(Device.mView);
+	mViewPos.mad(vCameraPosition, RV.vCameraDirection, ps_r__WallmarkSHIFT_V);
+	mWMView.build_camera_dir(mViewPos, RV.vCameraDirection, RV.vCameraTop);
+	RCache.set_xform_view(mWMView);
 
 	Device.Statistic->RenderDUMP_WM.Begin();
 	Device.Statistic->RenderDUMP_WMS_Count = 0;
@@ -583,7 +583,7 @@ void CWallmarksEngine::Render()
                         continue;
 
                     Device.Statistic->RenderDUMP_WMD_Count++;
-                    float dst = Device.vCameraPosition.distance_to_sqr(W->m_Bounds.P);
+                    float dst = RV.vCameraPosition.distance_to_sqr(W->m_Bounds.P);
                     float ssa = W->m_Bounds.R * W->m_Bounds.R / dst;
                     if (ssa < ssaCLIP)
                         continue;
@@ -620,8 +620,6 @@ void CWallmarksEngine::Render()
 	Device.Statistic->RenderDUMP_WM.End();
 
 	// Projection
-	Device.mView = mSavedView;
-	Device.mProject._43 = _43;
-	RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
+	RCache.set_xform_view(RV.mView);
+	RCache.set_xform_project(RV.mProject);
 }

@@ -188,8 +188,8 @@ void CRenderTarget::u_stencil_optimize(eStencilOptimizeMode eSOM)
 	VERIFY(RImplementation.o.nvstencil);
 	//RCache.set_ColorWriteEnable	(FALSE);
 	u32 Offset;
-	float _w = float(Device.dwWidth);
-	float _h = float(Device.dwHeight);
+	float _w = float(Device.m_rt_view.dwWidth);
+	float _h = float(Device.m_rt_view.dwHeight);
 	u32 C = color_rgba(255, 255, 255, 255);
 	float eps = 0;
 	float _dw = 0.5f;
@@ -255,8 +255,8 @@ void CRenderTarget::u_compute_texgen_jitter(Fmatrix& m_Texgen_J)
 	m_Texgen_J.mul(m_TexelAdjust, RCache.xforms.m_wvp);
 
 	// rescale - tile it
-	float scale_X = float(Device.dwWidth) / float(TEX_jitter);
-	float scale_Y = float(Device.dwHeight) / float(TEX_jitter);
+	float scale_X = float(Device.m_rt_view.dwWidth) / float(TEX_jitter);
+	float scale_Y = float(Device.m_rt_view.dwHeight) / float(TEX_jitter);
 	//float	offset			= (.5f / float(TEX_jitter));
 	m_TexelAdjust.scale(scale_X, scale_Y, 1.f);
 	//m_TexelAdjust.translate_over(offset,	offset,	0	);
@@ -382,22 +382,33 @@ void CRenderTarget::SetActive(bool force)
 		return;
 	}
 
-	auto m = Device.matrices[isMain ? 0 : 1];
+	auto& RV = Device.m_rt_view;
+	auto m = RV.matrices[isMain ? 0 : 1];
 	if (g_pGamePersistent)
 	{
-		g_pGamePersistent->m_pGShaderConstants->hud_params.w = !isMain;
+		Device.m_rt_env.hud_params.w = !isMain ? 1.f : 0.f;
+		if (!CRenderThread::IsOnRenderThread() && g_pGamePersistent->m_pGShaderConstants)
+			g_pGamePersistent->m_pGShaderConstants->hud_params.w = !isMain ? 1.f : 0.f;
 		Device.m_SecondViewport.m_render_pass_is_svp = !isMain;
 		RImplementation.SetMatrices(m.mView, m.mProject, m.mProjectHud);
 	}
 	RImplementation.Target = this;
 
-	RImplementation.ViewBase.CreateFromMatrix(Device.mFullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
+	RImplementation.ViewBase.CreateFromMatrix(RV.mFullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
 
-	Device.dwWidth = Width;
-	Device.dwHeight = Height;
-	Device.fASPECT = (float)Height / (float)Width;
-	Device.fWidth_2 = Width >> 1;
-	Device.fHeight_2 = Height >> 1;
+	RV.dwWidth = Width;
+	RV.dwHeight = Height;
+	RV.fASPECT = (float)Height / (float)Width;
+	RV.fWidth_2 = float(Width >> 1);
+	RV.fHeight_2 = float(Height >> 1);
+	if (!CRenderThread::IsOnRenderThread())
+	{
+		Device.dwWidth = Width;
+		Device.dwHeight = Height;
+		Device.fASPECT = RV.fASPECT;
+		Device.fWidth_2 = RV.fWidth_2;
+		Device.fHeight_2 = RV.fHeight_2;
+	}
 
 	// the bind cache keys on STextureList/CTexture identity (R_Backend set_Textures), so the
 	// surface_set remap below is invisible to it, a full invalidate forces every RT/texture/

@@ -517,6 +517,7 @@
       <Filter>Render\Execution &amp; 3D\Shaders\Textures</Filter>
     </ClInclude>
     <ClInclude Include="EngineThreading.h" />
+    <ClInclude Include="RenderThread.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="defines.cpp">
@@ -847,6 +848,7 @@
       <Filter>Render\Execution &amp; 3D\Shaders\Textures</Filter>
     </ClCompile>
     <ClCompile Include="EngineThreading.cpp" />
+    <ClCompile Include="RenderThread.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="splash_xrcs_en.bmp">

@@ -14,7 +14,8 @@
 
 void dxImGuiRender::Copy(IImGuiRender& _in)
 {
-    *this = *fast_dynamic_cast<dxImGuiRender*>(&_in);
+    ClearCaptured();
+    (void)_in;
 }
 
 void dxImGuiRender::SetState(ImDrawData* data)
@@ -80,6 +81,45 @@ void dxImGuiRender::Render(ImDrawData* data)
 #endif
 }
 
+void dxImGuiRender::ClearCaptured()
+{
+    for (ImDrawList* list : m_captured_lists)
+        IM_DELETE(list);
+    m_captured_lists.clear();
+    m_captured_data.Clear();
+}
+
+void dxImGuiRender::CaptureDrawData(ImDrawData* data)
+{
+    ClearCaptured();
+    if (!data || !data->Valid || data->CmdListsCount <= 0)
+        return;
+
+    m_captured_data.Valid = true;
+    m_captured_data.DisplayPos = data->DisplayPos;
+    m_captured_data.DisplaySize = data->DisplaySize;
+    m_captured_data.FramebufferScale = data->FramebufferScale;
+
+    m_captured_lists.reserve(data->CmdListsCount);
+    for (int i = 0; i < data->CmdListsCount; ++i)
+    {
+        if (ImDrawList* src = data->CmdLists[i])
+        {
+            ImDrawList* cloned = src->CloneOutput();
+            m_captured_lists.push_back(cloned);
+            m_captured_data.AddDrawList(cloned);
+        }
+    }
+}
+
+void dxImGuiRender::RenderCaptured()
+{
+    if (!m_captured_data.Valid || m_captured_data.CmdListsCount <= 0)
+        return;
+
+    Render(&m_captured_data);
+}
+
 void dxImGuiRender::OnDeviceCreate(ImGuiContext* context)
 {
     ImGui::SetAllocatorFunctions(
@@ -104,6 +144,7 @@ void dxImGuiRender::OnDeviceCreate(ImGuiContext* context)
 }
 void dxImGuiRender::OnDeviceDestroy()
 {
+    ClearCaptured();
 #if defined(USE_DX11)
     ImGui_ImplDX11_Shutdown();
 #elif defined(USE_DX10)
@@ -115,6 +156,7 @@ void dxImGuiRender::OnDeviceDestroy()
 
 void dxImGuiRender::OnDeviceResetBegin()
 {
+    ClearCaptured();
 #if defined(USE_DX11)
     ImGui_ImplDX11_InvalidateDeviceObjects();
 #elif defined(USE_DX10)

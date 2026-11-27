@@ -9,6 +9,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **True 2-Stage Decoupled Render Thread (`r__mt_decouple`)**:
+  - Added a dedicated persistent Render Thread (`CRenderThread`) that overlaps Game Thread Frame N+1 (`FrameMove`, `xrSheduler`, `seqFrameMT`, `LuaGC`, `CalculateBonesThread`) with Render Thread Frame N DX11 submission and `Present()`, controlled via `r__mt_decouple` (`0–1`, default `1`).
+  - Split DX11 rendering into `CRender::ExtractFrame()` (Safe Sync Window on Main Thread + TBB for `g_SpatialSpace`, `CObject::renderable_Render`, sun cascade/light culling, HUD/SVP optics, and bone matrix snapshotting) and `CRender::RenderSubmit()` (pure DX11 submission on Render Thread).
+  - Added `SRenderViewSnapshot` and `SRenderEnvSnapshot` double-buffered frame snapshots (`Device.m_rt_view` / `Device.m_rt_env`), `SFrameBoneArena` frozen skeleton bone matrices, deferred `model_Delete` queueing while the Render Thread is busy, 4-bucket `CUICommandBuffer` 2D/3D UI recording (`dxUIRender` + `dxFontRender`), and `ImDrawData` deep-copy capture (`dxImGuiRender`) to eliminate data races across gameplay, UI, Lua, and rendering.
 - **Physical Objective-Camera True PIP (`TheLostInPlace/xray-monolith-pip` Integration)**:
   - Integrated the physical objective-camera True PIP architecture (physical aperture/eyebox model, off-axis deferred lighting reconstruction, continuous barrel/handguard rendering, TAA/DLSS lens exclusion, hybrid reflex/magnifier support, typed Lua optic API, and in-game ImGui optic workbench).
   - Added the live per-viewport render performance stats overlay (`r__svp_stats`) and dedicated `pip.log` diagnostics.
@@ -61,3 +65,4 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 | `r4_sun_cascade_cache` | `0–8` | `1` | Cache far sun shadow cascade (`1` = 4-frame cadence; `0` = off) |
 | `r__mt_details` | `0–1` | `1` | Parallelize grass/detail visibility culling across TBB workers |
 | `r4_parallel_cull` | `0–1` | `1` | Parallelize sun cascade, dynamic light, and main/SVP static culling |
+| `r__mt_decouple` | `0–1` | `1` | Overlap Game Thread Frame N+1 with dedicated Render Thread Frame N submission |

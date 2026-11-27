@@ -17,39 +17,73 @@
 // called by SetActive, the main path still uses on_idle
 void CRender::SetMatrices(Fmatrix view, Fmatrix projection, Fmatrix projection_hud)
 {
-	Device.mView.set(view);
-	Device.mProject.set(projection);
-	Device.mProjectHud.set(projection_hud);
-	Device.mFullTransform.mul(Device.mProject, Device.mView);
-	Device.mFullTransformHud.mul(Device.mProjectHud, Device.mView);
+	auto& RV = Device.m_rt_view;
+	RV.mView.set(view);
+	RV.mProject.set(projection);
+	RV.mProjectHud.set(projection_hud);
+	RV.mFullTransform.mul(RV.mProject, RV.mView);
+	RV.mFullTransformHud.mul(RV.mProjectHud, RV.mView);
 
-	Device.mInvView.invert(view);
-	Device.mInvProject.invert(projection);
-	Device.mInvProjectHud.invert(projection_hud);
-	D3DXMatrixInverse((D3DXMATRIX*)&Device.mInvFullTransform, 0, (D3DXMATRIX*)&Device.mFullTransform);
+	RV.mInvView.invert(view);
+	RV.mInvProject.invert(projection);
+	RV.mInvProjectHud.invert(projection_hud);
+	D3DXMatrixInverse((D3DXMATRIX*)&RV.mInvFullTransform, 0, (D3DXMATRIX*)&RV.mFullTransform);
 
-	Device.mInvView.transform(Device.vCameraPosition.set(0, 0, 0));
-	Device.mInvView.transform_dir(Device.vCameraDirection.set(0, 0, 1));
-	Device.mInvView.transform_dir(Device.vCameraTop.set(0, 1, 0));
-	Device.mInvView.transform_dir(Device.vCameraRight.set(1, 0, 0));
+	RV.mInvView.transform(RV.vCameraPosition.set(0, 0, 0));
+	RV.mInvView.transform_dir(RV.vCameraDirection.set(0, 0, 1));
+	RV.mInvView.transform_dir(RV.vCameraTop.set(0, 1, 0));
+	RV.mInvView.transform_dir(RV.vCameraRight.set(1, 0, 0));
 
-	Device.vCameraPosition_saved.set(Device.vCameraPosition);
-	Device.mView_saved.set(Device.mView);
-	Device.mProject_saved.set(Device.mProject);
-	Device.mFullTransform_saved.set(Device.mFullTransform);
+	RV.vCameraPosition_saved.set(RV.vCameraPosition);
+	RV.mView_saved.set(RV.mView);
+	RV.mProject_saved.set(RV.mProject);
+	RV.mFullTransform_saved.set(RV.mFullTransform);
 
 	float fFov, fAspect, _;
 	projection.decompose_projection(fFov, fAspect, _, _);
-	Device.fFOV = rad2deg(fFov);
-	Device.fASPECT = fAspect;
+	RV.fFOV = rad2deg(fFov);
+	RV.fASPECT = fAspect;
 
-	Device.m_pRender->SetCacheXform(Device.mView, Device.mProject);
-	Device.prepare_matrices();
+	if (!CRenderThread::IsOnRenderThread())
+	{
+		Device.mView.set(RV.mView);
+		Device.mProject.set(RV.mProject);
+		Device.mProjectHud.set(RV.mProjectHud);
+		Device.mFullTransform.set(RV.mFullTransform);
+		Device.mFullTransformHud.set(RV.mFullTransformHud);
+		Device.mInvView.set(RV.mInvView);
+		Device.mInvProject.set(RV.mInvProject);
+		Device.mInvProjectHud.set(RV.mInvProjectHud);
+		Device.mInvFullTransform.set(RV.mInvFullTransform);
+		Device.vCameraPosition.set(RV.vCameraPosition);
+		Device.vCameraDirection.set(RV.vCameraDirection);
+		Device.vCameraTop.set(RV.vCameraTop);
+		Device.vCameraRight.set(RV.vCameraRight);
+		Device.vCameraPosition_saved.set(RV.vCameraPosition_saved);
+		Device.mView_saved.set(RV.mView_saved);
+		Device.mProject_saved.set(RV.mProject_saved);
+		Device.mFullTransform_saved.set(RV.mFullTransform_saved);
+		Device.fFOV = RV.fFOV;
+		Device.fASPECT = RV.fASPECT;
+	}
+
+	Device.m_pRender->SetCacheXform(RV.mView, RV.mProject);
+	const bool is_svp = Device.m_SecondViewport.IsSVPFrame();
+	RV.mView_prev = RV.matrices_previous[is_svp].mView;
+	RV.mProject_prev = RV.matrices_previous[is_svp].mProject;
+	if (!CRenderThread::IsOnRenderThread())
+	{
+		Device.mView_prev = RV.mView_prev;
+		Device.mProject_prev = RV.mProject_prev;
+	}
+	Device.m_pRender->SetCacheXform_prev(RV.mView_prev, RV.mProject_prev);
 }
 
 
 #include "../xrRender/dxRenderDeviceRender.h"
 #include "../xrRenderDX10/dx10GpuTimeline.h"
+#include "../xrRender/CHudInitializer.h"
+#include "../../Include/xrRender/UIRender.h"
 #include <tbb/task_group.h>
 
 void CRender::render_menu()
@@ -149,6 +183,273 @@ void CRender::ResetSVPHistory()
 			HW.pContext->ClearRenderTargetView(TargetSVP->rt_ssfx_water->pRT, neutral_water);
 		}
 	}
+}
+
+void CRender::ExtractFrame()
+{
+	PROF_EVENT("CRender::ExtractFrame", PROF_CAT(Visibility));
+
+	m_rt_extracted = false;
+	m_rt_skip_scene = false;
+	m_rt_menu_pp = false;
+	m_rt_bSUN = FALSE;
+	m_rt_svp = false;
+
+	bool _menu_pp = g_pGamePersistent ? g_pGamePersistent->OnRenderPPUI_query() : false;
+	if (_menu_pp)
+	{
+		m_rt_menu_pp = true;
+		m_rt_extracted = true;
+		return;
+	}
+
+	IMainMenu* pMainMenu = g_pGamePersistent ? g_pGamePersistent->m_pMainMenu : 0;
+	bool bMenu = pMainMenu ? pMainMenu->CanSkipSceneRendering() : false;
+
+	if (!(g_pGameLevel && g_hud) || bMenu)
+	{
+		m_rt_skip_scene = true;
+		m_rt_extracted = true;
+		return;
+	}
+
+	if (m_bFirstFrameAfterReset)
+	{
+		for (light* L : v_all_lights)
+			L->m_moving_frames = 0;
+		m_bFirstFrameAfterReset = false;
+		m_rt_skip_scene = true;
+		m_rt_extracted = true;
+		return;
+	}
+
+	Calculate();
+
+	Device.m_SecondViewport.LatchOpticConfig(
+		Device.dwFrame, Device.m_SecondViewport.GetSVPSession());
+
+	if ((Device.dwFrame % (u32)ps_r__tex_evict_interval) == 0)
+		dxRenderDeviceRender::Instance().Resources->EvictStalledTextures();
+
+	RImplementation.o.distortion = FALSE;
+	Fcolor sun_color = ((light*)Lights.sun_adapted._get())->color;
+	BOOL bSUN = ps_r2_ls_flags.test(R2FLAG_SUN) && (u_diffuse2s(sun_color.r, sun_color.g, sun_color.b) > EPS) && !Core.ParamsData.test(ECoreParams::r4_dev);
+	if (o.sunstatic) bSUN = FALSE;
+
+	// Freeze bone palettes and dynamic transforms for the upcoming Render Thread frame.
+	g_rt_bone_arena.begin_frame(Device.dwFrame);
+
+	ViewBase.CreateFromMatrix(Device.mFullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
+	HOM.MT_RENDER();
+
+	phase = PHASE_NORMAL;
+
+	{
+		extern int ps_r4_parallel_cull;
+		const bool timed = ps_r__svp_stats != 0;
+		CTimer capture_timer;
+		if (timed) capture_timer.Start();
+		GMBase.traverse(RImplementation.pLastSector, ViewBase, Device.vCameraPosition, Device.mFullTransform);
+		if (ps_r4_parallel_cull && !PortalTraverseDbg_Enabled())
+		{
+			tbb::task_group static_cull_task;
+			static_cull_task.run([this]()
+			{
+				GMBase.r_dsgraph_capture_static();
+			});
+			GMBase.r_dsgraph_capture_dynamic();
+			static_cull_task.wait();
+		}
+		else
+		{
+			GMBase.r_dsgraph_capture_static();
+			GMBase.r_dsgraph_capture_dynamic();
+		}
+		if (timed) svp_stats_capture_base_ms = capture_timer.GetElapsed_ms_f();
+	}
+
+	// Reset per-frame lens state.
+	{
+		auto& vp = Device.m_SecondViewport;
+		if (vp.eyepiece.radius > EPS)
+		{
+			vp.dbg_eyepiece_r = vp.eyepiece.radius;
+			vp.dbg_objective_r = vp.objective.radius;
+		}
+		if (!(Device.true_pip_on && vp.IsSVPActive()))
+		{
+			vp.dbg_eyepiece_r = 0.f;
+			vp.dbg_objective_r = 0.f;
+		}
+		vp.eyepiece.radius = 0;
+		vp.objective.radius = 0;
+	}
+
+	Device.m_SecondViewport.dual_accum = nullptr;
+	bool svp = Device.true_pip_on && Device.m_SecondViewport.IsSVPActive();
+
+	static bool s_prev_svp = false;
+	static u32 s_disc_epoch = 0;
+	const bool disc_swap = (svp && Device.m_SecondViewport.svp_optic_epoch != s_disc_epoch);
+	if ((svp && !s_prev_svp) || disc_swap)
+		Device.m_SecondViewport.svp_disc_applied = Device.m_SecondViewport.svp_disc_px;
+	s_disc_epoch = Device.m_SecondViewport.svp_optic_epoch;
+	const bool svp_edge = (svp != s_prev_svp);
+	s_prev_svp = svp;
+
+	if (Device.true_pip_on && g_pGamePersistent &&
+		g_pGamePersistent->m_pGShaderConstants->hud_params.y > 0.005f)
+		EnsureTargetSVP();
+	if (svp_edge)
+		ResetSVPHistory();
+	if (svp && !TargetSVP)
+		svp = false;
+
+	// Extract HUD geometry + derive SVP camera while game objects & skeletons are quiescent.
+	GMBase.r_dsgraph_capture_hud();
+	if (Device.true_pip_on)
+		GMBase.svp_latch_hud_poses();
+	if (scope_svp_enabled || scope_debug >= 2)
+		svp_snapshot_hud_geom();
+
+	if (scope_svp_enabled && g_pGamePersistent &&
+		(g_pGamePersistent->m_pGShaderConstants->hud_params.y > 0.005f
+			|| (g_pGamePersistent->m_pGShaderConstants->hud_params.x > 0.05f
+				&& !GMBase.RGraph.mapScopeHUDSorted.empty())))
+	{
+		deriveScopeLens();
+		{
+			auto& vp = Device.m_SecondViewport;
+			if (vp.eyepiece.radius <= EPS && vp.dbg_eyepiece_r > EPS)
+			{
+				vp.eyepiece.radius = vp.dbg_eyepiece_r;
+				vp.objective.radius = vp.dbg_objective_r;
+			}
+		}
+		if (Device.m_SecondViewport.eyepiece.radius > EPS && TargetSVP && svpCamera())
+			ResetSVPHistory();
+	}
+
+	if (svp)
+		EnsureTargetSVP();
+	TargetMain->svp_objective_hud_prepare(svp);
+
+	// Capture scene lights and pre-cull sun cascades + shadowed lights on Main Thread + TBB.
+	LP_normal.clear();
+	LP_pending.clear();
+	GMBase.r_dsgraph_capture_lights();
+	if (ps_r__svp_stats)
+	{
+		const u32 lp_total = (u32)(LP_normal.v_point.size() + LP_normal.v_spot.size() + LP_normal.v_shadowed.size()
+			+ LP_pending.v_point.size() + LP_pending.v_spot.size() + LP_pending.v_shadowed.size());
+		const u32 lp_shadowed = (u32)(LP_normal.v_shadowed.size() + LP_pending.v_shadowed.size());
+		svp_stats::note_main_lights(lp_total, lp_shadowed);
+	}
+
+	if (bSUN)
+		extract_sun_cascades();
+
+	extract_lights_for_rt();
+
+	phase = PHASE_NORMAL;
+	m_rt_bSUN = bSUN;
+	m_rt_svp = svp;
+	m_rt_gbuffer_frame = Device.dwFrame;
+	m_rt_extracted = true;
+}
+
+void CRender::RenderSubmit()
+{
+	PIX_EVENT_C(CRender_Render, dx10_marker_frame);
+	dx10_annotate_frame();
+
+	rmNormal();
+
+	if (!m_rt_extracted)
+		return;
+
+	if (m_rt_menu_pp)
+	{
+		render_menu();
+		g_rt_bone_arena.end_frame();
+		return;
+	}
+
+	if (m_rt_skip_scene)
+	{
+		Target->u_setrt(Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, HW.pBaseRT, NULL, NULL, HW.pBaseZB);
+		g_rt_bone_arena.end_frame();
+		return;
+	}
+
+	svp_stats::frame_begin();
+	svp_stats::section_begin(svp_stats::SEC_FRAME);
+
+	const bool svp = m_rt_svp;
+	const BOOL bSUN = m_rt_bSUN;
+
+	if (Device.true_pip_on)
+		TargetMain->SetActive();
+	svp_stats::section_begin(svp_stats::SEC_MAIN_GBUFFER);
+	renderGBuffer(!svp, true);
+	svp_stats::section_end(svp_stats::SEC_MAIN_GBUFFER);
+
+	if (svp)
+	{
+		CTimer svp_t; svp_t.Start();
+		const u32 calls0 = RCache.stat.calls;
+		const u32 verts0 = RCache.stat.verts;
+		svp_stats::cpu_begin(svp_stats::CPU_REPLAY);
+		TargetSVP->SetActive();
+		svp_stats::cpu_end(svp_stats::CPU_REPLAY);
+		svp_stats::section_begin(svp_stats::SEC_SVP_GBUFFER);
+		renderGBuffer(true, true);
+		svp_stats::section_end(svp_stats::SEC_SVP_GBUFFER);
+		if (ps_r__svp_diag)
+		{
+			static u32 s_perf_ms = 0;
+			if (Device.m_rt_view.dwTimeGlobal - s_perf_ms > 1000)
+			{
+				s_perf_ms = Device.m_rt_view.dwTimeGlobal;
+				PipMsg("[SVP-PERF] gbuffer %.2fms calls %u verts %uk", svp_t.GetElapsed_sec() * 1000.f,
+					RCache.stat.calls - calls0, (RCache.stat.verts - verts0) / 1000);
+			}
+		}
+		svp_stats::cpu_begin(svp_stats::CPU_HUD);
+		TargetMain->svp_objective_hud_report();
+		svp_stats::cpu_end(svp_stats::CPU_HUD);
+		svp_stats::cpu_begin(svp_stats::CPU_REPLAY);
+		if (ps_r__svp_corner_mask && !RImplementation.o.dx10_msaa && TargetSVP)
+			TargetSVP->stamp_svp_corner_mask();
+		TargetMain->SetActive();
+		svp_stats::cpu_end(svp_stats::CPU_REPLAY);
+
+		Device.m_SecondViewport.dual_accum = [this](const std::function<void()>& accum)
+		{
+			svp_stats::cpu_begin(svp_stats::CPU_LIGHTS);
+			TargetSVP->SetActive();
+			share_main_smaps();
+			Device.m_SecondViewport.force_svp_sss = (ps_r__svp_sss_sun != 0);
+			svp_stats::note_svp_blend();
+			svp_stats::cpu_end(svp_stats::CPU_LIGHTS);
+			svp_stats::section_begin(svp_stats::SEC_SVP_LIGHTS);
+			{ PIX_EVENT(SVP_ACCUM); accum(); }
+			svp_stats::section_end(svp_stats::SEC_SVP_LIGHTS);
+			svp_stats::cpu_begin(svp_stats::CPU_LIGHTS);
+			Device.m_SecondViewport.force_svp_sss = false;
+			TargetMain->SetActive();
+			svp_stats::cpu_end(svp_stats::CPU_LIGHTS);
+		};
+	}
+
+	renderSceneLighting(bSUN, svp, true);
+	Device.m_SecondViewport.dual_accum = nullptr;
+
+	svp_stats::section_end(svp_stats::SEC_FRAME);
+	svp_stats::frame_end(svp);
+	svp_stats::draw_overlay();
+
+	g_rt_bone_arena.end_frame();
 }
 
 void CRender::Render()
@@ -414,11 +715,17 @@ void CRender::Render()
 	svp_stats::draw_overlay();
 }
 
-void CRender::renderGBuffer(bool clearGraph)
+void CRender::renderGBuffer(bool clearGraph, bool preExtracted)
 {
 	// label the pass so the SVP (scope) gbuffer is distinguishable from the main one in a capture
 	PIX_EVENT_F("RENDER_GBUFFER[%s]", Target == TargetMain ? "MAIN" : "SVP");
-	Device.dwViewport++; // pip per-viewport cache counter
+	if (CRenderThread::IsOnRenderThread())
+		Device.m_rt_view.dwViewport++;
+	else
+	{
+		Device.dwViewport++; // pip per-viewport cache counter
+		Device.m_rt_view.dwViewport = Device.dwViewport;
+	}
 
 	// pip cull the SVP geometry to the scope cone, the captured graph is main frustum so the SVP would
 	// otherwise resubmit the whole world through a cone that sees a fraction
@@ -427,7 +734,7 @@ void CRender::renderGBuffer(bool clearGraph)
 	// the grass bracket below arms off the same matrix so it is built for the whole scope pass
 	Fmatrix svp_full;
 	if (svp_pass)
-		svp_full.mul(Device.matrices[1].mProject, Device.matrices[1].mView);
+		svp_full.mul(Device.m_rt_view.matrices[1].mProject, Device.m_rt_view.matrices[1].mView);
 	if (svp_cull)
 		CDSGraphManager::svp_cull_begin(svp_full, svp_cull);
 	// pip SVP coverage = (mag * svp_side / main_height)^2, capped at 1: the fraction of the main view's
@@ -435,7 +742,7 @@ void CRender::renderGBuffer(bool clearGraph)
 	if (svp_pass && TargetSVP && (ps_r__svp_lod > 0.f || ps_r__svp_cull_ssa > 0.f))
 	{
 		extern float g_pip_scope_magnification;
-		const float mh = (float)Device.dwHeight;
+		const float mh = (float)Device.m_rt_view.dwHeight;
 		const float svp_eff = sqrtf((float)TargetSVP->Width * (float)TargetSVP->Height); // geometric-mean side (== Width when square)
 		float cov = (mh > 1.f) ? (g_pip_scope_magnification * svp_eff / mh) : 1.f;
 		cov *= cov;
@@ -451,7 +758,7 @@ void CRender::renderGBuffer(bool clearGraph)
 
     if (RImplementation.o.ssfx_motionvectors)
     {
-        Target->u_setrt(Device.dwWidth, Device.dwHeight, 0, 0, Target->rt_ssfx_motion_vectors->pRT, 0);
+        Target->u_setrt(Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, 0, 0, Target->rt_ssfx_motion_vectors->pRT, 0);
 
         FLOAT ColorRGBA[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         HW.pContext->ClearRenderTargetView(Target->rt_ssfx_motion_vectors->pRT, ColorRGBA);
@@ -467,7 +774,7 @@ void CRender::renderGBuffer(bool clearGraph)
 
 	if (ps_r2_ls_flags.test(R2FLAG_TERRAIN_PREPASS))
 	{
-		Target->u_setrt(Device.dwWidth, Device.dwHeight, NULL, NULL, NULL, !RImplementation.o.dx10_msaa ? HW.pBaseZB : Target->rt_MSAADepth->pZRT);
+		Target->u_setrt(Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, NULL, NULL, NULL, !RImplementation.o.dx10_msaa ? HW.pBaseZB : Target->rt_MSAADepth->pZRT);
 	}
 
 	//******* Main render :: PART-0	-- first
@@ -493,7 +800,7 @@ void CRender::renderGBuffer(bool clearGraph)
 	if (RImplementation.o.dx10_msaa)
 		RCache.set_ZB(RImplementation.Target->rt_MSAADepth->pZRT);
 
-	if (Target == TargetMain) // pip lights captured once on main, the SVP reuses them
+	if (Target == TargetMain && !preExtracted) // pip lights captured once on main, the SVP reuses them
 	{
 		PIX_EVENT(DEFER_TEST_LIGHT_VIS);
 		//******* Occlusion testing of volume-limited light-sources
@@ -517,15 +824,18 @@ void CRender::renderGBuffer(bool clearGraph)
 		Target->phase_scene_begin();
 		if (Target == TargetMain) // pip weapon HUD only in the main view, not the scope image
 		{
-			GMBase.r_dsgraph_capture_hud();
-			svp_stats::cpu_begin(svp_stats::CPU_HUD);
-			if (Device.true_pip_on)
-				GMBase.svp_latch_hud_poses();
-			// pip snapshot HUD geometry centers before render_hud clears the lists, so the geomscan (in
-			// deriveScopeLens, after the clear) can auto-derive the objective distance against the optical axis
-			if (scope_svp_enabled || scope_debug >= 2)
-				svp_snapshot_hud_geom();
-			svp_stats::cpu_end(svp_stats::CPU_HUD);
+			if (!preExtracted)
+			{
+				GMBase.r_dsgraph_capture_hud();
+				svp_stats::cpu_begin(svp_stats::CPU_HUD);
+				if (Device.true_pip_on)
+					GMBase.svp_latch_hud_poses();
+				// pip snapshot HUD geometry centers before render_hud clears the lists, so the geomscan (in
+				// deriveScopeLens, after the clear) can auto-derive the objective distance against the optical axis
+				if (scope_svp_enabled || scope_debug >= 2)
+					svp_snapshot_hud_geom();
+				svp_stats::cpu_end(svp_stats::CPU_HUD);
+			}
 			// keep the weapon list when an SVP pass follows, the scope image drains it second
 			extern bool g_svp_hud_frozen_pass;
 			extern bool g_svp_hud_history_write;
@@ -541,27 +851,30 @@ void CRender::renderGBuffer(bool clearGraph)
 
 			// pip derive the scope lens then build the SVP camera (matrices[1]) while a PiP scope
 			// is aimed, zoom-0 tube sights have no zoom fov so ADS + a captured lens also qualifies
-			svp_stats::cpu_begin(svp_stats::CPU_HUD);
-			if (scope_svp_enabled && g_pGamePersistent &&
-				(g_pGamePersistent->m_pGShaderConstants->hud_params.y > 0.005f
-					|| (g_pGamePersistent->m_pGShaderConstants->hud_params.x > 0.05f
-						&& !GMBase.RGraph.mapScopeHUDSorted.empty())))
+			if (!preExtracted)
 			{
-				deriveScopeLens();
-				// a culled weapon mid-aim re-arms the stale lens radius, m_W persists on its own
+				svp_stats::cpu_begin(svp_stats::CPU_HUD);
+				if (scope_svp_enabled && g_pGamePersistent &&
+					(g_pGamePersistent->m_pGShaderConstants->hud_params.y > 0.005f
+						|| (g_pGamePersistent->m_pGShaderConstants->hud_params.x > 0.05f
+							&& !GMBase.RGraph.mapScopeHUDSorted.empty())))
 				{
-					auto& vp = Device.m_SecondViewport;
-					if (vp.eyepiece.radius <= EPS && vp.dbg_eyepiece_r > EPS)
+					deriveScopeLens();
+					// a culled weapon mid-aim re-arms the stale lens radius, m_W persists on its own
 					{
-						vp.eyepiece.radius = vp.dbg_eyepiece_r;
-						vp.objective.radius = vp.dbg_objective_r;
+						auto& vp = Device.m_SecondViewport;
+						if (vp.eyepiece.radius <= EPS && vp.dbg_eyepiece_r > EPS)
+						{
+							vp.eyepiece.radius = vp.dbg_eyepiece_r;
+							vp.objective.radius = vp.dbg_objective_r;
+						}
 					}
+					if (Device.m_SecondViewport.eyepiece.radius > EPS && TargetSVP
+						&& svpCamera())
+						ResetSVPHistory();
 				}
-				if (Device.m_SecondViewport.eyepiece.radius > EPS && TargetSVP
-					&& svpCamera())
-					ResetSVPHistory();
+				svp_stats::cpu_end(svp_stats::CPU_HUD);
 			}
-			svp_stats::cpu_end(svp_stats::CPU_HUD);
 			// pip [3DB] for aimed sights without a captured lens, reflex and irons keep 3d
 			// ballistics so the sight independent markers draw, the pip overlay owns the rest
 			{
@@ -657,20 +970,20 @@ void CRender::renderGBuffer(bool clearGraph)
 
 			if (!Device.m_SecondViewport.IsSVPFrame())
 			{
-				Target->Matrix_previous.mul(mm_saved_viewproj, Device.mInvView);
-				Target->Matrix_current.set(Device.mProject);
-				mm_saved_viewproj.set(Device.mFullTransform);
+				Target->Matrix_previous.mul(mm_saved_viewproj, Device.m_rt_view.mInvView);
+				Target->Matrix_current.set(Device.m_rt_view.mProject);
+				mm_saved_viewproj.set(Device.m_rt_view.mFullTransform);
 			}
 			else if (svp_pass)
 			{
 				// pip the scope water SSR and SSDO reproject against these, the setter blocks are main only so
 				// the SVP would accumulate against stale matrices, build them from the per viewport matrices
 				Fmatrix svp_prev_full, svp_inv_view, svp_prev_inv_view;
-				svp_prev_full.mul(Device.matrices_previous[1].mProject, Device.matrices_previous[1].mView);
-				svp_inv_view.invert(Device.matrices[1].mView);
+				svp_prev_full.mul(Device.m_rt_view.matrices_previous[1].mProject, Device.m_rt_view.matrices_previous[1].mView);
+				svp_inv_view.invert(Device.m_rt_view.matrices[1].mView);
 				Target->Matrix_previous.mul(svp_prev_full, svp_inv_view);
-				Target->Matrix_current.set(Device.matrices[1].mProject);
-				svp_prev_inv_view.invert(Device.matrices_previous[1].mView);
+				Target->Matrix_current.set(Device.m_rt_view.matrices[1].mProject);
+				svp_prev_inv_view.invert(Device.m_rt_view.matrices_previous[1].mView);
 				Target->Position_previous.set(svp_prev_inv_view.c);
 			}
 		}
@@ -729,7 +1042,7 @@ void CRender::share_main_smaps()
 	RCache.Invalidate();
 }
 
-void CRender::renderSceneLighting(BOOL bSUN, bool svp)
+void CRender::renderSceneLighting(BOOL bSUN, bool svp, bool preExtracted)
 {
 	// Directional light - fucking sun, cascades build their shadow map once on the main atlas and the
 	// accumulate is replayed into the SVP by the dual_accum hook (inside render_sun_cascade + below)
@@ -739,7 +1052,10 @@ void CRender::renderSceneLighting(BOOL bSUN, bool svp)
 		svp_stats::note_sun();
 		svp_stats::section_begin(svp_stats::SEC_MAIN_LIGHTS);
 		RImplementation.stats.l_visible ++;
-		render_sun_cascades();
+		if (preExtracted)
+			render_sun_cascades_submit();
+		else
+			render_sun_cascades();
 		auto sun_blend = [this] { Target->increment_light_marker(); Target->accum_direct_blend(); };
 		sun_blend();
 		if (Device.m_SecondViewport.dual_accum)
@@ -756,8 +1072,8 @@ void CRender::renderSceneLighting(BOOL bSUN, bool svp)
 		svp_stats::section_begin(svp_stats::SEC_SVP_EMISSIVE);
 		TargetSVP->SetActive();
 		TargetSVP->phase_accumulator();
-		RCache.set_xform_project(Device.mProject);
-		RCache.set_xform_view(Device.mView);
+		RCache.set_xform_project(Device.m_rt_view.mProject);
+		RCache.set_xform_view(Device.m_rt_view.mView);
 		if (!RImplementation.o.dx10_msaa)
 			RCache.set_Stencil(TRUE, D3DCMP_ALWAYS, 0x01, 0xff, 0xff, D3DSTENCILOP_KEEP, D3DSTENCILOP_REPLACE,
 			                   D3DSTENCILOP_KEEP);
@@ -787,8 +1103,8 @@ void CRender::renderSceneLighting(BOOL bSUN, bool svp)
 		svp_stats::section_begin(svp_stats::SEC_MAIN_EMISSIVE);
 		Target->phase_accumulator();
 		// Render emissive geometry, stencil - write 0x0 at pixel pos
-		RCache.set_xform_project(Device.mProject);
-		RCache.set_xform_view(Device.mView);
+		RCache.set_xform_project(Device.m_rt_view.mProject);
+		RCache.set_xform_view(Device.m_rt_view.mView);
 		// Stencil - write 0x1 at pixel pos -
 		if (!RImplementation.o.dx10_msaa)
 			RCache.set_Stencil(TRUE, D3DCMP_ALWAYS, 0x01, 0xff, 0xff, D3DSTENCILOP_KEEP, D3DSTENCILOP_REPLACE,
@@ -817,16 +1133,25 @@ void CRender::renderSceneLighting(BOOL bSUN, bool svp)
 	// Lighting, shadow maps build once on the main atlas, render_lights accumulates per viewport
 	// (it replays the accumulate into the SVP via dual_accum, sharing the maps), non dependant on OCCQ
 	svp_stats::section_begin(svp_stats::SEC_MAIN_LIGHTS); // svp mirror nests here through the hook
+	if (preExtracted)
 	{
-		PIX_EVENT(DEFER_LIGHT_NO_OCCQ);
+		PIX_EVENT(DEFER_LIGHT_PREEXTRACTED);
 		Target->phase_accumulator();
-		render_lights(LP_normal);
+		render_lights_submit(LP_normal);
 	}
-
-	// Lighting, dependant on OCCQ
+	else
 	{
-		PIX_EVENT(DEFER_LIGHT_OCCQ);
-		render_lights(LP_pending);
+		{
+			PIX_EVENT(DEFER_LIGHT_NO_OCCQ);
+			Target->phase_accumulator();
+			render_lights(LP_normal);
+		}
+
+		// Lighting, dependant on OCCQ
+		{
+			PIX_EVENT(DEFER_LIGHT_OCCQ);
+			render_lights(LP_pending);
+		}
 	}
 	svp_stats::section_end(svp_stats::SEC_MAIN_LIGHTS);
 
@@ -890,7 +1215,23 @@ void CRender::renderSceneLighting(BOOL bSUN, bool svp)
 	if (Details)
 		Details->details_clear();
 
-	if (g_hud)
+	if (preExtracted)
+	{
+		PROF_EVENT("render_hud_replay");
+		{
+			CHudInitializer initializer(true);
+			rmNear();
+			UIRender->Replay(2);
+			rmNormal();
+		}
+		{
+			CHudInitializer initializer(2);
+			rmNear();
+			UIRender->Replay(3);
+			rmNormal();
+		}
+	}
+	else if (g_hud)
 	{
 		PROF_EVENT("render_hud");
 		if (g_hud->RenderActiveItemUIQuery())
@@ -899,8 +1240,6 @@ void CRender::renderSceneLighting(BOOL bSUN, bool svp)
 			GMBase.r_dsgraph_render_cam_ui();
 	}
 }
-#include "../xrRender/CHudInitializer.h"
-
 namespace
 {
 bool ui_3d_icon_atlas_active = false;
