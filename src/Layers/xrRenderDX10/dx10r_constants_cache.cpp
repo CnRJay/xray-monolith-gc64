@@ -3,71 +3,7 @@
 
 #include "../xrRender/r_constants_cache.h"
 
-dx10ConstantBuffer& R_constants::GetCBuffer(R_constant* C, BufferType BType)
-{
-	PROF_EVENT("R_constants::GetCBuffer");
-	if (BType == BT_PixelBuffer)
-	{
-		//	Decode index
-		int iBufferIndex = (C->destination & RC_dest_pixel_cb_index_mask) >> RC_dest_pixel_cb_index_shift;
-
-		VERIFY(iBufferIndex<CBackend::MaxCBuffers);
-		VERIFY(RCache.m_aPixelConstants[iBufferIndex]);
-		return *RCache.m_aPixelConstants[iBufferIndex];
-	}
-	else if (BType == BT_VertexBuffer)
-	{
-		//	Decode index
-		int iBufferIndex = (C->destination & RC_dest_vertex_cb_index_mask) >> RC_dest_vertex_cb_index_shift;
-
-		VERIFY(iBufferIndex<CBackend::MaxCBuffers);
-		VERIFY(RCache.m_aVertexConstants[iBufferIndex]);
-		return *RCache.m_aVertexConstants[iBufferIndex];
-	}
-	else if (BType == BT_GeometryBuffer)
-	{
-		//	Decode index
-		int iBufferIndex = (C->destination & RC_dest_geometry_cb_index_mask) >> RC_dest_geometry_cb_index_shift;
-
-		VERIFY(iBufferIndex<CBackend::MaxCBuffers);
-		VERIFY(RCache.m_aGeometryConstants[iBufferIndex]);
-		return *RCache.m_aGeometryConstants[iBufferIndex];
-	}
-#ifdef USE_DX11
-	else if (BType == BT_HullBuffer)
-	{
-		//	Decode index
-		int iBufferIndex = (C->destination & RC_dest_hull_cb_index_mask) >> RC_dest_hull_cb_index_shift;
-
-		VERIFY(iBufferIndex<CBackend::MaxCBuffers);
-		VERIFY(RCache.m_aHullConstants[iBufferIndex]);
-		return *RCache.m_aHullConstants[iBufferIndex];
-	}
-	else if (BType == BT_DomainBuffer)
-	{
-		//	Decode index
-		int iBufferIndex = (C->destination & RC_dest_domain_cb_index_mask) >> RC_dest_domain_cb_index_shift;
-
-		VERIFY(iBufferIndex<CBackend::MaxCBuffers);
-		VERIFY(RCache.m_aDomainConstants[iBufferIndex]);
-		return *RCache.m_aDomainConstants[iBufferIndex];
-	}
-	else if (BType == BT_Compute)
-	{
-		//	Decode index
-		int iBufferIndex = (C->destination & RC_dest_compute_cb_index_mask) >> RC_dest_compute_cb_index_shift;
-
-		VERIFY(iBufferIndex<CBackend::MaxCBuffers);
-		VERIFY(RCache.m_aComputeConstants[iBufferIndex]);
-		return *RCache.m_aComputeConstants[iBufferIndex];
-	}
-#endif
-
-	FATAL("Unreachable code");
-	//Just hack to avoid warning;
-	dx10ConstantBuffer* ptr = 0;
-	return *ptr;
-}
+// R_constants::GetCBuffer is inlined in dx10R_Backend_Runtime.h to avoid per-call overhead.
 
 // maps only the bound slots this stage recorded and only when the buffer says it changed
 static void flush_cb_stage(u32 stage, ref_cbuffer* slots)

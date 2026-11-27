@@ -35,14 +35,10 @@ bool CRenderTarget::svp_nearblur_pass()
 				HW.pContext->CopySubresourceRegion(m_svp_nb_mip_surf, 0, 0, 0, 0, rt_Generic_0->pSurface, 0, nullptr);
 				HW.pContext->GenerateMips(m_svp_nb_mip_tex->get_SRView());
 			}
-			{
-				ref_texture t; t.create("$user$svp_nearblur_src");
-				t->surface_set(m_svp_nb_mip_surf ? m_svp_nb_mip_surf : rt_Generic_0->pSurface);
-			}
-			{
-				ref_texture t; t.create("$user$svp_nearblur_pos");
-				t->surface_set(rt_Position->pSurface);
-			}
+			if (t_svp_nearblur_src)
+				t_svp_nearblur_src->surface_set(m_svp_nb_mip_surf ? m_svp_nb_mip_surf : rt_Generic_0->pSurface);
+			if (t_svp_nearblur_pos)
+				t_svp_nearblur_pos->surface_set(rt_Position->pSurface);
 			u_setrt(Width, Height, rt_secondVP->pRT, nullptr, nullptr, nullptr);
 			const float w = float(Width), h = float(Height);
 			u32 Offset = 0;

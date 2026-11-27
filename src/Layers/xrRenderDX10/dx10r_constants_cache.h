@@ -195,6 +195,6 @@ private:
 		*ppData = Buffer.AccessDirect(L, DataSize);
 	}
 
-	dx10ConstantBuffer& GetCBuffer(R_constant* C, BufferType BType);
+	ICF dx10ConstantBuffer& GetCBuffer(R_constant* C, BufferType BType);
 };
 #endif	//	dx10r_constants_cacheH

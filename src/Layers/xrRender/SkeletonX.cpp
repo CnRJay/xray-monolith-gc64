@@ -19,6 +19,9 @@
 #include "SkeletonCustom.h"
 #include "../../xrEngine/fmesh.h"
 #include "../../xrCPU_Pipe/xrCPU_Pipe.h"
+#if RENDER == R_R4
+#include "BonePaletteSIMD.h"
+#endif
 
 shared_str s_bones_array_const;
 shared_str s_bones_array_prev_const;
@@ -305,6 +308,69 @@ void CSkeletonX::_Render(ref_geom& hGeom, u32 vCount, u32 iOffset, u32 pCount)
 			{
 				PROF_EVENT("SEND_MATRICES");
 				u32 count = RMS_bonecount;
+#if RENDER == R_R4
+				if (count > 0)
+				{
+					const u32 byteSize = count * 3 * sizeof(Fvector4);
+					void* vData = nullptr;
+					void* gData = nullptr;
+					void* pData = nullptr;
+					if (array)
+						RCache.get_ConstantDirect(s_bones_array_const, byteSize, &vData, &gData, &pData);
+
+					if (vData)
+					{
+						if (arena_bones)
+							BonePaletteSIMD::TransposeContiguous4x3(static_cast<float*>(vData), reinterpret_cast<const float*>(arena_bones), count);
+						else
+							BonePaletteSIMD::TransposeStrided4x3(static_cast<float*>(vData), &render_bones[0].mRenderTransform, sizeof(CBoneInstance), count);
+
+						if (gData) CopyMemory(gData, vData, byteSize);
+						if (pData) CopyMemory(pData, vData, byteSize);
+					}
+					else if (array)
+					{
+						for (u32 mid = 0; mid < count; mid++)
+						{
+							const Fmatrix& M = get_bone_xform(u16(mid));
+							u32 id = mid * 3;
+							RCache.set_ca(&*array, id + 0, M._11, M._21, M._31, M._41);
+							RCache.set_ca(&*array, id + 1, M._12, M._22, M._32, M._42);
+							RCache.set_ca(&*array, id + 2, M._13, M._23, M._33, M._43);
+						}
+					}
+
+					if (RImplementation.phase == RImplementation.PHASE_NORMAL && RImplementation.o.ssfx_motionvectors && array_prev)
+					{
+						const u32 svp_idx = Device.m_SecondViewport.IsSVPFrame() ? 1u : 0u;
+						void* vPrev = nullptr;
+						void* gPrev = nullptr;
+						void* pPrev = nullptr;
+						RCache.get_ConstantDirect(s_bones_array_prev_const, byteSize, &vPrev, &gPrev, &pPrev);
+						if (vPrev)
+						{
+							BonePaletteSIMD::TransposeStrided4x3(
+								static_cast<float*>(vPrev),
+								&Parent->bone_instances[0].mRenderTransform_prev[svp_idx],
+								sizeof(CBoneInstance),
+								count);
+							if (gPrev) CopyMemory(gPrev, vPrev, byteSize);
+							if (pPrev) CopyMemory(pPrev, vPrev, byteSize);
+						}
+						else
+						{
+							for (u32 mid = 0; mid < count; mid++)
+							{
+								const Fmatrix& Mprev = Parent->LL_GetBoneInstance(u16(mid)).mRenderTransform_prev[svp_idx];
+								u32 id = mid * 3;
+								RCache.set_ca(&*array_prev, id + 0, Mprev._11, Mprev._21, Mprev._31, Mprev._41);
+								RCache.set_ca(&*array_prev, id + 1, Mprev._12, Mprev._22, Mprev._32, Mprev._42);
+								RCache.set_ca(&*array_prev, id + 2, Mprev._13, Mprev._23, Mprev._33, Mprev._43);
+							}
+						}
+					}
+				}
+#else
 				for (u32 mid = 0; mid < count; mid++)
 				{
 					const Fmatrix& M = get_bone_xform(u16(mid));
@@ -327,6 +393,7 @@ void CSkeletonX::_Render(ref_geom& hGeom, u32 vCount, u32 iOffset, u32 pCount)
 					}
 #endif
 				}
+#endif
 			}
 
 			// render

@@ -9,6 +9,60 @@
 
 #include "../../xrCore/profiler.h"
 
+ICF dx10ConstantBuffer& R_constants::GetCBuffer(R_constant* C, BufferType BType)
+{
+	switch (BType)
+	{
+	case BT_PixelBuffer:
+	{
+		const int iBufferIndex = (C->destination & RC_dest_pixel_cb_index_mask) >> RC_dest_pixel_cb_index_shift;
+		VERIFY(iBufferIndex < CBackend::MaxCBuffers);
+		VERIFY(RCache.m_aPixelConstants[iBufferIndex]);
+		return *RCache.m_aPixelConstants[iBufferIndex];
+	}
+	case BT_VertexBuffer:
+	{
+		const int iBufferIndex = (C->destination & RC_dest_vertex_cb_index_mask) >> RC_dest_vertex_cb_index_shift;
+		VERIFY(iBufferIndex < CBackend::MaxCBuffers);
+		VERIFY(RCache.m_aVertexConstants[iBufferIndex]);
+		return *RCache.m_aVertexConstants[iBufferIndex];
+	}
+	case BT_GeometryBuffer:
+	{
+		const int iBufferIndex = (C->destination & RC_dest_geometry_cb_index_mask) >> RC_dest_geometry_cb_index_shift;
+		VERIFY(iBufferIndex < CBackend::MaxCBuffers);
+		VERIFY(RCache.m_aGeometryConstants[iBufferIndex]);
+		return *RCache.m_aGeometryConstants[iBufferIndex];
+	}
+#ifdef USE_DX11
+	case BT_HullBuffer:
+	{
+		const int iBufferIndex = (C->destination & RC_dest_hull_cb_index_mask) >> RC_dest_hull_cb_index_shift;
+		VERIFY(iBufferIndex < CBackend::MaxCBuffers);
+		VERIFY(RCache.m_aHullConstants[iBufferIndex]);
+		return *RCache.m_aHullConstants[iBufferIndex];
+	}
+	case BT_DomainBuffer:
+	{
+		const int iBufferIndex = (C->destination & RC_dest_domain_cb_index_mask) >> RC_dest_domain_cb_index_shift;
+		VERIFY(iBufferIndex < CBackend::MaxCBuffers);
+		VERIFY(RCache.m_aDomainConstants[iBufferIndex]);
+		return *RCache.m_aDomainConstants[iBufferIndex];
+	}
+	case BT_Compute:
+	{
+		const int iBufferIndex = (C->destination & RC_dest_compute_cb_index_mask) >> RC_dest_compute_cb_index_shift;
+		VERIFY(iBufferIndex < CBackend::MaxCBuffers);
+		VERIFY(RCache.m_aComputeConstants[iBufferIndex]);
+		return *RCache.m_aComputeConstants[iBufferIndex];
+	}
+#endif
+	default:
+		FATAL("Unreachable code");
+		return *RCache.m_aPixelConstants[0];
+	}
+}
+
 IC void CBackend::set_xform(u32 ID, const Fmatrix& M)
 {
 	stat.xforms ++;
