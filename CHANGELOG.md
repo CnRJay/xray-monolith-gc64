@@ -56,6 +56,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Disabled unused renderers in single-renderer configurations in `src/engine-vs2026.sln`.
 
 ### Fixed
+- **3DSS / True PIP Scope Lens Capture & TAA Motion Vectors**:
+  - Removed a stale pre-`tlip-pip` `bCaptureScopeLens` early-return block in `CDSGraphManager::r_dsgraph_insert_dynamic()` that discarded all `iScopeLense > 0` visuals before `tlip-pip`'s lens/reflex capture could run (which caused scopes to render as empty hollow tubes).
+  - Removed duplicate `Device.matrices_previous[0..1] = Device.matrices[0..1]` overwrites in `CRenderDevice::on_idle()` that were zeroing out previous-frame camera view/projection matrices (`m_v_prev`/`m_p_prev`) and breaking SSS TAA camera motion vectors.
 - **Froxel Volumetrics & Post-Process Ping-Pong Interaction**:
   - Preserved `RCache.textureOverrides` across `CVolumetricFroxels::ApplyToScene()` (`RCache.Invalidate(false)`) so `r4_post_pingpong 1` no longer alternates to the wrong swapped render target (eliminating the half-rate black-frame flickering when `r4_volumetric_froxels 1`).
   - Enabled `D3DCOMPILE_IEEE_STRICTNESS` for froxel shaders so `isnan`/`isinf` guards are preserved by the HLSL optimizer, and unbound the scene RTV after `ApplyToScene()`.
