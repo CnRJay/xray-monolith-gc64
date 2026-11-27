@@ -299,6 +299,21 @@ void CDetailManager::UpdateVisibleM()
 	CFrustum View;
 	View.CreateFromMatrix(RDEVICE.mFullTransform_saved, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
 
+	bool bSVP = false;
+	CFrustum ViewSVP;
+	float svp_ssa_boost = 1.0f;
+#if RENDER == R_R4
+	if (RDEVICE.m_SecondViewport.IsSVPActive() && RDEVICE.matrices[1].mProject._22 > EPS && RDEVICE.matrices[0].mProject._22 > EPS)
+	{
+		Fmatrix mSVP;
+		mSVP.mul(RDEVICE.matrices[1].mProject, RDEVICE.matrices[1].mView);
+		ViewSVP.CreateFromMatrix(mSVP, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
+		const float mag = clampr(RDEVICE.matrices[1].mProject._22 / RDEVICE.matrices[0].mProject._22, 1.0f, 8.0f);
+		svp_ssa_boost = mag * mag;
+		bSVP = true;
+	}
+#endif
+
 	CFrustum View_old;
 	Fmatrix Viewm_old = RDEVICE.mFullTransform;
 	View_old.CreateFromMatrix(Viewm_old, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
@@ -325,7 +340,9 @@ void CDetailManager::UpdateVisibleM()
 			}
 			u32 mask = 0xff;
 			u32 res = View.testSphere(MS.vis.sphere.P, MS.vis.sphere.R, mask);
-			if (fcvNone == res)
+			u32 mask_svp = 0xff;
+			u32 res_svp = bSVP ? ViewSVP.testSphere(MS.vis.sphere.P, MS.vis.sphere.R, mask_svp) : fcvNone;
+			if (fcvNone == res && fcvNone == res_svp)
 			{
 				continue; // invisible-view frustum
 			}
@@ -347,15 +364,21 @@ void CDetailManager::UpdateVisibleM()
 					continue;
 				}
 
-				// if upper test = fcvPartial - test inner slots
+				u32 slot_res = res;
 				if (fcvPartial == res)
 				{
 					u32 _mask = mask;
-					u32 _res = View.testSphere(S.vis.sphere.P, S.vis.sphere.R, _mask);
-					if (fcvNone == _res)
-					{
-						continue; // invisible-view frustum
-					}
+					slot_res = View.testSphere(S.vis.sphere.P, S.vis.sphere.R, _mask);
+				}
+				u32 slot_res_svp = res_svp;
+				if (bSVP && fcvPartial == res_svp)
+				{
+					u32 _mask_svp = mask_svp;
+					slot_res_svp = ViewSVP.testSphere(S.vis.sphere.P, S.vis.sphere.R, _mask_svp);
+				}
+				if (fcvNone == slot_res && fcvNone == slot_res_svp)
+				{
+					continue;
 				}
 #ifndef _EDITOR
 				if (!RImplementation.HOM.visible(S.vis))
@@ -394,7 +417,9 @@ void CDetailManager::UpdateVisibleM()
 						sp.r_items[2].clear_not_free();
 
 						float R = objects[sp.id]->bv_sphere.R;
-						float Rq_drcp = R * R * dist_sq_rcp; // reordered expression for 'ssa' calc
+						float Rq_drcp = R * R * dist_sq_rcp;
+						if (bSVP && fcvNone != slot_res_svp)
+							Rq_drcp *= svp_ssa_boost;
 
 						SlotItem **siIT = &(*sp.items.begin()), **siEND = &(*sp.items.end());
 						for (; siIT != siEND; siIT++)

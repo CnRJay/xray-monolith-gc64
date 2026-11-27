@@ -552,7 +552,8 @@ void CRender::create()
 void CRender::initializeTargets()
 {
 	TargetMain = xr_new<CRenderTarget>("main", Device.dwWidth, Device.dwHeight);
-	TargetSVP = xr_new<CRenderTarget>("svp", Device.svp_width(), Device.svp_height());
+	const u32 svp_dim = _max(128u, u32(float(Device.dwHeight) * clampr(ps_r__svp_scale, 0.25f, 1.0f)) & ~7u);
+	TargetSVP = xr_new<CRenderTarget>("svp", svp_dim, svp_dim);
 	TargetMain->SetActive();
 }
 

@@ -369,10 +369,12 @@ void CRender::renderGBuffer()
 
 		if (ps_ssfx_sss_quality.w > 0)
 		{
-			// Extra lights
-			PIX_EVENT(phase_ssfx_sss_ext);
-			Target->phase_ssfx_sss_ext(RImplementation.LP_normal);
-			sss_extended_rendered = true;
+			if (!(Device.m_SecondViewport.IsSVPFrame() && ps_r__svp_quality == 0))
+			{
+				PIX_EVENT(phase_ssfx_sss_ext);
+				Target->phase_ssfx_sss_ext(RImplementation.LP_normal);
+				sss_extended_rendered = true;
+			}
 		}
 		else
 		{

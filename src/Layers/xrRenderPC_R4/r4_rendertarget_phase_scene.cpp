@@ -26,6 +26,50 @@ void CRenderTarget::phase_scene_prepare()
 			HW.pContext->ClearDepthStencilView(baseZB, D3D_CLEAR_DEPTH | D3D_CLEAR_STENCIL, 1.0f, 0);
 		}
 
+		// Pre-populate depth=0 in the 4 outer corners of the square SVP target outside the lens circle.
+		// Early-Z rejects geometry fragments and leaves stencil=0 so deferred lighting skips them too.
+		if (Device.m_SecondViewport.IsSVPFrame())
+		{
+			constexpr int kSegsPerCorner = 8;
+			constexpr int kTris = 4 * kSegsPerCorner;
+			constexpr u32 kVerts = kTris * 3;
+			const float w = float(Device.dwWidth);
+			const float h = float(Device.dwHeight);
+			const float cx = w * 0.5f;
+			const float cy = h * 0.5f;
+			// Margin beyond 0.5 covers lens distortion / chromatic aberration / TAA jitter.
+			const float rx = w * 0.55f;
+			const float ry = h * 0.55f;
+
+			const float corners[4][2] = { { w, h }, { 0.0f, h }, { 0.0f, 0.0f }, { w, 0.0f } };
+			const float startAngles[4] = { 0.0f, PI_DIV_2, PI, PI + PI_DIV_2 };
+
+			u32 Offset = 0;
+			FVF::TL* pv = (FVF::TL*)RCache.Vertex.Lock(kVerts, g_combine->vb_stride, Offset);
+			for (int q = 0; q < 4; ++q)
+			{
+				const float cornerX = corners[q][0];
+				const float cornerY = corners[q][1];
+				const float a0 = startAngles[q];
+				for (int s = 0; s < kSegsPerCorner; ++s)
+				{
+					const float t0 = a0 + (PI_DIV_2 * float(s)) / float(kSegsPerCorner);
+					const float t1 = a0 + (PI_DIV_2 * float(s + 1)) / float(kSegsPerCorner);
+					pv->set(cornerX, cornerY, 0.0f, 1.0f, 0, 0.0f, 0.0f); ++pv;
+					pv->set(cx + cosf(t0) * rx, cy + sinf(t0) * ry, 0.0f, 1.0f, 0, 0.0f, 0.0f); ++pv;
+					pv->set(cx + cosf(t1) * rx, cy + sinf(t1) * ry, 0.0f, 1.0f, 0, 0.0f, 0.0f); ++pv;
+				}
+			}
+			RCache.Vertex.Unlock(kVerts, g_combine->vb_stride);
+
+			RCache.set_Element(s_occq->E[3]);
+			RCache.set_ZFunc(D3DCMP_ALWAYS);
+			RCache.set_Geometry(g_combine);
+			RCache.Render(D3DPT_TRIANGLELIST, Offset, kTris);
+			RCache.set_ZFunc(D3DCMP_LESSEQUAL);
+			RCache.set_ColorWriteEnable();
+		}
+
 	//	Igor: for volumetric lights
 	m_bHasActiveVolumetric = false;
 	m_bHasActiveVolumetric_spot = false;

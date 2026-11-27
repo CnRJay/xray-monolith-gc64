@@ -189,6 +189,8 @@ extern ECORE_API int ps_r2_nightvision;
 extern ECORE_API int scope_fake_enabled; //crookr
 extern ECORE_API int scope_3D_fake_enabled; // Redotix99: for 3D Shader Based Scopes
 extern ECORE_API int scope_svp_enabled; // Second Viewport scopes
+extern ECORE_API float ps_r__svp_scale;
+extern ECORE_API int ps_r__svp_quality;
 
 // Offset of objective lens from eyepiece lens with w representing radius
 //   the units are based off the eyepiece dimensions from mesh bounding sphere

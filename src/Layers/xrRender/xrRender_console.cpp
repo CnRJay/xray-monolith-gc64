@@ -292,6 +292,8 @@ Fvector4 heat_vision_args_2 = { .0f, .0f, .0f, .0f };
 int scope_fake_enabled = 1;
 int scope_3D_fake_enabled = 0; // Redotix99: for 3D Shader Based Scopes
 int scope_svp_enabled = 0;
+float ps_r__svp_scale = 0.5f;
+int ps_r__svp_quality = 0;
 Fvector4 scope_objective_lens_offset = { .0f, .0f, .0f, .0f };
 int scope_debug = 0;
 //string32 scope_fake_texture = "wpn\\wpn_crosshair_pso1";
@@ -1608,6 +1610,8 @@ void xrRender_initconsole()
 	CMD4(CCC_Integer, "r__fakescope", &scope_fake_enabled, 0, 0); //crookr for fake scope
 	CMD4(CCC_Integer, "r__3Dfakescope", &scope_3D_fake_enabled, 1, 1); // Redotix99: for 3D Shader Based Scopes
 	CMD4(CCC_Integer, "r__svpscope", &scope_svp_enabled, 0, 2);
+	CMD4(CCC_Float, "r__svp_scale", &ps_r__svp_scale, 0.25f, 1.0f);
+	CMD4(CCC_Integer, "r__svp_quality", &ps_r__svp_quality, 0, 1);
 	CMD4(CCC_Integer, "r__scope_debug", &scope_debug, 0, 4);
 
 	CMD4(CCC_Integer, "r__heatvision", &ps_r2_heatvision, 0, 1); //--DSR-- HeatVision

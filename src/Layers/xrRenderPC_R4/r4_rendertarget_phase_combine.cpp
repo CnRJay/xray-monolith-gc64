@@ -159,13 +159,15 @@ void CRenderTarget::phase_combine()
 			HW.pContext->ClearRenderTargetView(rt_ssfx_temp2->pRT, ColorRGBA);
 		}
 
+		const bool svpFast = Device.m_SecondViewport.IsSVPFrame() && (ps_r__svp_quality == 0);
+
 		if (RImplementation.o.ssfx_ao && ps_ssfx_ao.y > 0)
 		{
 			ssfx_PrevPos_Requiered = true;
 			phase_ssfx_ao(); // [SSFX] - New AO Phase
 		}
 
-		if (RImplementation.o.ssfx_il && ps_ssfx_il.y > 0)
+		if (RImplementation.o.ssfx_il && ps_ssfx_il.y > 0 && !svpFast)
 		{
 			PIX_EVENT(phase_ssfx_il);
 			ssfx_PrevPos_Requiered = true;
@@ -386,7 +388,7 @@ void CRenderTarget::phase_combine()
 			HW.pContext->CopyResource(rt_Generic_temp->pTexture->surface_get(), rt_Generic_0_r->pTexture->surface_get());
 	}
 
-	if (RImplementation.o.ssfx_ssr)
+	if (RImplementation.o.ssfx_ssr && !(Device.m_SecondViewport.IsSVPFrame() && ps_r__svp_quality == 0))
 	{
 		PIX_EVENT(phase_ssfx_ssr);
 		ssfx_PrevPos_Requiered = true;
@@ -586,7 +588,7 @@ void CRenderTarget::phase_combine()
 		phase_ssfx_taa();
 	}
 
-	if (RImplementation.o.ssfx_motionblur && ps_ssfx_motionblur.y > 0)
+	if (RImplementation.o.ssfx_motionblur && ps_ssfx_motionblur.y > 0 && !(Device.m_SecondViewport.IsSVPFrame() && ps_r__svp_quality == 0))
 	{
 		PIX_EVENT(phase_ssfx_motion_blur);
 		phase_ssfx_motion_blur();
@@ -606,7 +608,8 @@ void CRenderTarget::phase_combine()
 		phase_3DSSReticle(); // Redotix99: for 3D Shader Based Scopes
 	}
 
-	//Compute blur textures
+	//Compute blur textures (only needed on SVP when NVG is active)
+	if (!Device.m_SecondViewport.IsSVPFrame() || ps_r__svp_quality > 0 || ps_r2_nightvision > 0)
 	{
 		PIX_EVENT(phase_blur);
 		phase_blur();

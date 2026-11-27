@@ -731,6 +731,18 @@ CRenderTarget::CRenderTarget(LPCSTR name, u32 width, u32 height)
 			rt_ssfx_sss_ext = createUnique(r2_RT_ssfx_sss_ext, w, h, D3DFMT_A8R8G8B8); // SSS EXT Acc
 			rt_ssfx_sss_ext2 = createUnique(r2_RT_ssfx_sss_ext2, w, h, D3DFMT_A8R8G8B8); // SSS EXT Acc
 			rt_ssfx_sss_tmp = createUnique(r2_RT_ssfx_sss_tmp, w, h, D3DFMT_A8R8G8B8); // SSS EXT Acc
+			if (!isMain)
+			{
+				const FLOAT one[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+				HW.pContext->ClearRenderTargetView(rt_ssfx_sss_tmp->pRT, one);
+			}
+		}
+
+		if (!isMain)
+		{
+			const FLOAT zero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			HW.pContext->ClearRenderTargetView(rt_ssfx_ssr->pRT, zero);
+			HW.pContext->ClearRenderTargetView(rt_ssfx_il->pRT, zero);
 		}
 
 		if (RImplementation.o.ssfx_bloom && isMain)
