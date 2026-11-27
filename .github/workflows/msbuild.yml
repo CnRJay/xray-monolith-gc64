@@ -1,469 +1,172 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+name: Build DX11
 
-name: MSBuild
 run-name: >-
-  ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && format('MSBuild PR #{0} @ {1} ({2})', github.event.pull_request.number || inputs.pr_number, github.event.pull_request.head.sha || inputs.pr_head_sha, github.base_ref || github.ref_name) || format('MSBuild {0}', github.ref_name) }}
+  ${{ github.event_name == 'pull_request' && format('Build DX11 PR #{0} ({1})', github.event.pull_request.number, github.head_ref) || format('Build DX11 ({0})', github.ref_name) }}
 
 on:
   push:
-    branches: [ "all-in-one-vs2022-wpo", "dev", "dev-mt" ]
+    branches:
+      - "all-in-one-vs2022-wpo"
+      - "feat/**"
   pull_request:
-    branches: [ "dev", "dev-mt" ]
-    types: [opened, synchronize, reopened]
+    branches:
+      - "all-in-one-vs2022-wpo"
   workflow_dispatch:
-    inputs:
-      pr_number:
-        description: Pull request to build after retargeting
-        required: true
-        type: string
-      pr_head_sha:
-        description: Expected PR head commit
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: msbuild-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}-${{ github.event.pull_request.head.sha || inputs.pr_head_sha || github.sha }}-${{ github.base_ref || github.ref_name }}
+  group: msbuild-dx11-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Path to the solution file relative to the root of the project.
   SOLUTION_FILE_PATH: src/engine-vs2026.sln
-
-  # Configuration type to build.
-  # You can convert this to a build matrix if you need coverage of multiple configuration types.
-  # https://docs.github.com/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-  DX11: DX11
-  DX10: DX10
-  DX9: DX9
-  DX8: DX8
-  DX11AVX: DX11-AVX
-  DX10AVX: DX10-AVX
-  DX9AVX: DX9-AVX
-  DX8AVX: DX8-AVX
   PACK_GAMEDATA_NAME: 00_modded_exes_gamedata.db0
 
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      base: ${{ steps.source.outputs.base }}
-      ref: ${{ steps.source.outputs.ref }}
-    steps:
-    - name: Resolve build source
-      id: source
-      shell: python
-      env:
-        GH_TOKEN: ${{ github.token }}
-        PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
-        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || inputs.pr_head_sha }}
-      run: |
-        import json
-        import os
-        import re
-        import subprocess
-        import time
-
-        def output(**values):
-            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
-                for name, value in values.items():
-                    stream.write(f"{name}={value}\n")
-
-        def api(endpoint):
-            return json.loads(subprocess.check_output(["gh", "api", endpoint], text=True))
-
-        event_name = os.environ["GITHUB_EVENT_NAME"]
-        if event_name == "push":
-            output(base=os.environ["GITHUB_REF_NAME"], ref=os.environ["GITHUB_SHA"])
-            raise SystemExit(0)
-
-        number = os.environ["PR_NUMBER"]
-        if not re.fullmatch(r"[1-9][0-9]*", number):
-            raise SystemExit("PR number must be a positive integer")
-        repo = os.environ["GITHUB_REPOSITORY"]
-        endpoint = f"repos/{repo}/pulls/{number}"
-        if event_name == "pull_request":
-            with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
-                pull = json.load(stream)["pull_request"]
-        else:
-            pull = api(endpoint)
-        if pull["state"] != "open":
-            print("PR is closed; skipping the build")
-            raise SystemExit(0)
-        base = pull["base"]["ref"]
-        head = pull["head"]["sha"]
-        if base not in ("dev", "dev-mt"):
-            raise SystemExit("PR must target dev or dev-mt")
-        if not re.fullmatch(r"[0-9a-f]{40}", head):
-            raise SystemExit("Invalid PR head SHA")
-        if head != os.environ["PR_HEAD_SHA"]:
-            raise SystemExit("PR head changed before the build started")
-        if event_name == "workflow_dispatch" and base != os.environ["GITHUB_REF_NAME"]:
-            raise SystemExit("PR target changed before the build started")
-        output(base=base)
-        if event_name == "pull_request":
-            output(ref=os.environ["GITHUB_SHA"])
-            raise SystemExit(0)
-
-        # Retargeting regenerates the test merge asynchronously. Check both
-        # parents so a stale merge from the old target cannot be built.
-        for attempt in range(12):
-            if attempt:
-                time.sleep(5)
-                pull = api(endpoint)
-            if pull["state"] != "open" or pull["base"]["ref"] != base or pull["head"]["sha"] != head:
-                raise SystemExit("PR changed while preparing the build")
-            if pull.get("mergeable") is False:
-                raise SystemExit("PR has merge conflicts with its target branch")
-            merge_sha = pull.get("merge_commit_sha")
-            if pull.get("mergeable") is True and merge_sha:
-                commit = api(f"repos/{repo}/git/commits/{merge_sha}")
-                base_head = api(f"repos/{repo}/git/ref/heads/{base}")["object"]["sha"]
-                parents = [parent["sha"] for parent in commit["parents"]]
-                if parents == [base_head, head]:
-                    output(ref=merge_sha)
-                    raise SystemExit(0)
-        raise SystemExit("Timed out waiting for the PR's updated merge commit")
-
   pack_gamedata:
     if: github.event_name == 'push' && github.ref == 'refs/heads/all-in-one-vs2022-wpo'
-    name: pack_gamedata
+    name: Pack gamedata
     runs-on: windows-2025-vs2026
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - name: Pack gamedata
-      run: |
-        new-item -path "./compressor/gamedata" -itemtype directory -force
-        copy-item -path "./gamedata/*" -destination "./compressor/gamedata" -recurse -force
-        cd ./compressor
-        start-process -filepath "./! compress_gamedata.cmd" -Wait
-        rename-item -path gamedata.db0 -newname ${{env.PACK_GAMEDATA_NAME}}
-        
-    - name: Upload gamedata
-      uses: actions/upload-artifact@v4.6.0
-      with:
-        # Artifact name
-        name: ${{env.PACK_GAMEDATA_NAME}}
-        
-        # A file, directory or wildcard pattern that describes what to upload
-        path: ./compressor/${{env.PACK_GAMEDATA_NAME}}
-        
-        # The desired behavior if no files are found using the provided path. Available Options:
-          #  warn: Output a warning but do not fail the action
-          #  error: Fail the action with an error message
-          #  ignore: Do not output any warnings or errors, the action does not fail
-        if-no-files-found: "error"
-        
-        # Duration after which artifact will expire in days. 0 means using default retention. Minimum 1 day. Maximum 90 days unless changed from the repository settings page.
-        retention-days: 1
-        
-  build:
-    needs: prepare
-    if: needs.prepare.outputs.base != '' && needs.prepare.outputs.base != 'dev-mt'
-    name: build-job
+      - name: Pack gamedata
+        run: |
+          New-Item -Path "./compressor/gamedata" -ItemType Directory -Force | Out-Null
+          Copy-Item -Path "./gamedata/*" -Destination "./compressor/gamedata" -Recurse -Force
+          Push-Location "./compressor"
+          Start-Process -FilePath "./! compress_gamedata.cmd" -Wait
+          Rename-Item -Path "gamedata.db0" -NewName "${{ env.PACK_GAMEDATA_NAME }}"
+          Pop-Location
+
+      - name: Upload gamedata
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: ${{ env.PACK_GAMEDATA_NAME }}
+          path: ./compressor/${{ env.PACK_GAMEDATA_NAME }}
+          if-no-files-found: error
+          retention-days: 1
+
+  build_dx11:
+    name: Build DX11 (x64)
     runs-on: windows-2025-vs2026
 
-    strategy:
-      matrix:
-        buildconf: ["DX11", "DX10", "DX9", "DX8", "DX11-AVX", "DX10-AVX", "DX9-AVX", "DX8-AVX"]
-
     steps:
-    - name: Configure Pagefile
-      # You may pin to the exact commit or the version.
-      # uses: al-cheb/configure-pagefile-action@86589fd789a4de3e62ba628dda2cb10027b66d67
-      uses: al-cheb/configure-pagefile-action@v1.3
-      with:
-        # Set minimum size of Pagefile
-        minimum-size: 8GB
-        # Set maximum size of Pagefile
-        maximum-size: 8GB
-        # Set disk root where pagefile.sys will be located
-        disk-root: "C:"
-        
-    - name: Checkout repo
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ needs.prepare.outputs.ref }}
-        persist-credentials: false
-      
-    - name: Init submodules
-      uses: snickerbockers/submodules-init@v4
+      - name: Configure Pagefile
+        uses: al-cheb/configure-pagefile-action@v1.3
+        with:
+          minimum-size: 8GB
+          maximum-size: 8GB
+          disk-root: "C:"
 
-    - name: setup-msbuild
-      uses: microsoft/setup-msbuild@v3
-      with:
-        # Version of Visual Studio to search; defaults to latest if not specified
-        vs-version: '[18.0, 19.0)'
-        # The preferred processor architecture of MSBuild. Can be either "x86", "x64", or "arm64". "x64" is only available from Visual Studio version 17.0 and later.
-        msbuild-architecture: "x64"
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-    # - name: Fake Build ${{matrix.buildconf}}
-    #   working-directory: ${{env.GITHUB_WORKSPACE}}
-    #   run: |
-    #     New-Item -Type Directory -Path "./_build/_game/bin_dbg"
-    #     New-Item -Path "./_build/_game/bin_dbg/${{matrix.buildconf}}.exe"
-    #     New-Item -Path "./_build/_game/bin_dbg/${{matrix.buildconf}}.pdb"
+      - name: Init submodules
+        uses: snickerbockers/submodules-init@v4
 
-    - name: Build ${{matrix.buildconf}}
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      # Add additional options to the MSBuild command line here (like platform or verbosity level).
-      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
-      run: msbuild /p:Configuration=${{matrix.buildconf}} ${{env.SOLUTION_FILE_PATH}}
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+        with:
+          vs-version: "[18.0, 19.0)"
+          msbuild-architecture: "x64"
 
-    - name: Upload Exe
-      uses: actions/upload-artifact@v4.6.0
-      with:
-        # Artifact name
-        name: ${{matrix.buildconf}}_exe
-        
-        # A file, directory or wildcard pattern that describes what to upload
-        path: ./_build/_game/bin_dbg/*.exe
-        
-        # The desired behavior if no files are found using the provided path. Available Options:
-          #  warn: Output a warning but do not fail the action
-          #  error: Fail the action with an error message
-          #  ignore: Do not output any warnings or errors, the action does not fail
-        if-no-files-found: "error"
-        
-        # Duration after which artifact will expire in days. 0 means using default retention. Minimum 1 day. Maximum 90 days unless changed from the repository settings page.
-        retention-days: 1
+      - name: Build DX11
+        working-directory: ${{ env.GITHUB_WORKSPACE }}
+        run: msbuild ${{ env.SOLUTION_FILE_PATH }} /p:Configuration=DX11 /p:Platform=x64 /m /nologo /v:minimal
 
-    - name: Zip PDB
-      run: |
-        cd ./_build/_game/bin_dbg
-        compress-archive -DestinationPath "STALKER-Anomaly-modded-exes_${{matrix.buildconf}}_pdb.zip" -Path "./*.pdb"
+      - name: Upload DX11 Executable
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: DX11_exe
+          path: ./_build/_game/bin_dbg/*.exe
+          if-no-files-found: error
+          retention-days: 7
 
-    - name: Upload PDB
-      uses: actions/upload-artifact@v4.6.0
-      with:
-        # Artifact name
-        name: ${{matrix.buildconf}}_pdb
-        
-        # A file, directory or wildcard pattern that describes what to upload
-        path: ./_build/_game/bin_dbg/*.zip
-        
-        # The desired behavior if no files are found using the provided path. Available Options:
-          #  warn: Output a warning but do not fail the action
-          #  error: Fail the action with an error message
-          #  ignore: Do not output any warnings or errors, the action does not fail
-        if-no-files-found: "error"
-        
-        # Duration after which artifact will expire in days. 0 means using default retention. Minimum 1 day. Maximum 90 days unless changed from the repository settings page.
-        retention-days: 1
+      - name: Zip DX11 PDB
+        run: |
+          Push-Location "./_build/_game/bin_dbg"
+          Compress-Archive -DestinationPath "STALKER-Anomaly-modded-exes_DX11_pdb.zip" -Path "./*.pdb"
+          Pop-Location
 
-  build_mt:
-    needs: prepare
-    if: needs.prepare.outputs.base != '' && needs.prepare.outputs.base != 'dev'
-    name: build-mt-job
-    runs-on: windows-2025-vs2026
-
-    strategy:
-      matrix:
-        buildconf: ["DX11", "DX10", "DX9", "DX8", "DX11-AVX", "DX10-AVX", "DX9-AVX", "DX8-AVX"]
-
-    steps:
-    - name: Configure Pagefile
-      # You may pin to the exact commit or the version.
-      # uses: al-cheb/configure-pagefile-action@86589fd789a4de3e62ba628dda2cb10027b66d67
-      uses: al-cheb/configure-pagefile-action@v1.3
-      with:
-        # Set minimum size of Pagefile
-        minimum-size: 8GB
-        # Set maximum size of Pagefile
-        maximum-size: 8GB
-        # Set disk root where pagefile.sys will be located
-        disk-root: "C:"
-
-    - name: Checkout repo
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ needs.prepare.outputs.base == 'all-in-one-vs2022-wpo' && 'all-in-one-vs2022-wpo-mt' || needs.prepare.outputs.ref }}
-        persist-credentials: false
-
-    - name: Init submodules
-      uses: snickerbockers/submodules-init@v4
-
-    - name: setup-msbuild
-      uses: microsoft/setup-msbuild@v3
-      with:
-        # Version of Visual Studio to search; defaults to latest if not specified
-        vs-version: '[18.0, 19.0)'
-        # The preferred processor architecture of MSBuild. Can be either "x86", "x64", or "arm64". "x64" is only available from Visual Studio version 17.0 and later.
-        msbuild-architecture: "x64"
-
-    # - name: Fake Build ${{matrix.buildconf}}
-    #   working-directory: ${{env.GITHUB_WORKSPACE}}
-    #   run: |
-    #     New-Item -Type Directory -Path "./_build/_game/bin_dbg"
-    #     New-Item -Path "./_build/_game/bin_dbg/${{matrix.buildconf}}_mt.exe"
-    #     New-Item -Path "./_build/_game/bin_dbg/${{matrix.buildconf}}_mt.pdb"
-
-    - name: Build ${{matrix.buildconf}}
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      # Add additional options to the MSBuild command line here (like platform or verbosity level).
-      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
-      run: msbuild /p:Configuration=${{matrix.buildconf}} ${{env.SOLUTION_FILE_PATH}}
-
-    - name: Upload Exe
-      uses: actions/upload-artifact@v4.6.0
-      with:
-        # Artifact name
-        name: ${{matrix.buildconf}}_mt_exe
-
-        # A file, directory or wildcard pattern that describes what to upload
-        path: ./_build/_game/bin_dbg/*.exe
-
-        # The desired behavior if no files are found using the provided path. Available Options:
-          #  warn: Output a warning but do not fail the action
-          #  error: Fail the action with an error message
-          #  ignore: Do not output any warnings or errors, the action does not fail
-        if-no-files-found: "error"
-
-        # Duration after which artifact will expire in days. 0 means using default retention. Minimum 1 day. Maximum 90 days unless changed from the repository settings page.
-        retention-days: 1
-
-    - name: Zip PDB
-      run: |
-        cd ./_build/_game/bin_dbg
-        compress-archive -DestinationPath "STALKER-Anomaly-modded-exes_${{matrix.buildconf}}_mt_pdb.zip" -Path "./*.pdb"
-
-    - name: Upload PDB
-      uses: actions/upload-artifact@v4.6.0
-      with:
-        # Artifact name
-        name: ${{matrix.buildconf}}_mt_pdb
-
-        # A file, directory or wildcard pattern that describes what to upload
-        path: ./_build/_game/bin_dbg/*.zip
-
-        # The desired behavior if no files are found using the provided path. Available Options:
-          #  warn: Output a warning but do not fail the action
-          #  error: Fail the action with an error message
-          #  ignore: Do not output any warnings or errors, the action does not fail
-        if-no-files-found: "error"
-
-        # Duration after which artifact will expire in days. 0 means using default retention. Minimum 1 day. Maximum 90 days unless changed from the repository settings page.
-        retention-days: 1
+      - name: Upload DX11 PDB
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: DX11_pdb
+          path: ./_build/_game/bin_dbg/*.zip
+          if-no-files-found: error
+          retention-days: 7
 
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/all-in-one-vs2022-wpo'
-    needs: [pack_gamedata, build, build_mt]
-    name: Release
+    needs: [pack_gamedata, build_dx11]
+    name: Publish DX11 Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: write
+
     steps:
-    - uses: actions/checkout@v4
-      # with:
-      #   ref: all-in-one-vs2022
-    
-    - name: Get Datetime
-      id: datetime
-      run: echo "today=$(date +'%-Y.%-m.%-d')" >> "$GITHUB_OUTPUT"
-        
-    # Use the output from the `datetime` step
-    - name: Get Version
-      run: echo "VERSION ${{steps.datetime.outputs.today}}"
-      env:
-        VERSION: "${{steps.datetime.outputs.today}}"
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - name: Download artifacts
-      uses: actions/download-artifact@v4.1.8
+      - name: Get Datetime
+        id: datetime
+        run: echo "today=$(date +'%-Y.%-m.%-d')" >> "$GITHUB_OUTPUT"
 
-    - name: Zip Exe folder
-      run: |
-        mkdir release
-        mkdir release/bin
-        mkdir release/db
-        mkdir release/db/mods
+      - name: Extract Changelog Notes
+        shell: python
+        run: |
+          from pathlib import Path
+          changelog = Path("CHANGELOG.md")
+          notes = ""
+          if changelog.exists():
+              lines = changelog.read_text(encoding="utf-8").splitlines()
+              capture = False
+              out = []
+              for line in lines:
+                  if line.startswith("## "):
+                      if capture:
+                          break
+                      capture = True
+                      continue
+                  if capture:
+                      out.append(line)
+              notes = "\n".join(out).strip()
+          Path("release_notes.md").write_text(notes + "\n" if notes else "", encoding="utf-8")
 
-        mkdir release_mt
-        mkdir release_mt/bin
-        mkdir release_mt/db
-        mkdir release_mt/db/mods
+      - name: Download artifacts
+        uses: actions/download-artifact@v4.1.8
 
-        cp ${{env.PACK_GAMEDATA_NAME}}/*.db0 release/db/mods
-        mv ${{env.PACK_GAMEDATA_NAME}}/*.db0 release_mt/db/mods
+      - name: Package DX11 Release
+        run: |
+          mkdir -p release/bin release/db/mods pdb
+          mv "${{ env.PACK_GAMEDATA_NAME }}"/*.db0 release/db/mods/
+          mv DX11_exe/*.exe release/bin/
+          mv DX11_pdb/*.zip pdb/
 
-        mv ${{env.DX11}}_exe/*.exe release/bin
-        mv ${{env.DX10}}_exe/*.exe release/bin
-        mv ${{env.DX9}}_exe/*.exe release/bin
-        mv ${{env.DX8}}_exe/*.exe release/bin
-        mv ${{env.DX11AVX}}_exe/*.exe release/bin
-        mv ${{env.DX10AVX}}_exe/*.exe release/bin
-        mv ${{env.DX9AVX}}_exe/*.exe release/bin
-        mv ${{env.DX8AVX}}_exe/*.exe release/bin
+          cd release
+          zip -r "../STALKER-Anomaly-modded-exes-DX11_${{ steps.datetime.outputs.today }}.zip" ./*
+          cd ..
 
-        mv ${{env.DX11}}_mt_exe/*.exe release_mt/bin
-        mv ${{env.DX10}}_mt_exe/*.exe release_mt/bin
-        mv ${{env.DX9}}_mt_exe/*.exe release_mt/bin
-        mv ${{env.DX8}}_mt_exe/*.exe release_mt/bin
-        mv ${{env.DX11AVX}}_mt_exe/*.exe release_mt/bin
-        mv ${{env.DX10AVX}}_mt_exe/*.exe release_mt/bin
-        mv ${{env.DX9AVX}}_mt_exe/*.exe release_mt/bin
-        mv ${{env.DX8AVX}}_mt_exe/*.exe release_mt/bin
-        unzip ${{env.DX11}}_mt_pdb/*.zip -d release_mt/bin
-        unzip ${{env.DX11AVX}}_mt_pdb/*.zip -d release_mt/bin
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2.3.2
+        with:
+          files: |
+            *.zip
+            pdb/*.zip
+          tag_name: "${{ steps.datetime.outputs.today }}"
+          body_path: release_notes.md
+          generate_release_notes: true
+          token: "${{ secrets.GITHUB_TOKEN }}"
 
-        cd release
-        zip -r 'STALKER-Anomaly-modded-exes_${{steps.datetime.outputs.today}}.zip' ./*
-        mv 'STALKER-Anomaly-modded-exes_${{steps.datetime.outputs.today}}.zip' ../
-        cd ..
-
-        cd release_mt
-        zip -r 'STALKER-Anomaly-modded-exes-MT-TEST_${{steps.datetime.outputs.today}}.zip' ./*
-        mv 'STALKER-Anomaly-modded-exes-MT-TEST_${{steps.datetime.outputs.today}}.zip' ../
-        cd ..
-      env:
-        RELEASE_NAME_FULL: "${{steps.datetime.outputs.today}}"
-
-    - name: Move PDBs to folder
-      run: |
-        mkdir pdb
-        mv ${{env.DX11}}_pdb/*.zip pdb
-        mv ${{env.DX10}}_pdb/*.zip pdb
-        mv ${{env.DX9}}_pdb/*.zip pdb
-        mv ${{env.DX8}}_pdb/*.zip pdb
-        mv ${{env.DX11AVX}}_pdb/*.zip pdb
-        mv ${{env.DX10AVX}}_pdb/*.zip pdb
-        mv ${{env.DX9AVX}}_pdb/*.zip pdb
-        mv ${{env.DX8AVX}}_pdb/*.zip pdb
-
-        mv ${{env.DX11}}_mt_pdb/*.zip pdb
-        mv ${{env.DX10}}_mt_pdb/*.zip pdb
-        mv ${{env.DX9}}_mt_pdb/*.zip pdb
-        mv ${{env.DX8}}_mt_pdb/*.zip pdb
-        mv ${{env.DX11AVX}}_mt_pdb/*.zip pdb
-        mv ${{env.DX10AVX}}_mt_pdb/*.zip pdb
-        mv ${{env.DX9AVX}}_mt_pdb/*.zip pdb
-        mv ${{env.DX8AVX}}_mt_pdb/*.zip pdb
-
-    - name: Publish
-      uses: softprops/action-gh-release@v2.3.2
-      with:
-        files: |
-          *.zip
-          pdb/*.zip
-        tag_name: "${{steps.datetime.outputs.today}}"
-        generate_release_notes: true
-        token: "${{ secrets.GITHUB_TOKEN }}"
-    
-    - name: Remove artifacts
-      # You may pin to the exact commit or the version.
-      # uses: c-hive/gha-remove-artifacts@24dc23384a1fa6a058b79c73727ae0cb2200ca4c
-      uses: c-hive/gha-remove-artifacts@v1.2.0
-      with:
-        # Artifacts older than this will be deleted (e.g. "2 months", "1 day"). Parsed by moment.
-        age: "1 second"
+      - name: Remove build artifacts
+        uses: c-hive/gha-remove-artifacts@v1.2.0
+        with:
+          age: "1 second"
