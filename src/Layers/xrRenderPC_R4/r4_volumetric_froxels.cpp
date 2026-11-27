@@ -52,7 +52,7 @@ namespace
 
 		CFroxelShaderInclude includer;
 		ID3DBlob* errBlob = nullptr;
-		UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3;
+		UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_IEEE_STRICTNESS;
 		HRESULT hr = D3DCompile(R->pointer(), R->length(), fileName, defines, &includer, "main", target, flags, 0, outBlob, &errBlob);
 		FS.r_close(R);
 
@@ -833,17 +833,17 @@ void CVolumetricFroxels::ApplyToScene(ID3D11RenderTargetView* targetRtv, ID3D11S
 
 	HW.pContext->Draw(3, 0);
 
-	// Unbind SRVs/CB/sampler and synchronize X-Ray's state caches so subsequent RCache passes rebind cleanly
+	// Unbind RTV/SRVs/CB/sampler and synchronize X-Ray's state caches without wiping r4_post_pingpong textureOverrides
+	ID3D11RenderTargetView* nullRtv = nullptr;
 	ID3D11ShaderResourceView* nullSrvs[3] = { nullptr, nullptr, nullptr };
 	ID3D11Buffer* nullCb = nullptr;
 	ID3D11SamplerState* nullSmp = nullptr;
+	HW.pContext->OMSetRenderTargets(1, &nullRtv, nullptr);
 	HW.pContext->PSSetShaderResources(0, 3, nullSrvs);
 	HW.pContext->PSSetConstantBuffers(0, 1, &nullCb);
 	HW.pContext->PSSetSamplers(0, 1, &nullSmp);
 	HW.pContext->VSSetShader(nullptr, nullptr, 0);
 	HW.pContext->PSSetShader(nullptr, nullptr, 0);
 
-	StateManager.Reset();
-	SRVSManager.ResetDeviceState();
-	RCache.Invalidate();
+	RCache.Invalidate(false);
 }
