@@ -102,6 +102,8 @@ void CAgentEnemyManager::fill_enemies()
 		CAgentMemberManager::iterator E = object().member().combat_members().end();
 		for (; I != E; ++I)
 		{
+            if (!(*I)) continue;
+            if ((*I)->object().getDestroy()) continue;
 			(*I)->probability(1.f);
 			(*I)->object().memory().fill_enemies(CEnemyFiller(&m_enemies, object().member().mask(&(*I)->object())));
 		}
@@ -120,7 +122,7 @@ void CAgentEnemyManager::fill_enemies()
 			if (I != m_enemies.end())
 				continue;
 
-			m_wounded.erase(m_wounded.begin() + i);
+			m_wounded.erase_fast(m_wounded.begin() + i);
 			--i;
 			--n;
 		}
@@ -196,21 +198,23 @@ void CAgentEnemyManager::exchange_enemies(CMemberOrder& member0, CMemberOrder& m
 
 void CAgentEnemyManager::compute_enemy_danger()
 {
-	ENEMIES::iterator I = m_enemies.begin();
-	ENEMIES::iterator E = m_enemies.end();
-	for (; I != E; ++I)
-	{
-		float best = -1.f;
-		CAgentMemberManager::const_iterator i = object().member().combat_members().begin();
-		CAgentMemberManager::const_iterator e = object().member().combat_members().end();
-		for (; i != e; ++i)
-		{
-			float value = evaluate((*I).m_object, &(*i)->object());
-			if (value > best)
-				best = value;
-		}
-		(*I).m_probability = best;
-	}
+    {
+        ENEMIES::iterator I = m_enemies.begin();
+        ENEMIES::iterator E = m_enemies.end();
+        for (; I != E; ++I)
+        {
+            float best = -1.f;
+            CAgentMemberManager::const_iterator i = object().member().combat_members().begin();
+            CAgentMemberManager::const_iterator e = object().member().combat_members().end();
+            for (; i != e; ++i)
+            {
+                float value = evaluate((*I).m_object, &(*i)->object());
+                if (value > best)
+                    best = value;
+            }
+            (*I).m_probability = best;
+        }
+    }
 
 	std::sort(m_enemies.begin(), m_enemies.end());
 }
@@ -266,39 +270,41 @@ void CAgentEnemyManager::assign_enemies()
 void CAgentEnemyManager::permutate_enemies()
 {
 	// filling member enemies
-	CAgentMemberManager::iterator I = object().member().combat_members().begin();
-	CAgentMemberManager::iterator E = object().member().combat_members().end();
-	for (; I != E; ++I)
-	{
-		// clear enemies
-		(*I)->enemies().clear();
-		// setup procesed flag
-		(*I)->processed(false);
-		// get member squad mask
-		squad_mask_type member_mask = object().member().mask(&(*I)->object());
-		// setup if player has enemy
-		bool enemy_selected = false;
-		// iterate on enemies
-		ENEMIES::const_iterator i = m_enemies.begin(), b = i;
-		ENEMIES::const_iterator e = m_enemies.end();
-		for (; i != e; ++i)
-		{
-			if ((*i).m_mask.is(member_mask))
-				(*I)->enemies().push_back(u32(i - b));
+    {
+        CAgentMemberManager::iterator I = object().member().combat_members().begin();
+        CAgentMemberManager::iterator E = object().member().combat_members().end();
+        for (; I != E; ++I)
+        {
+            // clear enemies
+            (*I)->enemies().clear();
+            // setup procesed flag
+            (*I)->processed(false);
+            // get member squad mask
+            squad_mask_type member_mask = object().member().mask(&(*I)->object());
+            // setup if player has enemy
+            bool enemy_selected = false;
+            // iterate on enemies
+            ENEMIES::const_iterator i = m_enemies.begin(), b = i;
+            ENEMIES::const_iterator e = m_enemies.end();
+            for (; i != e; ++i)
+            {
+                if ((*i).m_mask.is(member_mask))
+                    (*I)->enemies().push_back(u32(i - b));
 
-			if ((*i).m_distribute_mask.is(member_mask))
-			{
-				(*I)->selected_enemy(u32(i - b));
-				enemy_selected = true;
-			}
-		}
-		// if there is enemy - all is ok
-		if (enemy_selected)
-			continue;
+                if ((*i).m_distribute_mask.is(member_mask))
+                {
+                    (*I)->selected_enemy(u32(i - b));
+                    enemy_selected = true;
+                }
+            }
+            // if there is enemy - all is ok
+            if (enemy_selected)
+                continue;
 
-		// otherwise temporary make the member processed
-		(*I)->processed(true);
-	}
+            // otherwise temporary make the member processed
+            (*I)->processed(true);
+        }
+    }
 
 	// perform permutations
 	bool changed;
@@ -432,7 +438,7 @@ void CAgentEnemyManager::assign_enemy_masks()
 			CAgentMemberManager::MEMBER_STORAGE::const_iterator i = object().member().combat_members().begin();
 			CAgentMemberManager::MEMBER_STORAGE::const_iterator e = object().member().combat_members().end();
 			for (; i != e; ++i)
-				(*i)->object().memory().make_object_visible_somewhen((*I).m_object);
+				(*i)->object().memory().make_object_visible_somewhen((*I).m_object, (*i)->object().memory());
 		}
 	}
 
@@ -509,7 +515,9 @@ void CAgentEnemyManager::assign_wounded()
 	}
 
 	u32 combat_member_count = population(object().member().combat_mask());
-	VERIFY(combat_member_count == object().member().combat_members().size());
+    {
+        VERIFY(combat_member_count == object().member().combat_members().size());
+    } 
 
 	u32 population_level = 0;
 	while (population(assigned) < combat_member_count)

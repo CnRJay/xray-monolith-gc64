@@ -32,7 +32,7 @@ void CDialogScriptHelper::LoadSequence(CUIXml* uiXml, XML_NODE* phrase_node,
 	str_vector.clear();
 	for (int i = 0; i < tag_num; ++i)
 	{
-		LPCSTR tag_text = uiXml->Read(phrase_node, tag, i, nullptr);
+		LPCSTR tag_text = uiXml->Read(phrase_node, tag, i, NULL);
 		str_vector.push_back(tag_text);
 	}
 }

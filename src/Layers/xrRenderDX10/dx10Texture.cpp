@@ -157,7 +157,7 @@ ID3DTexture2D*	TW_LoadTextureFromTexture
  )
 {
 	// Calculate levels & dimensions
-	ID3DTexture2D*		t_dest			= nullptr;
+	ID3DTexture2D*		t_dest			= NULL;
 	D3DSURFACE_DESC			t_from_desc0	;
 	R_CHK					(t_from->GetLevelDesc	(0,&t_from_desc0));
 	int levels_exist		= t_from->GetLevelCount();
@@ -321,8 +321,8 @@ ID3DBaseTexture* CRender::texture_load(LPCSTR fRName, u32& ret_msize, bool bStag
 	static bool bAllowStaging = !RImplementation.o.no_ram_textures;
 	bStaging &= bAllowStaging;
 
-	ID3DBaseTexture* pTexture2D = nullptr;
-	//IDirect3DCubeTexture9*	pTextureCUBE	= nullptr;
+	ID3DBaseTexture* pTexture2D = NULL;
+	//IDirect3DCubeTexture9*	pTextureCUBE	= NULL;
 	string_path fn;
 	//u32						dwWidth,dwHeight;
 	u32 img_size = 0;
@@ -337,13 +337,13 @@ ID3DBaseTexture* CRender::texture_load(LPCSTR fRName, u32& ret_msize, bool bStag
 	string_path fname;
 	xr_strcpy(fname, fRName); //. andy if (strext(fname)) *strext(fname)=0;
 	fix_texture_name(fname);
-	IReader* S = nullptr;
+	IReader* S = NULL;
 	//if (!FS.exist(fn,"$game_textures$",	fname,	".dds")	&& strstr(fname,"_bump"))	goto _BUMP_from_base;
 	if (strstr(fname, "_bump"))
 	{
 		if (!FS.exist(fn, "$game_textures$", fname, ".dds"))
 			goto _BUMP_from_base;
-		else if (strstr(Core.Params, "-no_bump_mode2"))
+		else if (Core.ParamsData.test(ECoreParams::no_bump_mode2))
 		{
 			if (strstr(fname, "_bump#"))
 			{
@@ -362,7 +362,7 @@ ID3DBaseTexture* CRender::texture_load(LPCSTR fRName, u32& ret_msize, bool bStag
 			img_size = S->length();
 			goto _DDS_2D;
 		}
-		else if (strstr(Core.Params, "-no_bump_mode1") && strstr(fname, "_bump#"))
+		else if (Core.ParamsData.test(ECoreParams::no_bump_mode1) && strstr(fname, "_bump#"))
 		{
 			R_ASSERT2(FS.exist(fn,"$game_textures$", "ed\\ed_dummy_bump#", ".dds"), "ed_dummy_bump#");
 			S = FS.r_open(fn);
@@ -446,25 +446,23 @@ _DDS:
 			LoadInfo.pSrcInfo = &IMG;
 
 #ifdef USE_DX11
-			HRESULT _hr = D3DX11CreateTextureFromMemory(
+			R_CHK(D3DX11CreateTextureFromMemory(
 				HW.pDevice,
 				S->pointer(),S->length(),
 				&LoadInfo,
 				0,
 				&pTexture2D,
 				0
-			);
-			R_CHK(_hr);
+			));
 #else
-			HRESULT _hr = D3DX10CreateTextureFromMemory(
+			R_CHK(D3DX10CreateTextureFromMemory(
 				HW.pDevice,
 				S->pointer(),S->length(),
 				&LoadInfo,
 				0,
 				&pTexture2D,
 				0
-			);
-			R_CHK(_hr);
+			));
 #endif
 
 			FS.r_close(S);
@@ -527,27 +525,32 @@ _DDS:
 			}
 			LoadInfo.pSrcInfo = &IMG;
 
+         HRESULT textureLoadResult;
 #ifdef USE_DX11
-			HRESULT _hr = D3DX11CreateTextureFromMemory
-			       (
-				       HW.pDevice,S->pointer(),S->length(),
-				       &LoadInfo,
-				       0,
-				       &pTexture2D,
-				       0
-			       );
-			R_CHK2(_hr, fn);
+            textureLoadResult = D3DX11CreateTextureFromMemory
+								(
+									HW.pDevice,S->pointer(),S->length(),
+									&LoadInfo,
+									0,
+									&pTexture2D,
+									0
+								);
 #else
-			HRESULT _hr = D3DX10CreateTextureFromMemory
-			       (
-				       HW.pDevice,S->pointer(),S->length(),
-				       &LoadInfo,
-				       0,
-				       &pTexture2D,
-				       0
-			       );
-			R_CHK2(_hr, fn);
+            textureLoadResult = D3DX10CreateTextureFromMemory
+								(
+									HW.pDevice,S->pointer(),S->length(),
+									&LoadInfo,
+									0,
+									&pTexture2D,
+									0
+									);
 #endif
+          if (FAILED(textureLoadResult))
+			{
+				HRESULT deviceRemovedReason = HW.pDevice->GetDeviceRemovedReason();
+				Msg("! Texture load HRESULT: 0x%08X; GetDeviceRemovedReason: 0x%08X", (u32)textureLoadResult, (u32)deviceRemovedReason);
+			}
+			R_CHK2(textureLoadResult, fn);
 			FS.r_close(S);
 			mip_cnt = IMG.MipLevels;
 			// OK

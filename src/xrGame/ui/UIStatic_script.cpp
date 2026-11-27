@@ -1,6 +1,8 @@
 #include "pch_script.h"
 #include "UIStatic.h"
 #include "UIAnimatedStatic.h"
+#include "UI3dStatic.h"
+#include "script_game_object.h"
 
 using namespace luabind;
 
@@ -37,11 +39,18 @@ void CUIStatic::script_register(lua_State* L)
 		.def("EnableHeading", &CUIStatic::EnableHeading)
 		.def("GetHeading", &CUIStatic::GetHeading)
 		.def("SetHeading", &CUIStatic::SetHeading)
+		.def("SetHeadingPivot", &CUIStatic::SetHeadingPivot)
+		.def("ResetHeadingPivot", &CUIStatic::ResetHeadingPivot)
+		.def("SetLineTo", &CUIStatic::SetLineTo)
 		.def("SetConstHeading", &CUIStatic::SetConstHeading)
 		.def("GetConstHeading", &CUIStatic::GetConstHeading)
 		.def("SetColorAnimation", &CUIStatic::SetColorAnimation)
 		.def("ResetColorAnimation", &CUIStatic::ResetColorAnimation)
 		.def("RemoveColorAnimation", &CUIStatic::RemoveColorAnimation)
+		.def("SetOnlyHeadingPivot", &CUIStatic::SetOnlyHeadingPivot)
+		.def("GetOnlyHeadingPivot", &CUIStatic::GetOnlyHeadingPivot)
+		.def("SetOnlyHeadingOffset", &CUIStatic::SetOnlyHeadingOffset)
+		.def("GetOnlyHeadingOffset", &CUIStatic::GetOnlyHeadingOffset)
 		,
 
 		class_<CUITextWnd, CUIWindow>("CUITextWnd")
@@ -59,8 +68,20 @@ void CUIStatic::script_register(lua_State* L)
 		.def("SetTextAlignment", &CUITextWnd::SetTextAlignment)
 		.def("SetVTextAlignment", &CUITextWnd::SetVTextAlignment)
 		.def("SetEllipsis", &CUITextWnd::SetEllipsis)
-		.def("SetTextOffset", &CUITextWnd::SetTextOffset),
+		.def("SetTextOffset", &CUITextWnd::SetTextOffset)
+        //antglobes
+        .def("GetTextWidth", &CUITextWnd::GetTextWidth)
+        .def("GetTextHeight", &CUITextWnd::GetTextHeight)
+        .def("GetTextSize", &CUITextWnd::GetTextSize)
+        ,
 		//		.def("",					&CUITextWnd::)
+
+		class_<CUI3dStatic, CUIStatic>("CUI3dStatic")
+		.def(constructor<>())
+		.def("SetObject", &CUI3dStatic::SetObject)
+		.def("SetVisual", &CUI3dStatic::SetVisual)
+		.def("SetRotation", &CUI3dStatic::SetRotation)
+		.def("SetScale", &CUI3dStatic::SetScale),
 
 		class_<CUISleepStatic, CUIStatic>("CUISleepStatic")
 		.def(constructor<>())

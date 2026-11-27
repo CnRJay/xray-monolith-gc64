@@ -1,6 +1,5 @@
 #include "stdafx.h"
 #include "bolt.h"
-#include "ParticlesObject.h"
 #include "../xrphysics/PhysicsShell.h"
 #include "xr_level_controller.h"
 #include "script_game_object.h"
@@ -112,7 +111,7 @@ void CBolt::PutNextToSlot()
 		this->u_EventSend(P);
 	}
 	else
-		Msg("! PutNextToSlot : m_pInventory = nullptr [%d][%d]", ID(), Device.dwFrame);
+		Msg("! PutNextToSlot : m_pInventory = NULL [%d][%d]", ID(), Device.dwFrame);
 
 	if (smart_cast<CInventoryOwner*>(H_Parent()) && m_pInventory)
 	{
@@ -137,6 +136,7 @@ void CBolt::PutNextToSlot()
 				pNext->u_EventGen(P, GEG_PLAYER_ITEM2SLOT, pNext->H_Parent()->ID());
 				P.w_u16(pNext->ID());
 				P.w_u16(pNext->BaseSlot());
+                P.w_u8(0); // do activate
 				pNext->u_EventSend(P);
 				m_pInventory->SetActiveSlot(pNext->BaseSlot());
 			}

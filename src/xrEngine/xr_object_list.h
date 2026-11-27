@@ -16,7 +16,7 @@ private:
 	typedef xr_vector<CObject*> Objects;
 
 private:
-	Objects force_destroy_queue;
+    Objects force_destroy_queue;
 	Objects destroy_queue;
 	Objects objects_active;
 	Objects objects_sleeping;
@@ -24,7 +24,7 @@ private:
 	u32 m_owner_thread_id;
 
 public:
-	typedef fastdelegate::FastDelegate1<CObject*> RELCASE_CALLBACK;
+	typedef xr_delegate<void(CObject*)> RELCASE_CALLBACK;
 
 	struct SRelcasePair
 	{
@@ -44,6 +44,11 @@ public:
 	void relcase_register(RELCASE_CALLBACK, int*);
 	void relcase_unregister(int*);
 
+    RELCASE_CALLBACK_VEC m_relcase_visual_callbacks;
+    void relcase_visual_register(RELCASE_CALLBACK, int*);
+    void relcase_visual_unregister(int*);
+    void relcase_visual_invoke(CObject* obj);
+
 public:
 	// methods
 	CObjectList();
@@ -61,9 +66,9 @@ public:
 
 	void SingleUpdate(CObject* O);
 	void Update(bool bForce);
-	void ProcessDestroyQueue();
-	void ProcessDestroyQueueImpl(Objects& queue);
-	void ClearProcessDestroyQueueFromDevice();
+    void ProcessDestroyQueue();
+    void ProcessDestroyQueueImpl(Objects& queue);
+    void ClearProcessDestroyQueueFromDevice();
 
 	void net_Register(CObject* O);
 	void net_Unregister(CObject* O);

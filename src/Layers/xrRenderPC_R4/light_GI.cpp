@@ -72,7 +72,7 @@ void light::gi_generate()
 		if (LI.E < ps_r2_GI_clip) 
 			continue;
 		
-		LI.S = spatial.sector; //. BUG
+		LI.S = SpatialComponent->spatial.sector; //. BUG
 
 		indirect.push_back(LI);
 	}

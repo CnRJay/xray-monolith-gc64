@@ -10,6 +10,7 @@
 #include "script_debugger.h"
 #include "ai_debug.h"
 #include "alife_simulator.h"
+#include "alife_spawn_registry.h"
 #include "game_cl_base.h"
 #include "game_cl_single.h"
 #include "game_sv_single.h"
@@ -34,12 +35,14 @@
 #include "ui/UIOptConCom.h"
 #include "UIGameSP.h"
 #include "ui/UIActorMenu.h"
+#include "../xrSound/Sound.h"
 #include "ui/UIStatic.h"
 #include "zone_effector.h"
 #include "GameTask.h"
 #include "MainMenu.h"
 #include "saved_game_wrapper.h"
 #include "level_graph.h"
+#include "game_graph.h"
 //#include "../xrEngine/resourcemanager.h"
 //#include "../xrEngine/doug_lea_memory_allocator.h"
 #include "cameralook.h"
@@ -78,7 +81,10 @@ extern u64 g_qwEStartGameTime;
 
 ENGINE_API
 extern float psHUD_FOV_def;
+extern float psCAM_ATTACHED_FOV;
 extern float psSqueezeVelocity;
+extern float g_step_sound_distance;
+extern float g_step_particle_distance;
 
 // Lua
 extern int psLUA_GCSTEP;
@@ -87,8 +93,6 @@ extern int psLua_ParallelGC_CallAmount;
 extern BOOL psLua_ParallelGC_debug;
 extern BOOL psLua_ParallelGC;
 extern BOOL lua_debug;
-
-extern BOOL psThreadedRender;
 BOOL lua_busy_hands_debug = TRUE;
 
 float g_end_modif = 0.f;
@@ -102,6 +106,7 @@ extern int g_dwInputUpdateDelta;
 extern	BOOL	g_ShowAnimationInfo;
 #endif // DEBUG
 extern BOOL g_bShowHitSectors;
+extern int g_npc_relaxed_idle_mode;
 //extern	BOOL	g_bDebugDumpPhysicsStep	;
 extern ESingleGameDifficulty g_SingleGameDifficulty;
 extern BOOL g_show_wnd_rect2;
@@ -139,6 +144,8 @@ extern int showActorBody; //leer
 extern BOOL disableActorBodyRotationDelay; //leer
 
 extern BOOL pseudogiantDodgeWhileFalling; // Verdatim
+extern BOOL AllowAccelDuringLookOut; // Verdatim
+extern BOOL npc_dont_drop_weapons_on_death; // Verdatim
 
 //demonized: new console vars
 extern BOOL firstPersonDeath;
@@ -160,6 +167,7 @@ extern float f_Freelook_cam_limit;
 extern int MOUSEBUFFERSIZE;
 extern int KEYBOARDBUFFERSIZE;
 extern BOOL print_bone_warnings;
+extern BOOL print_ik_warnings;
 extern BOOL print_dltx_warnings;
 extern BOOL dltx_use_cache;
 extern BOOL poltergeist_spawn_corpse_on_death;
@@ -167,6 +175,7 @@ extern BOOL useNewZoomDeltaAlgorithm;
 extern BOOL g_aimmode_remember;
 extern BOOL g_freelook_while_reloading;
 extern BOOL useSeparateUBGLKeybind;
+extern int ps_hud_ik_compensation;
 extern int g_nearwall;
 extern int g_nearwall_trace;
 extern BOOL drawPickupItemNames;
@@ -177,6 +186,14 @@ extern float NPCsLookAtActorMinDistance;
 extern BOOL interruptFireOnAimToggle;
 
 extern BOOL mt_UpdateWeaponSounds;
+extern BOOL mt_Scheduler;
+extern BOOL mt_SchedulerRT;
+extern BOOL mt_calc_bones;
+extern BOOL mt_ph_commander;
+extern BOOL mt_TaskManager;
+extern BOOL mt_ui;
+extern int SchedulerBatchSize;
+extern BOOL SchedulerLog;
 
 extern BOOL alifeObjectHangingLampIgnoreMatchConfiguration;
 extern BOOL duplicate_story_id_crash;
@@ -189,6 +206,9 @@ extern float IK_CALC_SSA;
 extern float IK_ALWAYS_CALC_DIST;
 extern BOOL r_optimize_calculate_bones;
 extern BOOL r_optimize_torch;
+extern BOOL hud_frequent_updates;
+
+extern BOOL lua_use_functor_cache;
 
 extern BOOL g_legs_enabled;
 extern float legs_fwd_offset;
@@ -218,6 +238,7 @@ extern u32 g_ai_aim_inertia_time;
 extern u32 g_ai_aim_queue_inertia_time;
 extern float g_ai_danger_ricochet_mult;
 BOOL g_ai_move_to_cover_run = FALSE;
+BOOL g_ai_enhanced_vision = FALSE;
 
 extern CrosshairSettings g_crosshair_camera_near;
 extern CrosshairSettings g_crosshair_camera_far;
@@ -281,17 +302,18 @@ extern float recon_maxspeed;
 extern float wallmark_range_static;
 extern float wallmark_range_skeleton;
 
-extern BOOL r_wallmarks_static;
-extern BOOL r_wallmarks_dynamic;
-extern float r_wallmarks_ssa_k;
-
 extern float movement_manager_move_along_path_query_pos_threshold;
 extern float movement_manager_move_along_path_query_pos_threshold_sqr;
 
 ENGINE_API extern float g_console_sensitive;
 
 extern BOOL g_auto_reload;
+extern BOOL g_fire_reloads_ubgl;
+extern BOOL g_launcher_dynamic_range;
 BOOL g_launcher_dynamic_range_zoom = TRUE;
+extern BOOL g_launcher_dynamic_range_mode;
+extern float g_launcher_dynamic_range_max;
+
 u32 g_dead_body_collision = 1;
 
 extern int RESTRICTION_REBUILD_SMOOTH_FRAMES;
@@ -355,21 +377,25 @@ CUIOptConCom g_OptConCom;
 extern		u32 game_lua_memory_usage();
 #endif // SEVERAL_ALLOCATORS
 
-typedef void (*full_memory_stats_callback_type)();
+typedef void (*full_memory_stats_callback_type)(bool);
 extern XRCORE_API full_memory_stats_callback_type g_full_memory_stats_callback;
+static xr_atomic_bool g_mem_stats_async_in_progress = false;
 
-static void full_memory_stats()
+static void full_memory_stats(bool assert = true)
 {
+	PROF_EVENT("full_memory_stats", PROF_CAT(Debug));
 	Msg("* [x-ray]: Full Memory Stats");
 	Memory.mem_compact();
-	size_t _process_heap = ::Memory.mem_usage();
+	size_t _process_heap = ::Memory.mem_usage(assert);
 #ifdef SEVERAL_ALLOCATORS
 	u32		_game_lua = game_lua_memory_usage();
 	u32		_render = ::Render->memory_usage();
 #endif // SEVERAL_ALLOCATORS
-    u32 _eco_strings_count = 0;
-	int _eco_strings = (int)g_pStringContainer->stat_economy(_eco_strings_count);
-	int _eco_smem = (int)g_pSharedMemoryContainer->stat_economy();
+	u32 _eco_strings_count = 0;
+	u32 _eco_strings_unique_count = 0;
+	int _eco_strings = (int)g_pStringContainer->stat_economy(_eco_strings_count, _eco_strings_unique_count);
+	size_t _smem_usage = 0;
+	s64 _eco_smem = g_pSharedMemoryContainer->stat_economy(&_smem_usage);
 	u32 m_base = 0, c_base = 0, m_lmaps = 0, c_lmaps = 0;
 
 	//if (Device.Resources)	Device.Resources->_GetMemoryUsage	(m_base,c_base,m_lmaps,c_lmaps);
@@ -386,17 +412,22 @@ static void full_memory_stats()
 	Msg("* [x-ray]: process heap[%u K], game lua[%d K], render[%d K]", _process_heap / 1024, _game_lua / 1024, _render / 1024);
 #endif // SEVERAL_ALLOCATORS
 
-	Msg("* [x-ray]: shared strings: memory[%ld K], count[%lu]", _eco_strings / 1024, _eco_strings_count);
-	Msg("* [x-ray]: shared memory: memory[%ld K]", _eco_smem);
+	Msg("* [x-ray]: shared strings: memory[%ld K], count[%lu], unique[%lu]", _eco_strings / 1024, _eco_strings_count, _eco_strings_unique_count);
+	if (_eco_strings_count != _eco_strings_unique_count)
+		Msg("! [x-ray]: shared strings, count != unique");
+
+	Msg("* [x-ray]: shared memory: memory[%zu K], economy[%lld K]", _smem_usage / 1024, _eco_smem / 1024);
 
 	u64 DLTX_total_bytes = 0;
 	u64 DLTX_section_count = 0;
 	u64 DLTX_files_cached = 0;
 	CInifile::GetCacheStats(DLTX_files_cached, DLTX_total_bytes, DLTX_section_count);
 	Msg("* [x-ray]: DLTX Cache: Files Cached: %zu, Sections Total %zu, Usage: %.2f MB", DLTX_files_cached, DLTX_section_count, (double)DLTX_total_bytes / 1024 / 1024);
-	
-	size_t lua_mem = lua_gc(ai().script_engine().lua(), LUA_GCCOUNT, 0);
-	Msg("* [Lua]: Memory usage: %u K", lua_mem);
+
+	/*if (Console)
+	{
+		Console->DumpHistoryToLog();
+	}*/
 
 #ifdef FS_DEBUG
 	Msg("* [x-ray]: file mapping: memory[%d K], count[%d]", g_file_mapped_memory / 1024, g_file_mapped_count);
@@ -415,9 +446,71 @@ public:
 
 	virtual void Execute(LPCSTR args)
 	{
+        if (g_mem_stats_async_in_progress.load(std::memory_order_acquire))
+        {
+            Msg("* [x-ray]: stat_memory_async is already running");
+            return;
+        }
+
 		full_memory_stats();
 	}
 };
+
+static void mem_stats_async_thread(void*)
+{
+    try
+    {
+        PROF_EVENT("mem_stats_async_thread", PROF_CAT(Debug));
+        full_memory_stats(false);
+    }
+    catch (...)
+    {
+        // do nothing
+    }
+	g_mem_stats_async_in_progress.store(false, std::memory_order_release);
+}
+
+class CCC_MemStatsAsync : public IConsole_Command
+{
+public:
+	CCC_MemStatsAsync(LPCSTR N) : IConsole_Command(N)
+	{
+        g_full_memory_stats_callback = &full_memory_stats;
+		bEmptyArgsHandled = TRUE;
+	};
+
+	virtual void Execute(LPCSTR args)
+	{
+		if (g_mem_stats_async_in_progress.exchange(true, std::memory_order_acq_rel))
+		{
+			Msg("* [x-ray]: stat_memory_async is already running");
+			return;
+		}
+
+		thread_spawn(&mem_stats_async_thread, "stat_memory_async", 0, nullptr);
+		Msg("* [x-ray]: stat_memory_async started");
+	}
+};
+
+static void shared_string_dump() {
+	g_pStringContainer->dump_console();
+}
+
+
+class CCC_SharedStringDump : public IConsole_Command
+{
+public:
+	CCC_SharedStringDump(LPCSTR N) : IConsole_Command(N)
+	{
+		bEmptyArgsHandled = TRUE;
+	};
+
+	virtual void Execute(LPCSTR args)
+	{
+		shared_string_dump();
+	}
+};
+
 #ifdef DEBUG
 class CCC_MemCheckpoint : public IConsole_Command
 {
@@ -1004,6 +1097,41 @@ void get_files_list(xr_vector<shared_str>& files, LPCSTR dir, LPCSTR file_ext, b
 
 #include "UIGameCustom.h"
 
+// Writes the loaded spawn registry (overlays and level packs applied) as an all.spawn file into $app_data_root$.
+class CCC_SpawnOverlaysDump : public IConsole_Command
+{
+public:
+	CCC_SpawnOverlaysDump(LPCSTR N) : IConsole_Command(N)
+	{
+	}
+
+	virtual void Execute(LPCSTR args)
+	{
+		if (!ai().get_alife())
+		{
+			Msg("! alife is not loaded");
+			return;
+		}
+		if (!*args)
+		{
+			Msg("! usage: spawn_overlays_dump <file name>");
+			return;
+		}
+
+		string_path file_name;
+		FS.update_path(file_name, "$app_data_root$", args);
+		IWriter* writer = FS.w_open(file_name);
+		if (!writer)
+		{
+			Msg("! cannot open %s for writing", file_name);
+			return;
+		}
+		const_cast<CALifeSpawnRegistry&>(ai().alife().spawns()).save_spawn(*writer);
+		FS.w_close(writer);
+		Msg("* spawn written to %s", file_name);
+	}
+};
+
 class CCC_ALifeSave : public IConsole_Command
 {
 public:
@@ -1028,7 +1156,7 @@ public:
 			return;
 		}
 
-		Console->Execute("stat_memory");
+		// Console->Execute("stat_memory");
 
 		string_path S, S1;
 		S[0] = 0;
@@ -1150,7 +1278,7 @@ public:
 		if (MainMenu()->IsActive())
 			MainMenu()->Activate(false);
 
-		Console->Execute("stat_memory");
+		// Console->Execute("stat_memory");
 
 		if (Device.Paused())
 			Device.Pause(FALSE, TRUE, TRUE, "CCC_ALifeLoadFrom");
@@ -1234,6 +1362,23 @@ public:
 	}
 };
 
+class CCC_MusicNext : public IConsole_Command
+{
+public:
+	CCC_MusicNext(LPCSTR N) : IConsole_Command(N) { bEmptyArgsHandled = true; }
+
+	virtual void Execute(LPCSTR args)
+	{
+		if (*args)
+		{
+			InvalidSyntax();
+			return;
+		}
+		if (g_pGameLevel)
+			Level().SkipMusicTrack();
+	}
+};
+
 class CCC_FlushLog : public IConsole_Command
 {
 public:
@@ -1241,7 +1386,7 @@ public:
 
 	virtual void Execute(LPCSTR /**args/**/)
 	{
-		FlushLog();
+		xrLogger::FlushLog();
 		Msg("* Log file has been saved successfully!");
 	}
 };
@@ -1253,8 +1398,8 @@ public:
 
 	virtual void Execute(LPCSTR)
 	{
-		LogFile.clear_not_free();
-		FlushLog();
+		Console->ClearLog();
+		xrLogger::FlushLog();
 		Msg("* Log file has been cleaned successfully!");
 	}
 };
@@ -1835,10 +1980,9 @@ public:
 				return;
 			}
 
-			string4096 S;
 			shared_str m_script_name = "console command";
-			xr_sprintf(S, "%s\n", args);
-			int l_iErrorCode = luaL_loadbuffer(ai().script_engine().lua(), S, xr_strlen(S), "@console_command");
+			xr_string S = xr_string(args) + "\n";
+			int l_iErrorCode = luaL_loadbuffer(ai().script_engine().lua(), S.c_str(), S.size(), "@console_command");
 			if (!l_iErrorCode)
 			{
 				l_iErrorCode = lua_pcall(ai().script_engine().lua(), 0, 0, 0);
@@ -1921,7 +2065,7 @@ public:
 		float time_factor = (float)atof(args);
 		clamp(time_factor, EPS, 1000.f);
 		Device.time_factor(time_factor);
-		if (!strstr(Core.Params, "-sound_constant_speed"))
+		if (!Core.ParamsData.test(ECoreParams::sound_constant_speed))
 			psSpeedOfSound = time_factor;
 	}
 
@@ -1985,9 +2129,7 @@ public:
 		if (EQ(args, "on") || EQ(args, "1"))
 		{
 			value->set(mask, TRUE);
-			Discord_Lock();
 			discord_gameinfo.ex_update = true;
-			Discord_Unlock();
 		}
 		else if (EQ(args, "off") || EQ(args, "0"))
 		{
@@ -2065,7 +2207,7 @@ public:
 	CCC_RadioMask(LPCSTR N, Flags32* V, u32 M) :
 		CCC_Mask(N, V, M)
 	{
-		group = nullptr;
+		group = NULL;
 	}
 	void	SetGroup(CCC_RadioGroupMask2		*G)
 	{
@@ -2141,7 +2283,7 @@ public:
 	{
 		if (CAttachableItem::m_dbgItem)
 		{
-			CAttachableItem::m_dbgItem = nullptr;
+			CAttachableItem::m_dbgItem = NULL;
 			Msg("CCC_TuneAttachableItem switched to off");
 			return;
 		};
@@ -2471,12 +2613,61 @@ public:
     }
 };
 
+// Add after other includes, before command classes
+#include "../Include/xrRender/particles_systems_library_interface.hpp"
+#include "../Layers/xrRender/PSLibrary.h"
+#include "GamePersistent.h"
+
+class CCC_Particle_TEST : public IConsole_Command
+{
+public:
+    CCC_Particle_TEST(LPCSTR N)
+        : IConsole_Command(N) { bEmptyArgsHandled = TRUE; };
+    virtual void Execute(LPCSTR args)
+    {
+        if (!g_pGameLevel)
+            return;
+        if (!Level().CurrentControlEntity())
+            return;
+
+        collide::rq_result l_rq;
+        if (Level().ObjectSpace.RayPick(Device.vCameraPosition, Device.vCameraDirection, 1000.f, collide::rqtBoth, l_rq, Level().CurrentControlEntity()))
+        {
+            int count = 1;
+            string256 string;
+            string[0] = 0;
+            sscanf(args, "%s %d", &string, &count);
+            for (int i = 0; i < count; ++i)
+            {
+                auto pParticle = Particles::Details::Create(string, FALSE);
+
+                // Set up matrix and position
+                Fmatrix pos;
+                pos.identity();
+                pos.k.set(Level().CurrentControlEntity()->XFORM().k);
+                Fvector::generate_orthonormal_basis_normalized(pos.k, pos.j, pos.i);
+                pos.c.set(Fvector(Device.vCameraPosition).add(Fvector(Device.vCameraDirection).mul(l_rq.range)));
+                pParticle->UpdateParent(pos, zero_vel);
+                GamePersistent().ps_needtoplay.push_back(pParticle);
+            }
+        }
+    }
+    virtual void fill_tips(vecTips& tips, u32 mode)
+    {
+        particles_systems::library_interface const& library = GamePersistent().Environment().m_pRender->particles_systems_library();
+        for (auto pi = library.vec_all_particles().begin(); pi != library.vec_all_particles().end(); ++pi)
+            tips.push_back(pi->c_str());
+    }
+};
+
 void CCC_RegisterCommands()
 {
 	//Not needed for a singleplayer-only mod
 	//g_OptConCom.Init();
 
 	CMD1(CCC_MemStats, "stat_memory");
+	CMD1(CCC_MemStatsAsync, "stat_memory_async");
+	CMD1(CCC_SharedStringDump, "stat_shared_string_dump");
 #ifdef DEBUG
 	CMD1(CCC_MemCheckpoint, "stat_memory_checkpoint");
 #endif //#ifdef DEBUG
@@ -2508,6 +2699,7 @@ void CCC_RegisterCommands()
 #endif // DEBUG
 
 	CMD1(CCC_ALifeSave, "save"); // save game
+	CMD1(CCC_SpawnOverlaysDump, "spawn_overlays_dump");
 	CMD1(CCC_ALifeLoadFrom, "load"); // load game from ...
 	CMD1(CCC_LoadLastSave, "load_last_save"); // load last saved game from ...
 
@@ -2526,6 +2718,7 @@ void CCC_RegisterCommands()
 	CMD3(CCC_Mask, "hud_weapon", &psHUD_Flags, HUD_WEAPON);
 	CMD3(CCC_Mask, "hud_info", &psHUD_Flags, HUD_INFO);
 	CMD3(CCC_Mask, "hud_draw", &psHUD_Flags, HUD_DRAW);
+	CMD4(CCC_Integer, "hud_ik_compensation", &ps_hud_ik_compensation, 0, 1);
 
 	// hud
 	psHUD_Flags.set(HUD_CROSSHAIR, true);
@@ -2538,8 +2731,13 @@ void CCC_RegisterCommands()
 
 	//#ifdef DEBUG
 	CMD4(CCC_Float, "hud_fov", &psHUD_FOV_def, 0.1f, 1.0f);
+	CMD4(CCC_Float, "cam_attached_fov", &psCAM_ATTACHED_FOV, 0.1f, 1.0f);
 	CMD4(CCC_Float, "fov", &g_fov, 5.0f, 180.0f);
 	CMD4(CCC_Float, "viewport_near", &Device.ViewportNear, 0.0f, 1.0f);
+    CMD4(CCC_Float, "step_sound_distance", &g_step_sound_distance, 10.0f, 100.0f);
+	CMD4(CCC_Float, "step_particle_distance", &g_step_particle_distance, 10.0f, 100.0f);
+    CMD4(CCC_Float, "snd_max_distance_multiplier", &psSoundMaxDistanceMultiplier, 0.2f, 2.0f);
+	CMD4(CCC_Float, "snd_max_ai_distance_multiplier", &psSoundMaxAIDistanceMultiplier, 0.2f, 2.0f);
 	//#endif // DEBUG
 
 	// Demo
@@ -2553,6 +2751,8 @@ void CCC_RegisterCommands()
 	CMD1(CCC_DemoRecordSetDir, "demo_set_cam_direction");
 	//#endif // #ifndef MASTER_GOLD
 
+	CMD3(CCC_Mask, "mt_bullets", &g_mt_config, mtBullets);
+
 #ifndef MASTER_GOLD
 	// ai
 	CMD3(CCC_Mask, "mt_ai_vision", &g_mt_config, mtAiVision);
@@ -2560,14 +2760,11 @@ void CCC_RegisterCommands()
 	CMD3(CCC_Mask, "mt_detail_path", &g_mt_config, mtDetailPath);
 	CMD3(CCC_Mask, "mt_object_handler", &g_mt_config, mtObjectHandler);
 	CMD3(CCC_Mask, "mt_sound_player", &g_mt_config, mtSoundPlayer);
-	CMD3(CCC_Mask, "mt_bullets", &g_mt_config, mtBullets);
 	CMD3(CCC_Mask, "mt_script_gc", &g_mt_config, mtLUA_GC);
 	CMD3(CCC_Mask, "mt_level_sounds", &g_mt_config, mtLevelSounds);
 	CMD3(CCC_Mask, "mt_alife", &g_mt_config, mtALife);
 	CMD3(CCC_Mask, "mt_map", &g_mt_config, mtMap);
 #endif // MASTER_GOLD
-
-	CMD4(CCC_Integer, "r__threaded_render", &psThreadedRender, 0, 1);
 
 #ifndef MASTER_GOLD
 	CMD3(CCC_Mask, "ai_obstacles_avoiding", &psAI_Flags, aiObstaclesAvoiding);
@@ -2588,6 +2785,7 @@ void CCC_RegisterCommands()
 	CMD4(CCC_Integer, "lua_parallel_gc", &psLua_ParallelGC, 0, 1);
 
 	CMD4(CCC_Integer, "lua_debug", &lua_debug, 0, 1);
+	CMD4(CCC_Integer, "lua_use_functor_cache", &lua_use_functor_cache, 0, 1);
 	CMD4(CCC_Integer, "lua_busy_hands_debug", &lua_busy_hands_debug, 0, 1);
 
 #ifdef DEBUG
@@ -2701,7 +2899,7 @@ void CCC_RegisterCommands()
 	/* AVO: changing restriction to -dbg key instead of DEBUG */
 	//#ifndef MASTER_GOLD
 #ifdef MASTER_GOLD
-	if (0 != strstr(Core.Params, "-dbg"))
+	if (0 != Core.isDebug())
 	{
 		CMD1(CCC_JumpToLevel, "jump_to_level");
 		CMD3(CCC_Mask, "g_god", &psActorFlags, AF_GODMODE);
@@ -2741,8 +2939,6 @@ void CCC_RegisterCommands()
     CMD4(CCC_Integer, "ai_grenade_throw_delay_base", &g_ai_grenade_throw_delay_base, 0, 10000);
     CMD4(CCC_Integer, "ai_grenade_throw_delay_step", &g_ai_grenade_throw_delay_step, 0, 10000);
 
-    extern u32 g_ai_aim_inertia_time;
-    extern u32 g_ai_aim_queue_inertia_time;
     CMD4(CCC_Integer, "ai_aim_inertia_time", (int*)&g_ai_aim_inertia_time, 0, 10000);
     CMD4(CCC_Integer, "ai_aim_queue_inertia_time", (int*)&g_ai_aim_queue_inertia_time, 0, 10000);
     // Danger perception multipliers: 1.0 = original engine behaviour, 0.0 = disabled, 5.0 = 5x urgency
@@ -2763,8 +2959,8 @@ void CCC_RegisterCommands()
     CMD4(CCC_Float, "ai_danger_grenade_mult",          &g_ai_danger_grenade_mult,          0.f, 5.f);
     CMD4(CCC_Float, "ai_danger_enemy_sound_mult",      &g_ai_danger_enemy_sound_mult,      0.f, 5.f);
 	
-	extern BOOL g_ai_move_to_cover_run;
-	CMD4(CCC_Integer, "ai_move_to_cover_run", &g_ai_move_to_cover_run, 0, 1);
+    CMD4(CCC_Integer, "ai_move_to_cover_run", &g_ai_move_to_cover_run, 0, 1);
+    CMD4(CCC_Integer, "ai_enhanced_vision", &g_ai_enhanced_vision, 0, 1);
 
     CMD4(CCC_Float, "ai_vision_speed_boost", &g_ai_vision_speed_boost, 0.1f, 10.0f);
     CMD4(CCC_Float, "ai_reload_threshold", &g_ai_reload_threshold, 0.01f, 1.0f);
@@ -2860,6 +3056,7 @@ void CCC_RegisterCommands()
 	CMD3(CCC_Mask, "g_use_tracers", &psActorFlags, AF_USE_TRACERS);
 	CMD3(CCC_Mask, "g_autopickup", &psActorFlags, AF_AUTOPICKUP);
 	CMD3(CCC_Mask, "g_dynamic_music", &psActorFlags, AF_DYNAMIC_MUSIC);
+	CMD1(CCC_MusicNext, "snd_music_next");
 	psActorFlags.set(AF_IMPORTANT_SAVE, TRUE);
 	CMD3(CCC_Mask, "g_important_save", &psActorFlags, AF_IMPORTANT_SAVE);
 
@@ -3083,7 +3280,14 @@ void CCC_RegisterCommands()
 
     CMD4(CCC_Integer, "pseudogiant_dodge_stomp_while_falling", &pseudogiantDodgeWhileFalling, 0, 1); // Verdatim
 
+    CMD4(CCC_Integer, "allow_accel_during_lookout", &AllowAccelDuringLookOut, 0, 1); // Verdatim
+
+
+
+    CMD4(CCC_Integer, "npc_dont_drop_weapons_on_death", &npc_dont_drop_weapons_on_death, 0, 1); // Verdatim
+
 	CMD4(CCC_Integer, "telekinetic_objects_include_corpses", &g_telekinetic_objects_include_corpses, 0, 1); // Tosox
+	CMD4(CCC_Integer, "npc_relaxed_idle_mode", &g_npc_relaxed_idle_mode, 0, 2);
 
 	CMD4(CCC_Integer, "allow_weapon_control_inertion_factor", &g_allow_weapon_control_inertion_factor, 0, 1); // momopate
 	CMD4(CCC_Integer, "allow_outfit_control_inertion_factor", &g_allow_outfit_control_inertion_factor, 0, 1);
@@ -3102,6 +3306,15 @@ void CCC_RegisterCommands()
 	CMD3(CCC_Mask, "blend_move_anims", &psDeviceFlags2, rsBlendMoveAnims);
 
 	CMD4(CCC_Integer, "mt_update_weapon_sounds", &mt_UpdateWeaponSounds, 0, 1);
+    CMD4(CCC_Integer, "mt_scheduler", &mt_Scheduler, 0, 1);
+    CMD4(CCC_Integer, "mt_schedulerRT", &mt_SchedulerRT, 0, 1);
+	CMD4(CCC_Integer, "mt_level_call", &mt_ph_commander, 0, 1);
+    CMD4(CCC_Integer, "mt_calc_bones", &mt_calc_bones, 0, 1);
+    CMD4(CCC_Integer, "mt_task_manager", &mt_TaskManager, 0, 1);
+    CMD4(CCC_Integer, "mt_ui", &mt_ui, 0, 1);
+
+	CMD4(CCC_Integer, "scheduler_batch_size", &SchedulerBatchSize, 32, 65536);
+	CMD4(CCC_Integer, "scheduler_log", &SchedulerLog, 0, 1);
 
 	CMD4(CCC_Integer, "spawn_antifreeze", &spawn_antifreeze, 0, 1);
 	CMD4(CCC_Integer, "spawn_antifreeze_debug", &spawn_antifreeze_debug, 0, 1);
@@ -3109,8 +3322,9 @@ void CCC_RegisterCommands()
 	CMD4(CCC_Float, "ik_calc_dist", &IK_CALC_DIST, 50, 150);
 	CMD4(CCC_Float, "ik_calc_ssa", &IK_CALC_SSA, 0.001f, 0.02f);
 	CMD4(CCC_Float, "ik_always_calc_dist", &IK_ALWAYS_CALC_DIST, 10, 50);
-	CMD4(CCC_Integer, "r__optimize_calculate_bones", &r_optimize_calculate_bones, 0, 1);
-	CMD4(CCC_Integer, "r__optimize_torch", &r_optimize_torch, 0, 1);
+    CMD4(CCC_Integer, "r__optimize_calculate_bones", &r_optimize_calculate_bones, 0, 1);
+    CMD4(CCC_Integer, "r__optimize_torch", &r_optimize_torch, 0, 1);
+	CMD4(CCC_Integer, "hud_frequent_updates", &hud_frequent_updates, 0, 1);
 
 	CMD4(CCC_Integer, "g_progressive_stamina_cost", &progressiveStaminaCost, 0, 1);
 	CMD4(CCC_Integer, "g_npcs_look_at_actor", &NPCsLookAtActor, 0, 1);
@@ -3221,6 +3435,7 @@ void CCC_RegisterCommands()
 
 	// Print warnings when using bone_position and bone_direction functions and encounter invalid bones
 	CMD4(CCC_Integer, "print_bone_warnings", &print_bone_warnings, 0, 1);
+	CMD4(CCC_Integer, "print_ik_warnings", &print_ik_warnings, 0, 1);
 
 	// Print DLTX warnings when "override section which doesn't exist", also prints cache hit for each file
 	CMD4(CCC_Integer, "print_dltx_warnings", &print_dltx_warnings, 0, 1);
@@ -3240,7 +3455,7 @@ void CCC_RegisterCommands()
 	// New zoom delta algorithm
 	CMD4(CCC_Integer, "new_zoom_delta_algorithm", &useNewZoomDeltaAlgorithm, 0, 1);
 
-	if (strstr(Core.Params, "-dbgdev"))
+	if (Core.ParamsData.test(ECoreParams::dbgdev))
 		CMD4(CCC_Float, "g_streff", &streff, -10.f, 10.f);
 	//No need for server commands in a singleplayer-only mod
 	//register_mp_console_commands();
@@ -3270,15 +3485,12 @@ void CCC_RegisterCommands()
 	CMD4(CCC_Integer, "g_draw_pickup_item_names", &drawPickupItemNames, 0, 1);
 
 	// Wallmark distances
-	CMD4(CCC_Float, "g_wallmark_range_static", &wallmark_range_static, 0.f, 1000.f);
-	CMD4(CCC_Float, "g_wallmark_range_skeleton", &wallmark_range_skeleton, 0.f, 1000.f);
+	//CMD4(CCC_Float, "g_wallmark_range_static", &wallmark_range_static, 0.f, 1000.f);
+	//CMD4(CCC_Float, "g_wallmark_range_skeleton", &wallmark_range_skeleton, 0.f, 1000.f);
 
-	// Wallmark rendering toggles / SSA culling
-	CMD4(CCC_Integer, "r_wallmarks_static", &r_wallmarks_static, 0, 1);
-	CMD4(CCC_Integer, "r_wallmarks_dynamic", &r_wallmarks_dynamic, 0, 1);
-	CMD4(CCC_Float, "r_wallmarks_ssa_k", &r_wallmarks_ssa_k, 0.f, 5.f);
+    CMD1(CCC_MovePathQueryPosThreshold, "movement_manager_move_along_path_query_pos_threshold");
 
-	CMD1(CCC_MovePathQueryPosThreshold, "movement_manager_move_along_path_query_pos_threshold");
+    CMD1(CCC_Particle_TEST,     "g_ps_test");
     CMD4(CCC_Integer, "show_actor_body", &showActorBody, 0, 2);
     CMD4(CCC_Integer, "disable_actor_body_rotation_delay", &disableActorBodyRotationDelay, 0, 1);
 }

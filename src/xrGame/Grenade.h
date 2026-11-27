@@ -90,9 +90,10 @@ public:
 	virtual CMissile* cast_missile() { return this; }
 	virtual CHudItem* cast_hud_item() { return this; }
 	virtual CGameObject* cast_game_object() { return this; }
+	virtual CGrenade* cast_grenade() { return this; }
 	virtual IDamageSource* cast_IDamageSource() { return CExplosive::cast_IDamageSource(); }
 
-	typedef fastdelegate::FastDelegate<void (CGrenade*)> destroy_callback;
+	typedef xr_delegate<void (CGrenade*)> destroy_callback;
 
 	void set_destroy_callback(destroy_callback callback)
 	{

@@ -51,7 +51,7 @@ void CHolderEntityObject::Load(LPCSTR section)
 	m_exit_position = READ_IF_EXISTS(pSettings, r_fvector3, section, "exit_pos", Fvector().set(0.0f, 0.0f, 0.0f));
 	m_camera_position = READ_IF_EXISTS(pSettings, r_fvector3, section, "camera_pos", Fvector().set(0.0f, 0.0f, 0.0f));
 	m_camera_angle = READ_IF_EXISTS(pSettings, r_fvector3, section, "camera_angle", Fvector().set(0.0f, 0.0f, 0.0f));
-	m_sUseAction = READ_IF_EXISTS(pSettings, r_string, section, "use_action_hint", nullptr);
+	m_sUseAction = READ_IF_EXISTS(pSettings, r_string, section, "use_action_hint", NULL);
 }
 
 BOOL CHolderEntityObject::net_Spawn(CSE_Abstract* DC)
@@ -131,9 +131,9 @@ void CHolderEntityObject::cam_Update(float dt, float fov)
 	Level().Cameras().UpdateFromCamera(Camera());
 }
 
-void CHolderEntityObject::renderable_Render()
+void CHolderEntityObject::renderable_Render(IDSGraphManager* DM)
 {
-	inheritedPH::renderable_Render();
+	inheritedPH::renderable_Render(DM);
 }
 
 void CHolderEntityObject::Action(u16 id, u32 flags)

@@ -75,7 +75,7 @@ CUIInventoryCellItem::CUIInventoryCellItem(CInventoryItem* itm)
 	}
 	//-Alundaio
 
-	LPCSTR condbar = READ_IF_EXISTS(pSettings, r_string, itm->m_section_id, "condition_bar", nullptr);
+	LPCSTR condbar = READ_IF_EXISTS(pSettings, r_string, itm->m_section_id, "condition_bar", NULL);
 	if (condbar)
 	{
 		CUIXml uiXml;
@@ -114,6 +114,17 @@ bool CUIInventoryCellItem::EqualTo(CUICellItem* itm)
 	{
 		return false;
 	}
+	// The same upgrades can produce different presentation when applied in a different order.
+	Irect grid_rect = object()->GetInvGridRect();
+	Irect other_grid_rect = ci->object()->GetInvGridRect();
+	Irect upgrade_rect = object()->GetUpgrIconRect();
+	Irect other_upgrade_rect = ci->object()->GetUpgrIconRect();
+	if (!grid_rect.cmp(other_grid_rect) || !upgrade_rect.cmp(other_upgrade_rect) ||
+		object()->m_name != ci->object()->m_name || object()->m_nameShort != ci->object()->m_nameShort ||
+		object()->ItemDescription() != ci->object()->ItemDescription())
+	{
+		return false;
+	}
 	CEatableItem* eatable_item_1 = object()->cast_eatable_item();
 	CEatableItem* eatable_item_2 = ci->object()->cast_eatable_item();
 	if (eatable_item_1 && eatable_item_2 && ((eatable_item_1->GetRemainingUses() != eatable_item_1->GetMaxUses()) || (
@@ -130,10 +141,10 @@ bool CUIInventoryCellItem::IsHelperOrHasHelperChild()
 CUIDragItem* CUIInventoryCellItem::CreateDragItem()
 {
 	if (IsHelperOrHasHelperChild())
-		return nullptr;
+		return NULL;
 
 	CUIDragItem* i = inherited::CreateDragItem();
-	CUIStatic* s = nullptr;
+	CUIStatic* s = NULL;
 
 	for (xr_vector<SIconLayer*>::iterator it = m_layers.begin(); m_layers.end() != it; ++it)
 	{
@@ -388,9 +399,9 @@ void CUIAmmoCellItem::UpdateItemText()
 CUIWeaponCellItem::CUIWeaponCellItem(CWeapon* itm)
 	: inherited(itm)
 {
-	m_addons[eSilencer] = nullptr;
-	m_addons[eScope] = nullptr;
-	m_addons[eLauncher] = nullptr;
+	m_addons[eSilencer] = NULL;
+	m_addons[eScope] = NULL;
+	m_addons[eLauncher] = NULL;
 
 	if (itm->SilencerAttachable())
 		m_addon_offset[eSilencer].set(object()->GetSilencerX(), object()->GetSilencerY());
@@ -438,7 +449,7 @@ void CUIWeaponCellItem::CreateIcon(eAddonType t)
 void CUIWeaponCellItem::DestroyIcon(eAddonType t)
 {
 	DetachChild(m_addons[t]);
-	m_addons[t] = nullptr;
+	m_addons[t] = NULL;
 }
 
 CUIStatic* CUIWeaponCellItem::GetIcon(eAddonType t)
@@ -620,7 +631,7 @@ void CUIWeaponCellItem::InitAddon(CUIStatic* s, LPCSTR section, Fvector2 addon_o
 CUIDragItem* CUIWeaponCellItem::CreateDragItem()
 {
 	CUIDragItem* i = inherited::CreateDragItem();
-	CUIStatic* s = nullptr;
+	CUIStatic* s = NULL;
 
 	if (GetIcon(eSilencer))
 	{

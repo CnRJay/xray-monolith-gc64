@@ -102,22 +102,27 @@ struct XRCORE_API xr_token2
 
 // generic
 template <class T>
-IC T _min(T a, T b) { return a < b ? a : b; }
+IC T _min(T a, T b) { return std::min(a, b); }
 
 template <class T>
-IC T _max(T a, T b) { return a > b ? a : b; }
+IC T _max(T a, T b) { return std::max(a, b); }
 
 template <class T>
 IC T _sqr(T a) { return a * a; }
 
 // float
 IC float _abs(float x) { return fabsf(x); }
+#include <xmmintrin.h>
+IC float _sqrt_sse(float x)
+{
+    return _mm_cvtss_f32(_mm_sqrt_ss(_mm_set_ps1(x)));
+}
 IC float _sqrt(float x) { return sqrtf(x); }
 IC float _sin(float x) { return sinf(x); }
 IC float _cos(float x) { return cosf(x); }
 IC BOOL _valid(const float x)
 {
-	// check for: Signaling NaN, Quiet NaN, Negative infinity ( –INF), Positive infinity (+INF), Negative denormalized, Positive denormalized
+	// check for: Signaling NaN, Quiet NaN, Negative infinity (-INF), Positive infinity (+INF), Negative denormalized, Positive denormalized
 	int cls = _fpclass(double(x));
 	if (cls & (_FPCLASS_SNAN + _FPCLASS_QNAN + _FPCLASS_NINF + _FPCLASS_PINF + _FPCLASS_ND + _FPCLASS_PD))
 		return false;
@@ -155,29 +160,43 @@ IC BOOL _valid(const double x)
 
 // int8
 IC s8 _abs(s8 x) { return (x >= 0) ? x : s8(-x); }
-IC s8 _min(s8 x, s8 y) { return y + ((x - y) & ((x - y) >> (sizeof(s8) * 8 - 1))); };
-IC s8 _max(s8 x, s8 y) { return x - ((x - y) & ((x - y) >> (sizeof(s8) * 8 - 1))); };
+IC s8 _min(s8 x, s8 y) { return std::min(x, y); }
+IC s8 _max(s8 x, s8 y) { return std::max(x, y); }
 
 // unsigned int8
 IC u8 _abs(u8 x) { return x; }
 
 // int16
 IC s16 _abs(s16 x) { return (x >= 0) ? x : s16(-x); }
-IC s16 _min(s16 x, s16 y) { return y + ((x - y) & ((x - y) >> (sizeof(s16) * 8 - 1))); };
-IC s16 _max(s16 x, s16 y) { return x - ((x - y) & ((x - y) >> (sizeof(s16) * 8 - 1))); };
+IC s16 _min(s16 x, s16 y) { return std::min(x, y); }
+IC s16 _max(s16 x, s16 y) { return std::max(x, y); }
 
 // unsigned int16
 IC u16 _abs(u16 x) { return x; }
 
 // int32
 IC s32 _abs(s32 x) { return (x >= 0) ? x : s32(-x); }
-IC s32 _min(s32 x, s32 y) { return y + ((x - y) & ((x - y) >> (sizeof(s32) * 8 - 1))); };
-IC s32 _max(s32 x, s32 y) { return x - ((x - y) & ((x - y) >> (sizeof(s32) * 8 - 1))); };
+IC s32 _min(s32 x, s32 y) { return std::min(x, y); }
+IC s32 _max(s32 x, s32 y) { return std::max(x, y); }
 
 // int64
 IC s64 _abs(s64 x) { return (x >= 0) ? x : s64(-x); }
-IC s64 _min(s64 x, s64 y) { return y + ((x - y) & ((x - y) >> (sizeof(s64) * 8 - 1))); };
-IC s64 _max(s64 x, s64 y) { return x - ((x - y) & ((x - y) >> (sizeof(s64) * 8 - 1))); };
+IC s64 _min(s64 x, s64 y) { return std::min(x, y); }
+IC s64 _max(s64 x, s64 y) { return std::max(x, y); }
+
+IC BOOL _fsimilar(float a, float b, float cmp = EPS) { return _abs(a - b) < cmp; }
+IC float _powf(float x, float y)
+{
+    if (_fsimilar(y, 2.0f))
+        return x * x;
+    if (_fsimilar(y, 0.5f))
+        return _sqrt(x);
+    if (_fsimilar(y, 1.0f))
+        return x;
+    if (_fsimilar(y, 0.0f))
+        return 1.0f;
+    return powf(x, y);
+}
 
 IC u32 xr_strlen(const char* S);
 

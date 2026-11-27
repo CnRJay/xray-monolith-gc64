@@ -184,10 +184,12 @@ CCameraManager::~CCameraManager()
 CEffectorCam* CCameraManager::GetCamEffector(ECamEffectorType type)
 {
 	for (EffectorCamIt it = m_EffectorsCam.begin(); it != m_EffectorsCam.end(); it++)
+	{
 		if ((*it)->eType == type)
 		{
 			return *it;
 		}
+	}
 	return 0;
 }
 
@@ -203,12 +205,13 @@ void CCameraManager::UpdateDeffered()
 	EffectorCamIt it_e = m_EffectorsCam_added_deffered.end();
 	for (; it != it_e; ++it)
 	{
-		RemoveCamEffector((*it)->eType);
+		CEffectorCam* Effector = *it;
+		RemoveCamEffector(Effector->eType);
 
-		if ((*it)->AbsolutePositioning())
-			m_EffectorsCam.push_front(*it);
+		if (Effector->AbsolutePositioning())
+			m_EffectorsCam.push_back(Effector);
 		else
-			m_EffectorsCam.push_back(*it);
+			m_EffectorsCam.push_front(Effector);
 	}
 
 	m_EffectorsCam_added_deffered.clear();
@@ -217,12 +220,14 @@ void CCameraManager::UpdateDeffered()
 void CCameraManager::RemoveCamEffector(ECamEffectorType type)
 {
 	for (EffectorCamIt it = m_EffectorsCam.begin(); it != m_EffectorsCam.end(); it++)
+	{
 		if ((*it)->eType == type)
 		{
 			OnEffectorReleased(*it);
 			m_EffectorsCam.erase(it);
 			return;
 		}
+	}
 }
 
 // demonized: removecameffector by pointer
@@ -268,14 +273,20 @@ void CCameraManager::RemoveHudMotionEffectors()
 CEffectorPP* CCameraManager::GetPPEffector(EEffectorPPType type)
 {
 	for (EffectorPPIt it = m_EffectorsPP.begin(); it != m_EffectorsPP.end(); it++)
-		if ((*it)->Type() == type) return *it;
+	{
+		if ((*it)->Type() == type)
+		{
+			return *it;
+		}
+	}
 	return 0;
 }
 
 ECamEffectorType CCameraManager::RequestCamEffectorId()
 {
-	ECamEffectorType index = (ECamEffectorType)effCustomEffectorStartID;
-	for (; GetCamEffector(index);
+	ECamEffectorType index;
+	for (index = (ECamEffectorType)effCustomEffectorStartID;
+	     GetCamEffector(index);
 	     index = (ECamEffectorType)(index + 1))
 	{
 		;
@@ -285,8 +296,9 @@ ECamEffectorType CCameraManager::RequestCamEffectorId()
 
 EEffectorPPType CCameraManager::RequestPPEffectorId()
 {
-	EEffectorPPType index = (EEffectorPPType)effCustomEffectorStartID;
-	for (; GetPPEffector(index);
+	EEffectorPPType index;
+	for (index = (EEffectorPPType)effCustomEffectorStartID;
+	     GetPPEffector(index);
 	     index = (EEffectorPPType)(index + 1))
 	{
 		;
@@ -304,16 +316,17 @@ CEffectorPP* CCameraManager::AddPPEffector(CEffectorPP* ef)
 void CCameraManager::RemovePPEffector(EEffectorPPType type)
 {
 	for (EffectorPPIt it = m_EffectorsPP.begin(); it != m_EffectorsPP.end(); it++)
+	{
 		if ((*it)->Type() == type)
 		{
 			if ((*it)->FreeOnRemove())
 			{
 				OnEffectorReleased(*it);
-				// xr_delete (*it);
 			}
 			m_EffectorsPP.erase(it);
 			return;
 		}
+	}
 }
 
 void CCameraManager::OnEffectorReleased(SBaseEffector* e)
@@ -383,36 +396,37 @@ void CCameraManager::Update(const Fvector& P, const Fvector& D, const Fvector& N
 
 bool CCameraManager::ProcessCameraEffector(CEffectorCam* eff)
 {
-	bool res = false;
 	if (eff->Valid() && eff->ProcessCam(m_cam_info))
 	{
-		res = true;
+		return true;
 	}
-	else if (eff->AllowProcessingIfInvalid())
+	else
 	{
-		eff->ProcessIfInvalid(m_cam_info);
+		if(eff->AllowProcessingIfInvalid())
+		{
+			eff->ProcessIfInvalid(m_cam_info);
+		}
+
+		return false;
 	}
-	return res;
+	return true;
 }
 
 void CCameraManager::UpdateCamEffectors()
 {
 	if (m_EffectorsCam.empty()) return;
-	EffectorCamVec::reverse_iterator r_it = m_EffectorsCam.rbegin();
-	while (r_it != m_EffectorsCam.rend())
+
+	for(auto it	= m_EffectorsCam.begin(); it != m_EffectorsCam.end();)
 	{
-		if (ProcessCameraEffector(*r_it))
+		CEffectorCam* eff = (*it);
+		if(!ProcessCameraEffector(eff))
 		{
-			++r_it;
+			it = m_EffectorsCam.erase(it);
+			OnEffectorReleased(eff);
 		}
 		else
 		{
-			// Dereferencing reverse iterator returns previous element of the list, r_it.base() returns current element
-			// So, we should use base()-1 iterator to delete just processed element. 'Previous' element would be 
-			// automatically changed after deletion, so r_it would dereferencing to another value, no need to change it
-			OnEffectorReleased(*r_it);
-			auto r_to_del = r_it.base();
-			m_EffectorsCam.erase(--r_to_del);
+			++it;
 		}
 	}
 
@@ -470,6 +484,7 @@ void CCameraManager::UpdatePPEffectors()
 }
 
 extern float psHUD_FOV;
+extern float psCAM_ATTACHED_FOV;
 
 void CCameraManager::ApplyDevice(float _viewport_near)
 {
@@ -488,6 +503,9 @@ void CCameraManager::ApplyDevice(float _viewport_near)
 
 	Device.mProject.build_projection(deg2rad(Device.fFOV), m_cam_info.fAspect, _viewport_near, m_cam_info.fFar);
 	Device.mProjectHud.build_projection(deg2rad(psHUD_FOV * 83.f), Device.fASPECT, R_VIEWPORT_NEAR, m_cam_info.fFar);
+	Device.mProjectCamAttached.build_projection(deg2rad(psCAM_ATTACHED_FOV * 83.f), Device.fASPECT, R_VIEWPORT_NEAR, m_cam_info.fFar);
+	Device.mProject3DIcons.build_projection_ortho(UI_3D_ICON_ORTHO_HEIGHT / Device.fASPECT,
+		UI_3D_ICON_ORTHO_HEIGHT, UI_3D_ICON_NEAR_PLANE, UI_3D_ICON_FAR_PLANE);
 
 	Device.mInvProject.invert(Device.mProject);
 	Device.mInvProjectHud.invert(Device.mProjectHud);

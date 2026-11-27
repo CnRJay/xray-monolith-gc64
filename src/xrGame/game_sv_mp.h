@@ -22,7 +22,7 @@ struct Rank_Struct
 
 	Rank_Struct()
 	{
-		m_sTitle = nullptr;
+		m_sTitle = NULL;
 		ZeroMemory(m_iTerms, sizeof(m_iTerms));
 		m_iBonusMoney = 0;
 		m_aRankDiff_ExpBonus.clear();

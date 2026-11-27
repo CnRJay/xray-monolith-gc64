@@ -13,6 +13,11 @@ class ENGINE_API CBoneInstance;
 class CWeaponList;
 class CPHMovementControl;
 class CHudItem;
+class CActor;
+class CAI_Stalker;
+class CEntityAlive;
+class CInventoryOwner;
+class CPhantom;
 
 class CEntity :
 	public CPhysicsShellHolder,
@@ -62,6 +67,12 @@ public:
 	virtual ~CEntity();
 	virtual DLL_Pure* _construct();
 	virtual CEntity* cast_entity() { return this; }
+	virtual CActor* cast_actor() { return nullptr; }
+	virtual CAI_Stalker* cast_stalker() { return nullptr; }
+	virtual CEntityAlive* cast_entity_alive() { return nullptr; }
+	virtual CInventoryOwner* cast_inventory_owner() { return nullptr; }
+	virtual CGameObject* cast_game_object() { return this; }
+	virtual CPhantom* cast_phantom() { return nullptr; }
 public:
 
 	// Core events

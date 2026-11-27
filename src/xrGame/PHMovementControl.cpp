@@ -46,7 +46,7 @@ CPHMovementControl::CPHMovementControl(CObject* parent)
 	}
 #endif
 
-	m_capture = nullptr;
+	m_capture = NULL;
 	b_exect_position = true;
 	m_start_index = 0;
 	eOldEnvironment = peInAir;
@@ -69,7 +69,7 @@ CPHMovementControl::CPHMovementControl(CObject* parent)
 
 	fContactSpeed = 0.f;
 	fAirControlParam = 0.f;
-	m_character = nullptr;
+	m_character = NULL;
 	m_dwCurBox = 0xffffffff;
 	fCollisionDamageFactor = 1.f;
 	in_dead_area_count = 0;
@@ -163,8 +163,9 @@ void CPHMovementControl::Calculate(Fvector& vAccel, const Fvector& camDir, float
 	UpdateCollisionDamage();
 
 	ICollisionDamageInfo* cdi = CollisionDamageInfo();
-	if (cdi->HitCallback())
-		cdi->HitCallback()->call(gcontact_Initiator, fMinCrashSpeed, fMaxCrashSpeed, fContactSpeed, gcontact_HealthLost, cdi);
+	ICollisionHitCallback* hit_callback = cdi ? cdi->HitCallback() : nullptr;
+	if (hit_callback)
+		hit_callback->call(gcontact_Initiator, fMinCrashSpeed, fMaxCrashSpeed, fContactSpeed, gcontact_HealthLost, cdi);
 
 	TraceBorder(previous_position);
 	CheckEnvironment(vPosition);
@@ -971,7 +972,7 @@ void CPHMovementControl::PHCaptureObject(CPhysicsShellHolder* object, u16 elemen
 
 Fvector CPHMovementControl::PHCaptureGetNearestElemPos(const CPhysicsShellHolder* object)
 {
-	R_ASSERT3((object->m_pPhysicsShell != nullptr), "NO Phisics Shell for object ", *object->cName());
+	R_ASSERT3((object->m_pPhysicsShell != NULL), "NO Phisics Shell for object ", *object->cName());
 
 	CPhysicsElement* ph_elem = object->m_pPhysicsShell->NearestToPoint(vPosition);
 
@@ -1002,7 +1003,7 @@ void CPHMovementControl::DestroyCharacter()
 	VERIFY(m_character);
 
 	// Remove Grass bender if PHCharacter is not NULL
-	if (m_character->PhysicsRefObject() != nullptr)
+	if (m_character->PhysicsRefObject() != NULL)
 		g_pGamePersistent->GrassBendersRemoveById(m_character->PhysicsRefObject()->ObjectID());
 
 	m_character->Destroy();
@@ -1198,7 +1199,7 @@ void CPHMovementControl::MulFrictionFactor(float f)
 
 IElevatorState* CPHMovementControl::ElevatorState()
 {
-	if (!m_character || !m_character->b_exist)return nullptr;
+	if (!m_character || !m_character->b_exist)return NULL;
 	return m_character->ElevatorState();
 }
 
@@ -1224,7 +1225,7 @@ BOOL CPHMovementControl::BorderTraceCallback(collide::rq_result& result, LPVOID 
 {
 	STraceBorderQParams& p = *(STraceBorderQParams*)params;
 	u16 mtl_idx = GAMEMTL_NONE_IDX;
-	CDB::TRI* T = nullptr;
+	CDB::TRI* T = NULL;
 	if (result.O)
 	{
 		return true;
@@ -1264,7 +1265,7 @@ void CPHMovementControl::TraceBorder(const Fvector& prev_position)
 
 	STraceBorderQParams p(this, dir);
 	storage.r_clear();
-	g_pGameLevel->ObjectSpace.RayQuery(storage, RD, BorderTraceCallback, &p, nullptr, smart_cast<CObject*>(m_character->PhysicsRefObject()));
+	g_pGameLevel->ObjectSpace.RayQuery(storage, RD, BorderTraceCallback, &p, NULL, smart_cast<CObject*>(m_character->PhysicsRefObject()));
 }
 
 void CPHMovementControl::UpdateObjectBox(CPHCharacter* ach)
@@ -1276,7 +1277,7 @@ void CPHMovementControl::UpdateObjectBox(CPHCharacter* ach)
 		return;
 
 	Fvector cbox;
-	PKinematics(pObject->Visual())->CalculateBones();
+	//PKinematics(pObject->Visual())->CalculateBones();
 	pObject->BoundingBox().getradius(cbox);
 
 	const Fvector& pa = ach->BodyPosition();
@@ -1452,7 +1453,7 @@ ObjectContactCallbackFun* CPHMovementControl::ObjectContactCallback()
 	if (m_character)
 		return m_character->ObjectContactCallBack();
 	else 
-		return nullptr;
+		return NULL;
 }
 
 u16 CPHMovementControl::ContactBone()

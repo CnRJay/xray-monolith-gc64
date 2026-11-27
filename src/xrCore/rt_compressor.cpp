@@ -4,7 +4,6 @@
 
 // #include "rt_lzo.h"
 #include "rt_lzo1x.h"
-#include "profiler.h"
 
 
 #define HEAP_ALLOC(var,size) \
@@ -37,7 +36,6 @@ u32 rtc_compress(void* dst, u32 dst_len, const void* src, u32 src_len)
 
 u32 rtc_decompress(void* dst, u32 dst_len, const void* src, u32 src_len)
 {
-	PROF_EVENT("rtc_decompress");
 	lzo_uint out_size = dst_len;
 	int r = lzo1x_decompress(
 		(const lzo_byte*)src, (lzo_uint)src_len,

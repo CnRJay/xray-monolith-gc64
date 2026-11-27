@@ -19,7 +19,7 @@
 #include "UI/UIGameTutorial.h"
 #include "ui/UIPdaWnd.h"
 #include "../xrNetServer/NET_AuthCheck.h"
-
+#include "script_attachment_manager.h"
 #include "../xrphysics/physicscommon.h"
 extern ENGINE_API bool g_dedicated_server;
 
@@ -30,6 +30,7 @@ extern bool g_b_ClearGameCaptions;
 
 void CLevel::remove_objects()
 {
+	PROF_EVENT("remove_objects", PROF_CAT(Scene));
 	if (!IsGameTypeSingle()) Msg("CLevel::remove_objects - Start");
 	BOOL b_stored = psDeviceFlags.test(rsDisableObjectsAsCrows);
 
@@ -56,7 +57,7 @@ void CLevel::remove_objects()
 			ClientReceive();
 			ProcessGameEvents();
 			Objects.Update(false);
-			Objects.ProcessDestroyQueue();
+            Objects.ProcessDestroyQueue();
 #ifdef DEBUG
 			Msg						("Update objects list...");
 #endif // #ifdef DEBUG
@@ -72,6 +73,7 @@ void CLevel::remove_objects()
 		}
 	}
 
+	delete_data(m_script_attachments);
 	BulletManager().Clear();
 	ph_commander().clear();
 	ph_commander_scripts().clear();
@@ -144,8 +146,8 @@ void CLevel::net_Stop()
 	if (IsDemoPlay() && m_current_spectator) //destroying demo spectator ...
 	{
 		m_current_spectator->setDestroy(TRUE);
-		SetControlEntity(nullptr); //m_current_spectator == CurrentControlEntity()
-		m_current_spectator = nullptr;
+		SetControlEntity(NULL); //m_current_spectator == CurrentControlEntity()
+		m_current_spectator = NULL;
 	}
 	else if (IsDemoSave() && !IsDemoInfoSaved())
 		SaveDemoInfo();
@@ -322,6 +324,7 @@ void CLevel::Send(NET_Packet& P, u32 dwFlags, u32 dwTimeout)
 
 void CLevel::net_Update()
 {
+	PROF_EVENT("net_Update", PROF_CAT(Network));
 	if (game_configured)
 	{
 		// If we have enought bandwidth - replicate client data on to server
@@ -568,7 +571,7 @@ void CLevel::ClearAllObjects()
 	for (u32 i = 0; i < CLObjNum; i++)
 	{
 		CObject* pObj = Level().Objects.o_get_by_iterator(i);
-		if (pObj->H_Parent() != nullptr)
+		if (pObj->H_Parent() != NULL)
 		{
 			if (IsGameTypeSingle())
 			{

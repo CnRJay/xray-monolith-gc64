@@ -15,6 +15,7 @@
 #include "r_backend_xform.h"
 #include "r_backend_hemi.h"
 #include "r_backend_tree.h"
+#include "../../xrEngine/shader_bus.h"
 
 #ifdef USE_DX11
 #	include "..\xrRenderPC_R4\r_backend_lod.h"
@@ -51,6 +52,30 @@ struct R_statistics
 	R_statistics_element s_dynamic_2B;
 	R_statistics_element s_dynamic_3B;
 	R_statistics_element s_dynamic_4B;
+};
+
+// shader bus obj_ lanes of the current constant table, written per draw from the drawn object
+class ECORE_API R_bus_object
+{
+	R_constant* c[ShaderBus::max_object_lanes];
+	ShaderBus::lane* lanes[ShaderBus::max_object_lanes];
+	u32 count;
+	bool object_applied;
+
+	void write_object(IRenderable* O);
+	void write_defaults();
+
+public:
+	R_bus_object() { unmap(); }
+	void unmap()
+	{
+		count = 0;
+		object_applied = false;
+	}
+	// writes the lane's value and keeps the constant for the draws of this table
+	void map(R_constant* C, ShaderBus::lane* l);
+	ICF void apply(IRenderable* O) { if (count) write_object(O); }
+	ICF void apply_static() { if (count) write_defaults(); }
 };
 
 #pragma warning(push)
@@ -94,6 +119,7 @@ public:
 	ID3DIndexBuffer* CuboidIB;
 	R_xforms xforms;
 	R_hemi hemi;
+	R_bus_object bus_object;
 	R_tree tree;
 #ifdef USE_DX11
 	R_LOD LOD;
@@ -224,24 +250,26 @@ public:
 public:
 	IC CTexture* get_ActiveTexture(u32 stage)
 	{
-		if (stage < CTexture::rstVertex) return textures_ps[stage];
-		else if (stage < CTexture::rstGeometry) return textures_vs[stage - CTexture::rstVertex];
+		CTexture* T = NULL;
+		if (stage < CTexture::rstVertex) T = textures_ps[stage];
+		else if (stage < CTexture::rstGeometry) T = textures_vs[stage - CTexture::rstVertex];
 #ifdef USE_DX10
-		else return textures_gs[stage - CTexture::rstGeometry];
+		else T = textures_gs[stage - CTexture::rstGeometry];
 #elif USE_DX11
-		else if (stage < CTexture::rstHull) return textures_gs[stage - CTexture::rstGeometry];
-		else if (stage < CTexture::rstDomain) return textures_hs[stage - CTexture::rstHull];
-		else if (stage < CTexture::rstCompute) return textures_ds[stage - CTexture::rstDomain];
-		else if (stage < CTexture::rstInvalid) return textures_cs[stage - CTexture::rstCompute];
+		else if (stage < CTexture::rstHull) T = textures_gs[stage - CTexture::rstGeometry];
+		else if (stage < CTexture::rstDomain) T = textures_hs[stage - CTexture::rstHull];
+		else if (stage < CTexture::rstCompute) T = textures_ds[stage - CTexture::rstDomain];
+		else if (stage < CTexture::rstInvalid) T = textures_cs[stage - CTexture::rstCompute];
 		else
 		{
 			VERIFY(!"Invalid texture stage");
-			return 0;
 		}
-#else	//	USE_DX10
-		VERIFY(!"Invalid texture stage");
-		return 0;
-#endif	//	USE_DX10
+#endif
+		while (T&&!T->flags.bLoaded)
+		{
+			SwitchToThread();
+		}
+		return T;
 	}
 
 #if defined(USE_DX10) || defined(USE_DX11)
@@ -352,9 +380,9 @@ public:
 	IC void set_FillMode(u32 _mode);
 	IC void set_CullMode(u32 _mode);
 	IC u32 get_CullMode() { return cull_mode; }
-	void set_ClipPlanes(u32 _enable, Fplane* _planes = nullptr, u32 count = 0);
-	void set_ClipPlanes(u32 _enable, Fmatrix* _xform = nullptr, u32 fmask = 0xff);
-	IC void set_Scissor(Irect* rect = nullptr);
+	void set_ClipPlanes(u32 _enable, Fplane* _planes = NULL, u32 count = 0);
+	void set_ClipPlanes(u32 _enable, Fmatrix* _xform = NULL, u32 fmask = 0xff);
+	IC void set_Scissor(Irect* rect = NULL);
 
 	// constants
 	ICF R_constant* get_c(LPCSTR n)
@@ -382,6 +410,7 @@ public:
 #if defined(USE_DX10) || defined(USE_DX11)
 	ICF void set_c(R_constant* C, float A) { if (C) constants.set(C, A); }
 	ICF void set_c(R_constant* C, int A) { if (C) constants.set(C, A); }
+	ICF void set_c_bytes(R_constant* C, const void* data, u32 bytes) { if (C) constants.set_bytes(C, data, bytes); }
 #endif	//	USE_DX10
 
 

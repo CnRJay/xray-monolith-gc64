@@ -55,6 +55,7 @@ extern void OutputDebugStackTrace(const char* header);
 
 void xrCriticalSection::Enter()
 {
+	//PROF_EVENT("xrCriticalSection::Enter");
 #ifdef PROFILE_CRITICAL_SECTIONS
 # if 0//def DEBUG
     static bool show_call_stack = false;
@@ -63,16 +64,24 @@ void xrCriticalSection::Enter()
 # endif // DEBUG
     profiler temp(m_id);
 #endif // PROFILE_CRITICAL_SECTIONS
-	EnterCriticalSection((CRITICAL_SECTION*)pmutex);
+#if XRCORE_PROFILER == PROFILER_OPTICK
+	// Zones only the contended path
+	if (TryEnterCriticalSection((CRITICAL_SECTION*)pmutex))
+		return;
+	PROF_EVENT("xrCriticalSection::Enter", PROF_CAT(Wait));
+#endif
+    EnterCriticalSection((CRITICAL_SECTION*)pmutex);
 }
 
 void xrCriticalSection::Leave()
 {
+	//PROF_EVENT("xrCriticalSection::Leave");
 	LeaveCriticalSection((CRITICAL_SECTION*)pmutex);
 }
 
 BOOL xrCriticalSection::TryEnter()
 {
+	//PROF_EVENT("xrCriticalSection::TryEnter");
 	return TryEnterCriticalSection((CRITICAL_SECTION*)pmutex);
 }
 
@@ -95,25 +104,32 @@ xrSRWLock::xrSRWLock()
 
 void xrSRWLock::AcquireExclusive()
 {
-	PROF_EVENT("xrSRWLock::AcquireExclusive");
+#if XRCORE_PROFILER == PROFILER_OPTICK
+	// Zones only the contended path
+	if (TryAcquireSRWLockExclusive(&smutex))
+		return;
+	PROF_EVENT("xrSRWLock::AcquireExclusive", PROF_CAT(Wait));
+#endif
     AcquireSRWLockExclusive(&smutex);
 }
 
 void xrSRWLock::ReleaseExclusive()
 {
-	PROF_EVENT("xrSRWLock::ReleaseExclusive");
     ReleaseSRWLockExclusive(&smutex);
 }
 
 void xrSRWLock::AcquireShared()
 {
-	PROF_EVENT("xrSRWLock::AcquireShared");
+#if XRCORE_PROFILER == PROFILER_OPTICK
+	if (TryAcquireSRWLockShared(&smutex))
+		return;
+	PROF_EVENT("xrSRWLock::AcquireShared", PROF_CAT(Wait));
+#endif
     AcquireSRWLockShared(&smutex);
 }
 
 void xrSRWLock::ReleaseShared()
 {
-	PROF_EVENT("xrSRWLock::ReleaseShared");
     ReleaseSRWLockShared(&smutex);
 }
 

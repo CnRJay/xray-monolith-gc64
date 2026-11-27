@@ -20,125 +20,206 @@ float r_ssaLOD_A, r_ssaLOD_B;
 float r_ssaGLOD_start, r_ssaGLOD_end;
 float r_ssaHZBvsTEX;
 
-ICF float CalcSSA(float& distSQ, Fvector& C, dxRender_Visual* V)
-{
-	float R = V->vis.sphere.R + 0;
-	distSQ = Device.vCameraPosition.distance_to_sqr(C) + EPS;
-	return R / distSQ;
-}
-
 ICF float CalcSSA(float& distSQ, Fvector& C, float R)
 {
 	distSQ = Device.vCameraPosition.distance_to_sqr(C) + EPS;
-	return R / distSQ;
+    return (R * R / distSQ);
 }
 
-void R_dsgraph_structure::r_dsgraph_insert_dynamic(dxRender_Visual* pVisual, Fvector& Center)
+ICF float CalcSSA(float& distSQ, Fvector& C, dxRender_Visual* V)
 {
-	CRender& RI = RImplementation;
-	auto sh = pVisual->shader->E[0]._get();
-#if defined(USE_DX11) //  Redotix99: for 3D Shader Based Scopes 
-	if (nullptr != sh && sh->flags.iScopeLense > 0) {
-		// Only want a single lens, if rendering the player HUD (bCaptureScopeLens)
-		if (RImplementation.Target->bCaptureScopeLens) {
-			if (sh->flags.iScopeLense == 3 && mapScopeHUDSorted.empty()) {
-				// We must detect the lens surface immediately, ignoring all culling.
-				float distSQ;
-				float SSA = CalcSSA(distSQ, Center, pVisual);
-				mapSorted_Node N;
-				N.val.ssa = 0;
-				N.val.pObject = RI.val_pObject;
-				N.val.pVisual = pVisual;
-				N.val.Matrix = *RI.val_pTransform;
-			
-				mapScopeHUDSorted.push_back(N);
+    return CalcSSA(distSQ, C, V->vis.sphere.R);
+}
+
+ICF bool R4FullDetailRejectStatic(dxRender_Visual* pVisual, bool normalPhase)
+{
+#if RENDER == R_R4
+	if (ps_r4_full_detail_distance_scale >= 1.f || !normalPhase ||
+		pVisual->flags.test(IRenderVisualFlags::eIgnoreOptimization) || !g_pGamePersistent ||
+		!g_pGamePersistent->Environment().CurrentEnv)
+		return false;
+
+	// Keep the engine's normal LOD selection alive beyond the full-detail range.
+	if (pVisual->Type == MT_LOD)
+		return false;
+
+	const float farPlane = g_pGamePersistent->Environment().CurrentEnv->far_plane;
+	const float fullDetailDistance = std::max(100.f, farPlane * ps_r4_full_detail_distance_scale);
+	float distanceSquared;
+	const float ssa = CalcSSA(distanceSquared, pVisual->vis.sphere.P, pVisual);
+	const float nearestDistance = _sqrt(distanceSquared) - pVisual->vis.sphere.R;
+	if (nearestDistance <= fullDetailDistance)
+		return false;
+
+	const float transitionRange = std::max(1.f, farPlane - fullDetailDistance);
+	const float transition = clampr((nearestDistance - fullDetailDistance) / transitionRange, 0.f, 1.f);
+	return ssa <= r_ssaDISCARD * (1.f + transition * 11.f);
+#else
+	return false;
+#endif
+}
+
+void CDSGraphManager::r_dsgraph_insert_dynamic(dxRender_Visual *pVisual, Fmatrix* xform)
+{
+	Fvector Center;
+	xform->transform_tiny(Center, pVisual->vis.sphere.P);
+    // Attachments can submit the same visual at several instance transforms in one pass.
+    if (!get_UI3D() && val_pObject && !val_pObject->dcast_CObject())
+    {
+        owned_transforms.push_back(*xform);
+        xform = &owned_transforms.back();
+    }
+#if defined(USE_DX11) // True PIP: 3D Shader Based Scopes & Reflex Sights
+	if (!get_UI3D() && pVisual->shader._get())
+	{
+		auto sh_scope = pVisual->shader->E[0]._get();
+		if (nullptr != sh_scope && sh_scope->flags.iScopeLense > 0)
+		{
+			// Only want a single lens, if rendering the player HUD (bCaptureScopeLens)
+			if (RImplementation.Target->bCaptureScopeLens)
+			{
+				owned_transforms.push_back(*xform);
+				Fmatrix* scope_xform = &owned_transforms.back();
+				if (sh_scope->flags.iScopeLense == 3 && RGraph.mapScopeHUDSorted.empty())
+				{
+					// We must detect the lens surface immediately, ignoring all culling.
+					RGraph.mapScopeHUDSorted.emplace_back(0.f, 0.f, val_pObject, pVisual, scope_xform, sh_scope, get_HUD(), val_fCustomFOV);
+				}
+				else if (sh_scope->flags.iScopeLense == 10)
+				{
+					RGraph.mapReflexHUDSorted.emplace_back(0.f, 0.f, val_pObject, pVisual, scope_xform, sh_scope, get_HUD(), val_fCustomFOV);
+				}
 			}
-			else if (sh->flags.iScopeLense == 10) {
-				float distSQ;
-				float SSA = CalcSSA(distSQ, Center, pVisual);
-				mapSorted_Node N;
-				N.val.ssa = 0;
-				N.val.pObject = RI.val_pObject;
-				N.val.pVisual = pVisual;
-				N.val.Matrix = *RI.val_pTransform;
-				N.val.se = sh;
-			
-				mapReflexHUDSorted.push_back(N);
-			}
+			return;
 		}
-		return;
 	}
 #endif
-
-	if (pVisual->vis.marker == RI.marker) return;
-	pVisual->vis.marker = RI.marker;
-
-#if RENDER==R_R1
-	if (RI.o.vis_intersect && (pVisual->vis.accept_frame != Device.dwFrame)) return;
-	pVisual->vis.accept_frame = Device.dwFrame;
+    if (get_UI3D())
+    {
+        VERIFY(pVisual->shader._get());
+        const float distance_squared = Device.vCameraPosition.distance_to_sqr(Center);
+#if RENDER == R_R4
+        // Match main's DX11 icon classification and SSA test, outside world HOM culling.
+        const float icon_ssa = pVisual->vis.sphere.R / (distance_squared + EPS);
+        if (icon_ssa <= r_ssaDISCARD) return;
+        ShaderElement* shader = RImplementation.rimp_select_sh_dynamic(pVisual, distance_squared + EPS);
+        if (!shader) return;
 #endif
+        owned_transforms.push_back(*xform);
+        Fmatrix* icon_transform = &owned_transforms.back();
+#if RENDER == R_R4
+        if (shader->flags.bStrictB2F)
+            RGraph.mapUI3DSorted.emplace_back(distance_squared + EPS, icon_ssa, nullptr, pVisual, icon_transform, shader, false);
+        else
+        {
+            RGraph.mapUI3D.emplace_back(distance_squared + EPS, icon_ssa, nullptr, pVisual, icon_transform, shader, false);
+            if (shader->flags.bEmissive)
+                RGraph.mapUI3DEmissive.emplace_back(distance_squared + EPS, icon_ssa, nullptr, pVisual,
+                    icon_transform, pVisual->shader->E[4]._get(), false);
+        }
+#else
+        // DX8/9/10 use the dedicated icon shader for every mesh, far to near.
+        RGraph.mapUI3DSorted.emplace_back(distance_squared, 1.f, nullptr, pVisual, icon_transform, nullptr, false);
+#endif
+        return;
+    }
+
 
 	float distSQ;
 	float SSA = CalcSSA(distSQ, Center, pVisual);
-	if (SSA <= r_ssaDISCARD) return;
+    Flags16& flags = pVisual->flags;
+    ShaderElement* sh_d = &*pVisual->shader->E[4];
+    if (!(flags.test(IRenderVisualFlags::eIgnoreOptimization) || (sh_d && sh_d->flags.bEmissive)))
+    {
+        if (SSA < r_ssaDISCARD)
+        {
+            //Msg("SSA %.2f discarded", SSA);
+            return;
+        }
+    }
+    
+
+	// HOM occlusion culling for dynamic objects
+    if (ps_r__common_flags.test(RFLAG_HOM_DYNAMIC))
+    {
+#if RENDER!=R_R1
+        if (i_mask[CDSGraphManager::fl_normal])
+#endif
+        {
+            Fbox world_bb;
+            world_bb.xform(pVisual->vis.box, *xform);
+            if (!RImplementation.HOM.visible(world_bb))
+                return;
+        }
+    }
 
 	// Distortive geometry should be marked and R2 special-cases it
 	// a) Allow to optimize RT order
 	// b) Should be rendered to special distort buffer in another pass
 	VERIFY(pVisual->shader._get());
-	ShaderElement* sh_d = &*pVisual->shader->E[4];
-	if (RImplementation.o.distortion && sh_d && sh_d->flags.bDistort && pmask[sh_d->flags.iPriority / 2])
+
+	if (sh_d && sh_d->flags.bDistort && i_mask[sh_d->flags.iPriority/2])
 	{
-		mapSorted_T& test = RI.val_bHUD ? mapHUDDistort : mapDistort;
-		mapSorted_Node* N = test.insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = RI.val_pObject;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = *RI.val_pTransform;
-		N->val.se = sh_d; // 4=L_special
+		if (val_fCustomFOV != 0.f)
+			RGraph.mapCustomFOVSorted.Distort.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, false, val_fCustomFOV);
+		else if (i_mask[CDSGraphManager::fl_hud])
+			RGraph.mapHUDSorted.Distort.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, i_mask[CDSGraphManager::fl_hud]);
+		else
+			RGraph.mapDynamicSorted.Distort.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, i_mask[CDSGraphManager::fl_hud]);
 	}
 
 	// Select shader
-	sh = RImplementation.rimp_select_sh_dynamic(pVisual, distSQ);
-	if (0 == sh) return;
-	if (!pmask[sh->flags.iPriority / 2]) return;
+	ShaderElement* sh = RImplementation.rimp_select_sh_dynamic(pVisual, distSQ);
+
+	if (0==sh)
+		return;
+	u32 shader_priority = sh->flags.iPriority/2;
+	if (!i_mask[shader_priority])
+		return;
 
 	// Create common node
 	// NOTE: Invisible elements exist only in R1
-	_MatrixItem item = {SSA, RI.val_pObject, pVisual, *RI.val_pTransform};
+
+    if (get_HUD() && val_fCustomFOV != 0.f)
+    {
+        if (sh->flags.bStrictB2F)
+            RGraph.mapCustomFOVSorted.Sorted.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, false, val_fCustomFOV);
+        else
+            RGraph.mapCustomFOV.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, false, val_fCustomFOV);
+#if RENDER != R_R1
+        if (sh->flags.bEmissive)
+            RGraph.mapCustomFOVSorted.Emissive.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, false, val_fCustomFOV);
+#endif
+        return;
+    }
 
 	// HUD rendering
-	if (RI.val_bHUD)
+	if (i_mask[CDSGraphManager::fl_hud])
 	{
 		if (sh->flags.bStrictB2F)
 		{
 #if RENDER!=R_R1
 			if (sh->flags.bEmissive)
 			{
-				mapSorted_Node* N = RI.val_bCamAttached ? mapCamAttachedEmissive.insertInAnyWay(distSQ) : mapHUDEmissive.insertInAnyWay(distSQ);
-				N->val.ssa = SSA;
-				N->val.pObject = RI.val_pObject;
-				N->val.pVisual = pVisual;
-				N->val.Matrix = *RI.val_pTransform;
-				N->val.se = &*pVisual->shader->E[4]; // 4=L_special
+				if (i_mask[CDSGraphManager::fl_cam])
+					RGraph.mapCamAttachedSorted.Emissive.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, i_mask[CDSGraphManager::fl_cam]);
+				else
+					RGraph.mapHUDSorted.Emissive.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, i_mask[CDSGraphManager::fl_hud]);
 			}
 #endif // RENDER!=R_R1
-			mapSorted_Node* N = RI.val_bCamAttached ? mapCamAttachedSorted.insertInAnyWay(distSQ) : mapHUDSorted.insertInAnyWay(distSQ);
-			N->val.ssa = SSA;
-			N->val.pObject = RI.val_pObject;
-			N->val.pVisual = pVisual;
-			N->val.Matrix = *RI.val_pTransform;
-			N->val.se = sh;
+			if (i_mask[CDSGraphManager::fl_cam])
+				RGraph.mapCamAttachedSorted.Sorted.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, i_mask[CDSGraphManager::fl_cam]);
+			else
+				RGraph.mapHUDSorted.Sorted.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, i_mask[CDSGraphManager::fl_hud]);
 			return;
 		}
 		else
 		{
-			mapHUD_Node* N = RI.val_bCamAttached ? mapCamAttached.insertInAnyWay(distSQ) : mapHUD.insertInAnyWay(distSQ);
-			N->val.ssa = SSA;
-			N->val.pObject = RI.val_pObject;
-			N->val.pVisual = pVisual;
-			N->val.Matrix = *RI.val_pTransform;
-			N->val.se = sh;
+			if (i_mask[CDSGraphManager::fl_cam])
+				RGraph.mapCamAttached.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, i_mask[CDSGraphManager::fl_cam]);
+			else
+				RGraph.mapHUD.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, i_mask[CDSGraphManager::fl_hud]);
+
 			/*
 #if RENDER==R_R4
 			if (RImplementation.o.ssfx_core && !sh->passes[0]->ps->hud_disabled)
@@ -155,33 +236,32 @@ void R_dsgraph_structure::r_dsgraph_insert_dynamic(dxRender_Visual* pVisual, Fve
 #if RENDER!=R_R1
 			if (sh->flags.bEmissive)
 			{
-				mapSorted_Node* N = RI.val_bCamAttached ? mapCamAttachedEmissive.insertInAnyWay(distSQ) : mapHUDEmissive.insertInAnyWay(distSQ);
-				N->val.ssa = SSA;
-				N->val.pObject = RI.val_pObject;
-				N->val.pVisual = pVisual;
-				N->val.Matrix = *RI.val_pTransform;
-				N->val.se = &*pVisual->shader->E[4]; // 4=L_special
+				if (i_mask[CDSGraphManager::fl_cam])
+					RGraph.mapCamAttachedSorted.Emissive.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, i_mask[CDSGraphManager::fl_cam]);
+				else
+					RGraph.mapHUDSorted.Emissive.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, i_mask[CDSGraphManager::fl_hud]);
 			}
+				
 #endif	//	RENDER!=R_R1
+
 			return;
 		}
 	}
 
 	// Shadows registering
 #if RENDER==R_R1
-	RI.L_Shadows->add_element(item);
+	DSGraphItem<u32, false> item = { 0, SSA, val_pObject, pVisual, xform, nullptr, get_HUD(), val_fCustomFOV };
+	R_dsgraph::mapDSGraphItemsMap<u32, false>::TNode N = { 0, item };
+	RImplementation.L_Shadows->add_element(N);
 #endif
-	if (RI.val_bInvisible) return;
+	if (i_mask[CDSGraphManager::fl_invisible])
+		return;
 
 	// strict-sorting selection
-	if (sh->flags.bStrictB2F && !pVisual->dcast_ParticleCustom()) //credit v2v3v4 and LVutner
+	if (sh->flags.bStrictB2F && !pVisual->dcast_ParticleCustom())
 	{
-		mapSorted_Node* N = mapSorted.insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = RI.val_pObject;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = *RI.val_pTransform;
-		N->val.se = sh;
+		auto& graph = val_fCustomFOV != 0.f ? RGraph.mapCustomFOVSorted.Sorted : RGraph.mapDynamicSorted.Sorted;
+		graph.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, get_HUD(), val_fCustomFOV);
 		return;
 	}
 
@@ -193,21 +273,16 @@ void R_dsgraph_structure::r_dsgraph_insert_dynamic(dxRender_Visual* pVisual, Fve
 	// d) Should be rendered to accumulation buffer in the second pass
 	if (sh->flags.bEmissive)
 	{
-		mapSorted_Node* N = mapEmissive.insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = RI.val_pObject;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = *RI.val_pTransform;
-		N->val.se = &*pVisual->shader->E[4]; // 4=L_special
+		auto& graph = val_fCustomFOV != 0.f ? RGraph.mapCustomFOVSorted.Emissive : RGraph.mapDynamicSorted.Emissive;
+		graph.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh_d, get_HUD(), val_fCustomFOV);
 	}
-	if (sh->flags.bWmark && pmask_wmark)
+
+	if (sh->flags.bWmark && i_mask[CDSGraphManager::fl_wmarks])
 	{
-		mapSorted_Node* N = mapWmark.insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = RI.val_pObject;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = *RI.val_pTransform;
-		N->val.se = sh;
+		if (i_mask[CDSGraphManager::fl_hud])
+			RGraph.mapHUDSorted.Wmark.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, get_HUD(), val_fCustomFOV);
+		else
+			RGraph.mapDynamicSorted.Wmark.emplace_back(distSQ, SSA, val_pObject, pVisual, xform, sh, get_HUD(), val_fCustomFOV);
 		return;
 	}
 #endif
@@ -215,150 +290,108 @@ void R_dsgraph_structure::r_dsgraph_insert_dynamic(dxRender_Visual* pVisual, Fve
 	for (u32 iPass = 0; iPass < sh->passes.size(); ++iPass)
 	{
 		// the most common node
-		//SPass&						pass	= *sh->passes.front	();
-		//mapMatrix_T&				map		= mapMatrix			[sh->flags.iPriority/2];
-		SPass& pass = *sh->passes[iPass];
-		mapMatrix_T& map = mapMatrixPasses[sh->flags.iPriority / 2][iPass];
-
-
-#ifdef USE_RESOURCE_DEBUGGER
-#if defined(USE_DX10) || defined(USE_DX11)
-		mapMatrixVS::TNode*			Nvs		= map.insert		(pass.vs);
-		mapMatrixGS::TNode*			Ngs		= Nvs->val.insert	(pass.gs);
-		mapMatrixPS::TNode*			Nps		= Ngs->val.insert	(pass.ps);
-#else	//	USE_DX10
-		mapMatrixVS::TNode*			Nvs		= map.insert		(pass.vs);
-		mapMatrixPS::TNode*			Nps		= Nvs->val.insert	(pass.ps);
-#endif	//	USE_DX10
-#else
-#if defined(USE_DX10) || defined(USE_DX11)
-		mapMatrixVS::TNode* Nvs = map.insert(&*pass.vs);
-		mapMatrixGS::TNode* Ngs = Nvs->val.insert(pass.gs->gs);
-		mapMatrixPS::TNode* Nps = Ngs->val.insert(pass.ps->ps);
-#else	//	USE_DX10
-		mapMatrixVS::TNode* Nvs = map.insert(pass.vs->vs);
-		mapMatrixPS::TNode* Nps = Nvs->val.insert(pass.ps->ps);
-#endif	//	USE_DX10
-#endif
-
-#ifdef USE_DX11
-#	ifdef USE_RESOURCE_DEBUGGER
-		Nps->val.hs = pass.hs;
-		Nps->val.ds = pass.ds;
-		mapMatrixCS::TNode*			Ncs		= Nps->val.mapCS.insert	(pass.constants._get());
-#	else
-		Nps->val.hs = pass.hs->sh;
-		Nps->val.ds = pass.ds->sh;
-		mapMatrixCS::TNode* Ncs = Nps->val.mapCS.insert(pass.constants._get());
-#	endif
-#else
-		mapMatrixCS::TNode* Ncs = Nps->val.insert(pass.constants._get());
-#endif
-		mapMatrixStates::TNode* Nstate = Ncs->val.insert(pass.state->state);
-		mapMatrixTextures::TNode* Ntex = Nstate->val.insert(pass.T._get());
-		mapMatrixItems& items = Ntex->val;
-		items.push_back(item);
-
-		// Need to sort for HZB efficient use
-		if (SSA > Ntex->val.ssa)
+		
+		if (sh->passes[iPass] == nullptr)
 		{
-			Ntex->val.ssa = SSA;
-			if (SSA > Nstate->val.ssa)
-			{
-				Nstate->val.ssa = SSA;
-				if (SSA > Ncs->val.ssa)
-				{
-					Ncs->val.ssa = SSA;
-#ifdef USE_DX11
-					if (SSA > Nps->val.mapCS.ssa)
-					{
-						Nps->val.mapCS.ssa = SSA;
-#else
-					if (SSA > Nps->val.ssa)
-					{
-						Nps->val.ssa = SSA;
-#endif
-#if defined(USE_DX10) || defined(USE_DX11)
-						if (SSA > Ngs->val.ssa)
-						{
-							Ngs->val.ssa = SSA;
-#endif	//	USE_DX10
-						if (SSA > Nvs->val.ssa)
-						{
-							Nvs->val.ssa = SSA;
-#if defined(USE_DX10) || defined(USE_DX11)
-							}
-						}
-					}
-				}
-			}
+			continue;
 		}
-#else	//	USE_DX10
-						}
-					}
-				}
-			}
-		}
-#endif	//	USE_DX10
-	}
 
-#if RENDER!=R_R1
-	if (val_recorder)
-	{
-		Fbox3 temp;
-		Fmatrix& xf = *RI.val_pTransform;
-		temp.xform(pVisual->vis.box, xf);
-		val_recorder->push_back(temp);
-	}
-#endif
-}
-
-void R_dsgraph_structure::r_dsgraph_insert_static(dxRender_Visual* pVisual)
-{
-	CRender& RI = RImplementation;
-
-	if (pVisual->vis.marker == RI.marker) return;
-	pVisual->vis.marker = RI.marker;
+		SPass& pass = *sh->passes[iPass];
 
 #if RENDER==R_R1
-	if (RI.o.vis_intersect && (pVisual->vis.accept_frame != Device.dwFrame)) return;
-	pVisual->vis.accept_frame = Device.dwFrame;
+		AddToRenderQueue(RGraph.mapDynamicPasses[shader_priority][iPass], item, pass);
+#else
+		AddToRenderQueue(RGraph.mapDynamicPasses[shader_priority][iPass], { 0, SSA, val_pObject, pVisual, xform, nullptr, get_HUD(), val_fCustomFOV }, pass);
 #endif
+	}
+}
+
+extern float ps_r__ssaDISCARD_exp;
+extern float ps_r__ssaDISCARD_fade_k;
+void CDSGraphManager::r_dsgraph_insert_static(dxRender_Visual *pVisual)
+{
+	if (m_static_seen.find(pVisual) != m_static_seen.end())
+	{
+		if (PortalTraverseDbg_Enabled())
+		{
+			PortalTraverseDebugStats& dbg = PortalTraverseDbg_Get();
+			const bool opt_bucket = PortalTraverseDbg_IsOptions(i_options);
+			++dbg.static_dedup_skipped;
+			if (opt_bucket)
+				++dbg.static_dedup_skipped_opt;
+			else
+				++dbg.static_dedup_skipped_noopt;
+		}
+		return;
+	}
+	m_static_seen.insert(pVisual);
+	if (PortalTraverseDbg_Enabled())
+	{
+		PortalTraverseDebugStats& dbg = PortalTraverseDbg_Get();
+		const bool opt_bucket = PortalTraverseDbg_IsOptions(i_options);
+		++dbg.static_dedup_seen;
+		if (opt_bucket)
+			++dbg.static_dedup_seen_opt;
+		else
+			++dbg.static_dedup_seen_noopt;
+	}
 
 	float distSQ;
 	float SSA = CalcSSA(distSQ, pVisual->vis.sphere.P, pVisual);
-	if (SSA <= r_ssaDISCARD) return;
+    Flags16& flags = pVisual->flags;
+    ShaderElement* sh_d = &*pVisual->shader->E[4];
+    if (!(flags.test(IRenderVisualFlags::eIgnoreOptimization) || (sh_d && sh_d->flags.bEmissive)))
+    {
+        if (SSA < r_ssaDISCARD)
+            return;
+
+        // demonized: Replace hard cutoff with gradient cutoff
+        // Smaller objects that fail the SSA test will still render depending on how much smaller they are than the discard limit.
+        // Reduces the "rendering radius" effect and makes pop-in less noticeable
+        // Allows to increase the discard limit for better performance without making pop-in much worse
+        // Define where the "thinning" begins. 
+        // E.g., objects 4x the size of the discard limit start fading.
+        float fade_start = r_ssaDISCARD * ps_r__ssaDISCARD_fade_k;
+
+        // The Gradient Zone
+        if (SSA < fade_start)
+        {
+            // Calculate a linear survival probability between 0.0 and 1.0
+            float survival_chance = (SSA - r_ssaDISCARD) / (fade_start - r_ssaDISCARD);
+
+            // Convert the 32-bit hash to a float between 0.0 and 1.0
+            // Multiplying by 1.0 / 2^32 is faster than float division
+            u32 hash = GetFvectorHash(pVisual->vis.sphere.P);
+            constexpr float hash_to_float = 1.0f / 4294967296.0f;
+            float val = hash * hash_to_float;
+
+            // If the object's hash value is higher than its survival chance, cull it
+            if (val > _powf(survival_chance, ps_r__ssaDISCARD_exp))
+                return;
+        }
+    }
 
 	// Distortive geometry should be marked and R2 special-cases it
 	// a) Allow to optimize RT order
 	// b) Should be rendered to special distort buffer in another pass
 	VERIFY(pVisual->shader._get());
-	ShaderElement* sh_d = &*pVisual->shader->E[4];
-	if (RImplementation.o.distortion && sh_d && sh_d->flags.bDistort && pmask[sh_d->flags.iPriority / 2])
-	{
-		mapSorted_Node* N = mapDistort.insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = nullptr;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = Fidentity;
-		N->val.se = &*pVisual->shader->E[4]; // 4=L_special
-	}
+	if (sh_d && sh_d->flags.bDistort && i_mask[sh_d->flags.iPriority/2])
+		RGraph.mapStaticSorted.Distort.emplace_back(distSQ, SSA, nullptr, pVisual, &Fidentity, sh_d, false);
 
 	// Select shader
 	ShaderElement* sh = RImplementation.rimp_select_sh_static(pVisual, distSQ);
-	if (0 == sh) return;
-	if (!pmask[sh->flags.iPriority / 2]) return;
+
+	if (0 == sh)
+		return;
+	u32 shader_priority = sh->flags.iPriority / 2;
+	if (!i_mask[shader_priority])
+		return;
 
 	// Water rendering
 #if RENDER==R_R4
 	if (sh->flags.isWater && RImplementation.o.ssfx_water)
 	{
-		mapWater_Node* N = mapWater[Device.m_SecondViewport.IsSVPFrame()].insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = nullptr;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = Fidentity;
-		N->val.se = sh;
+		RGraph.mapWater.emplace_back(distSQ, SSA, nullptr, pVisual, &Fidentity, sh, false);
 		return;
 	}
 #endif
@@ -366,11 +399,7 @@ void R_dsgraph_structure::r_dsgraph_insert_static(dxRender_Visual* pVisual)
 	// strict-sorting selection
 	if (sh->flags.bStrictB2F)
 	{
-		mapSorted_Node* N = mapSorted.insertInAnyWay(distSQ);
-		N->val.pObject = nullptr;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = Fidentity;
-		N->val.se = sh;
+		RGraph.mapStaticSorted.Sorted.emplace_back(distSQ, SSA, nullptr, pVisual, &Fidentity, sh, false);
 		return;
 	}
 
@@ -381,881 +410,475 @@ void R_dsgraph_structure::r_dsgraph_insert_static(dxRender_Visual* pVisual)
 	// c) Should not cast shadows
 	// d) Should be rendered to accumulation buffer in the second pass
 	if (sh->flags.bEmissive)
+		RGraph.mapStaticSorted.Emissive.emplace_back(distSQ, SSA, nullptr, pVisual, &Fidentity, sh_d, false );
+
+	if (sh->flags.bWmark && i_mask[CDSGraphManager::fl_wmarks])
 	{
-		mapSorted_Node* N = mapEmissive.insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = nullptr;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = Fidentity;
-		N->val.se = &*pVisual->shader->E[4]; // 4=L_special
-	}
-	if (sh->flags.bWmark && pmask_wmark)
-	{
-		mapSorted_Node* N = mapWmark.insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = nullptr;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = Fidentity;
-		N->val.se = sh;
+		RGraph.mapStaticSorted.Wmark.emplace_back(distSQ, SSA, nullptr, pVisual, &Fidentity, sh, false);
 		return;
 	}
 #endif
-
-	if (val_feedback && counter_S == val_feedback_breakp) val_feedback->rfeedback_static(pVisual);
-
-	counter_S ++;
-
-	if (sh->flags.bLandscape && RI.phase == CRender::PHASE_NORMAL)
-	{
-		mapLandscape_Node* N = mapLandscape.insertInAnyWay(distSQ);
-		N->val.ssa = SSA;
-		N->val.pObject = nullptr;
-		N->val.pVisual = pVisual;
-		N->val.Matrix = Fidentity;
-		N->val.se = sh;
-		return;
-	}
 
 	for (u32 iPass = 0; iPass < sh->passes.size(); ++iPass)
 	{
-		//SPass&						pass	= *sh->passes.front	();
-		//mapNormal_T&				map		= mapNormal			[sh->flags.iPriority/2];
-		SPass& pass = *sh->passes[iPass];
-		mapNormal_T& map = mapNormalPasses[sh->flags.iPriority / 2][iPass];
+		// the most common node
+		if (sh->passes[iPass] == nullptr)
+			continue;
 
-		//#ifdef USE_RESOURCE_DEBUGGER
-		//	mapNormalVS::TNode*			Nvs		= map.insert		(pass.vs);
-		//	mapNormalPS::TNode*			Nps		= Nvs->val.insert	(pass.ps);
-		//#else
-		//#if defined(USE_DX10) || defined(USE_DX11)
-		//	mapNormalVS::TNode*			Nvs		= map.insert		(&*pass.vs);
-		//#else	//	USE_DX10
-		//	mapNormalVS::TNode*			Nvs		= map.insert		(pass.vs->vs);
-		//#endif	//	USE_DX10
-		//	mapNormalPS::TNode*			Nps		= Nvs->val.insert	(pass.ps->ps);
-		//#endif
+		SPass& pass	= *sh->passes[iPass];
 
-#ifdef USE_RESOURCE_DEBUGGER
-#	if defined(USE_DX10) || defined(USE_DX11)
-		mapNormalVS::TNode*			Nvs		= map.insert		(pass.vs);
-		mapNormalGS::TNode*			Ngs		= Nvs->val.insert	(pass.gs);
-		mapNormalPS::TNode*			Nps		= Ngs->val.insert	(pass.ps);
-#	else	//	USE_DX10
-		mapNormalVS::TNode*			Nvs		= map.insert		(pass.vs);
-		mapNormalPS::TNode*			Nps		= Nvs->val.insert	(pass.ps);
-#	endif	//	USE_DX10
-#else // USE_RESOURCE_DEBUGGER
-#	if defined(USE_DX10) || defined(USE_DX11)
-		mapNormalVS::TNode* Nvs = map.insert(&*pass.vs);
-		mapNormalGS::TNode* Ngs = Nvs->val.insert(pass.gs->gs);
-		mapNormalPS::TNode* Nps = Ngs->val.insert(pass.ps->ps);
-#	else	//	USE_DX10
-		mapNormalVS::TNode* Nvs = map.insert(pass.vs->vs);
-		mapNormalPS::TNode* Nps = Nvs->val.insert(pass.ps->ps);
-#	endif	//	USE_DX10
-#endif // USE_RESOURCE_DEBUGGER
-
-#ifdef USE_DX11
-#	ifdef USE_RESOURCE_DEBUGGER
-		Nps->val.hs = pass.hs;
-		Nps->val.ds = pass.ds;
-		mapNormalCS::TNode*			Ncs		= Nps->val.mapCS.insert	(pass.constants._get());
-#	else
-		Nps->val.hs = pass.hs->sh;
-		Nps->val.ds = pass.ds->sh;
-		mapNormalCS::TNode* Ncs = Nps->val.mapCS.insert(pass.constants._get());
-#	endif
-#else
-		mapNormalCS::TNode* Ncs = Nps->val.insert(pass.constants._get());
-#endif
-		mapNormalStates::TNode* Nstate = Ncs->val.insert(pass.state->state);
-		mapNormalTextures::TNode* Ntex = Nstate->val.insert(pass.T._get());
-		mapNormalItems& items = Ntex->val;
-		_NormalItem item = {SSA, pVisual};
-		items.push_back(item);
-
-		// Need to sort for HZB efficient use
-		if (SSA > Ntex->val.ssa)
-		{
-			Ntex->val.ssa = SSA;
-			if (SSA > Nstate->val.ssa)
-			{
-				Nstate->val.ssa = SSA;
-				if (SSA > Ncs->val.ssa)
-				{
-					Ncs->val.ssa = SSA;
-#ifdef USE_DX11
-					if (SSA > Nps->val.mapCS.ssa)
-					{
-						Nps->val.mapCS.ssa = SSA;
-#else
-					if (SSA > Nps->val.ssa)
-					{
-						Nps->val.ssa = SSA;
-#endif
-						//	if (SSA>Nvs->val.ssa)		{ Nvs->val.ssa = SSA;
-						//	} } } } }
-#if defined(USE_DX10) || defined(USE_DX11)
-						if (SSA > Ngs->val.ssa)
-						{
-							Ngs->val.ssa = SSA;
-#endif	//	USE_DX10
-						if (SSA > Nvs->val.ssa)
-						{
-							Nvs->val.ssa = SSA;
-#if defined(USE_DX10) || defined(USE_DX11)
-							}
-						}
-					}
-				}
-			}
-		}
-#else	//	USE_DX10
-						}
-					}
-				}
-			}
-		}
-#endif	//	USE_DX10
+		AddToRenderQueue(RGraph.mapStaticPasses[shader_priority][iPass], { 0, SSA, nullptr, pVisual, nullptr, nullptr, false }, pass);
 	}
-
-#if RENDER!=R_R1
-	if (val_recorder)
-	{
-		val_recorder->push_back(pVisual->vis.box);
-	}
-#endif
 }
 
-// Static geometry optimization
-#define O_S_L1_S_LOW    10.f // geometry 3d volume size
-#define O_S_L1_D_LOW    150.f // distance, after which it is not rendered
-#define O_S_L2_S_LOW    100.f
-#define O_S_L2_D_LOW    200.f
-#define O_S_L3_S_LOW    500.f
-#define O_S_L3_D_LOW    250.f
-#define O_S_L4_S_LOW    2500.f
-#define O_S_L4_D_LOW    350.f
-#define O_S_L5_S_LOW    7000.f
-#define O_S_L5_D_LOW    400.f
-
-#define O_S_L1_S_MED    25.f
-#define O_S_L1_D_MED    50.f
-#define O_S_L2_S_MED    200.f
-#define O_S_L2_D_MED    150.f
-#define O_S_L3_S_MED    1000.f
-#define O_S_L3_D_MED    200.f
-#define O_S_L4_S_MED    2500.f
-#define O_S_L4_D_MED    300.f
-#define O_S_L5_S_MED    7000.f
-#define O_S_L5_D_MED    400.f
-
-#define O_S_L1_S_HII    50.f
-#define O_S_L1_D_HII    50.f
-#define O_S_L2_S_HII    400.f
-#define O_S_L2_D_HII    150.f
-#define O_S_L3_S_HII    1500.f
-#define O_S_L3_D_HII    200.f
-#define O_S_L4_S_HII    5000.f
-#define O_S_L4_D_HII    300.f
-#define O_S_L5_S_HII    20000.f
-#define O_S_L5_D_HII    350.f
-
-#define O_S_L1_S_ULT    50.f
-#define O_S_L1_D_ULT    35.f
-#define O_S_L2_S_ULT    500.f
-#define O_S_L2_D_ULT    125.f
-#define O_S_L3_S_ULT    1750.f
-#define O_S_L3_D_ULT    175.f
-#define O_S_L4_S_ULT    5250.f
-#define O_S_L4_D_ULT    250.f
-#define O_S_L5_S_ULT    25000.f
-#define O_S_L5_D_ULT    300.f
-
-// Dyn geometry optimization
-
-#define O_D_L1_S_LOW    1.f // geometry 3d volume size
-#define O_D_L1_D_LOW    80.f // distance, after which it is not rendered
-#define O_D_L2_S_LOW    3.f
-#define O_D_L2_D_LOW    150.f
-#define O_D_L3_S_LOW    4000.f
-#define O_D_L3_D_LOW    250.f
-
-#define O_D_L1_S_MED    1.f
-#define O_D_L1_D_MED    40.f
-#define O_D_L2_S_MED    4.f
-#define O_D_L2_D_MED    100.f
-#define O_D_L3_S_MED    4000.f
-#define O_D_L3_D_MED    200.f
-
-#define O_D_L1_S_HII    1.4f
-#define O_D_L1_D_HII    30.f
-#define O_D_L2_S_HII    4.f
-#define O_D_L2_D_HII    80.f
-#define O_D_L3_S_HII    4000.f
-#define O_D_L3_D_HII    150.f
-
-#define O_D_L1_S_ULT    2.0f
-#define O_D_L1_D_ULT    30.f
-#define O_D_L2_S_ULT    8.f
-#define O_D_L2_D_ULT    50.f
-#define O_D_L3_S_ULT    4000.f
-#define O_D_L3_D_ULT    110.f
-
-Fvector4 o_optimize_static_l1_dist = {O_S_L1_D_LOW, O_S_L1_D_MED, O_S_L1_D_HII, O_S_L1_D_ULT};
-Fvector4 o_optimize_static_l1_size = {O_S_L1_S_LOW, O_S_L1_S_MED, O_S_L1_S_HII, O_S_L1_S_ULT};
-Fvector4 o_optimize_static_l2_dist = {O_S_L2_D_LOW, O_S_L2_D_MED, O_S_L2_D_HII, O_S_L2_D_ULT};
-Fvector4 o_optimize_static_l2_size = {O_S_L2_S_LOW, O_S_L2_S_MED, O_S_L2_S_HII, O_S_L2_S_ULT};
-Fvector4 o_optimize_static_l3_dist = {O_S_L3_D_LOW, O_S_L3_D_MED, O_S_L3_D_HII, O_S_L3_D_ULT};
-Fvector4 o_optimize_static_l3_size = {O_S_L3_S_LOW, O_S_L3_S_MED, O_S_L3_S_HII, O_S_L3_S_ULT};
-Fvector4 o_optimize_static_l4_dist = {O_S_L4_D_LOW, O_S_L4_D_MED, O_S_L4_D_HII, O_S_L4_D_ULT};
-Fvector4 o_optimize_static_l4_size = {O_S_L4_S_LOW, O_S_L4_S_MED, O_S_L4_S_HII, O_S_L4_S_ULT};
-Fvector4 o_optimize_static_l5_dist = {O_S_L5_D_LOW, O_S_L5_D_MED, O_S_L5_D_HII, O_S_L5_D_ULT};
-Fvector4 o_optimize_static_l5_size = {O_S_L5_S_LOW, O_S_L5_S_MED, O_S_L5_S_HII, O_S_L5_S_ULT};
-
-Fvector4 o_optimize_dynamic_l1_dist = {O_D_L1_D_LOW, O_D_L1_D_MED, O_D_L1_D_HII, O_D_L1_D_ULT};
-Fvector4 o_optimize_dynamic_l1_size = {O_D_L1_S_LOW, O_D_L1_S_MED, O_D_L1_S_HII, O_D_L1_S_ULT};
-Fvector4 o_optimize_dynamic_l2_dist = {O_D_L2_D_LOW, O_D_L2_D_MED, O_D_L2_D_HII, O_D_L2_D_ULT};
-Fvector4 o_optimize_dynamic_l2_size = {O_D_L2_S_LOW, O_D_L2_S_MED, O_D_L2_S_HII, O_D_L2_S_ULT};
-Fvector4 o_optimize_dynamic_l3_dist = {O_D_L3_D_LOW, O_D_L3_D_MED, O_D_L3_D_HII, O_D_L3_D_ULT};
-Fvector4 o_optimize_dynamic_l3_size = {O_D_L3_S_LOW, O_D_L3_S_MED, O_D_L3_S_HII, O_D_L3_S_ULT};
-
-#define BASE_FOV 67.f
-
-IC float GetDistFromCamera(const Fvector& from_position)
-// Aproximate, adjusted by fov, distance from camera to position (For right work when looking though binoculars and scopes)
+void CDSGraphManager::AddToRenderQueue(R_dsgraph::RenderQueue& queue, const R_dsgraph::DSGraphItem<u32, false>& item, const SPass& pass)
 {
-	float distance = Device.vCameraPosition.distance_to(from_position);
-	float fov_K = BASE_FOV / Device.fFOV;
-	float adjusted_distane = distance / fov_K;
-
-	return adjusted_distane;
-}
-
-IC bool IsValuableToRender(dxRender_Visual* pVisual, bool isStatic, bool sm, Fmatrix& transform_matrix)
-{
-	if ((isStatic && opt_static >= 1) || (!isStatic && opt_dynamic >= 1))
+	if (PortalTraverseDbg_Enabled())
 	{
-		float sphere_volume = pVisual->getVisData().sphere.volume();
-
-		float adjusted_distane = 0;
-
-		if (isStatic)
-			adjusted_distane = GetDistFromCamera(pVisual->vis.sphere.P);
-		else
-			// dynamic geometry position needs to be transformed by transform matrix, to get world coordinates, dont forget ;)
+		PortalTraverseDebugStats& dbg = PortalTraverseDbg_Get();
+		const bool opt_bucket = PortalTraverseDbg_IsOptions(i_options);
+		// Static items use nullptr matrix/object in current pipeline.
+		if (item.pMatrix == nullptr && item.pObject == nullptr)
 		{
-			Fvector pos;
-			transform_matrix.transform_tiny(pos, pVisual->vis.sphere.P);
-
-			adjusted_distane = GetDistFromCamera(pos);
-		}
-
-		if (sm && !!psDeviceFlags2.test(rsOptShadowGeom)) // Highest cut off for shadow map
-		{
-			if (sphere_volume < 50000.f && adjusted_distane > ps_ssfx_shadow_cascades.z)
-				// don't need geometry behind the farest sun shadow cascade
-				return false;
-
-			if ((sphere_volume < o_optimize_static_l1_size.z) && (adjusted_distane > o_optimize_static_l1_dist.z))
-				return false;
-			else if ((sphere_volume < o_optimize_static_l2_size.z) && (adjusted_distane > o_optimize_static_l2_dist.z))
-				return false;
-			else if ((sphere_volume < o_optimize_static_l3_size.z) && (adjusted_distane > o_optimize_static_l3_dist.z))
-				return false;
-			else if ((sphere_volume < o_optimize_static_l4_size.z) && (adjusted_distane > o_optimize_static_l4_dist.z))
-				return false;
-			else if ((sphere_volume < o_optimize_static_l5_size.z) && (adjusted_distane > o_optimize_static_l5_dist.z))
-				return false;
-
-			return true;
-		}
-
-		if (isStatic)
-		{
-
-			if (pVisual->Type == MT_LOD || pVisual->Type == MT_TREE_PM || pVisual->Type == MT_TREE_ST)
-				return true;
-
-			if (opt_static == 2)
-			{
-				if ((sphere_volume < o_optimize_static_l1_size.y) && (adjusted_distane > o_optimize_static_l1_dist.y))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l2_size.y) && (adjusted_distane > o_optimize_static_l2_dist.
-					y))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l3_size.y) && (adjusted_distane > o_optimize_static_l3_dist.
-					y))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l4_size.y) && (adjusted_distane > o_optimize_static_l4_dist.
-					y))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l5_size.y) && (adjusted_distane > o_optimize_static_l5_dist.
-					y))
-					return false;
-			}
-			else if (opt_static == 3)
-			{
-				if ((sphere_volume < o_optimize_static_l1_size.z) && (adjusted_distane > o_optimize_static_l1_dist.z))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l2_size.z) && (adjusted_distane > o_optimize_static_l2_dist.
-					z))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l3_size.z) && (adjusted_distane > o_optimize_static_l3_dist.
-					z))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l4_size.z) && (adjusted_distane > o_optimize_static_l4_dist.
-					z))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l5_size.z) && (adjusted_distane > o_optimize_static_l5_dist.
-					z))
-					return false;
-			}
-			else if (opt_static == 4)
-			{
-				if ((sphere_volume < o_optimize_static_l1_size.w) && (adjusted_distane > o_optimize_static_l1_dist.w))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l2_size.w) && (adjusted_distane > o_optimize_static_l2_dist.
-					w))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l3_size.w) && (adjusted_distane > o_optimize_static_l3_dist.
-					w))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l4_size.w) && (adjusted_distane > o_optimize_static_l4_dist.
-					w))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l5_size.w) && (adjusted_distane > o_optimize_static_l5_dist.
-					w))
-					return false;
-			}
+			++dbg.queue_static_packets;
+			if (opt_bucket)
+				++dbg.queue_static_packets_opt;
 			else
-			{
-				if ((sphere_volume < o_optimize_static_l1_size.x) && (adjusted_distane > o_optimize_static_l1_dist.x))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l2_size.x) && (adjusted_distane > o_optimize_static_l2_dist.
-					x))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l3_size.x) && (adjusted_distane > o_optimize_static_l3_dist.
-					x))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l4_size.x) && (adjusted_distane > o_optimize_static_l4_dist.
-					x))
-					return false;
-				else if ((sphere_volume < o_optimize_static_l5_size.x) && (adjusted_distane > o_optimize_static_l5_dist.
-					x))
-					return false;
-			}
+				++dbg.queue_static_packets_noopt;
 		}
 		else
 		{
-			if (opt_dynamic == 2)
-			{
-				if ((sphere_volume < o_optimize_dynamic_l1_size.y) && (adjusted_distane > o_optimize_dynamic_l1_dist.y))
-					return false;
-				else if ((sphere_volume < o_optimize_dynamic_l2_size.y) && (adjusted_distane >
-					o_optimize_dynamic_l2_dist.y))
-					return false;
-				else if ((sphere_volume < o_optimize_dynamic_l3_size.y) && (adjusted_distane >
-					o_optimize_dynamic_l3_dist.y))
-					return false;
-			}
-			else if (opt_dynamic == 3)
-			{
-				if ((sphere_volume < o_optimize_dynamic_l1_size.z) && (adjusted_distane > o_optimize_dynamic_l1_dist.z))
-					return false;
-				else if ((sphere_volume < o_optimize_dynamic_l2_size.z) && (adjusted_distane >
-					o_optimize_dynamic_l2_dist.z))
-					return false;
-				else if ((sphere_volume < o_optimize_dynamic_l3_size.z) && (adjusted_distane >
-					o_optimize_dynamic_l3_dist.z))
-					return false;
-			}
-			else if (opt_dynamic == 4)
-			{
-				if ((sphere_volume < o_optimize_dynamic_l1_size.w) && (adjusted_distane > o_optimize_dynamic_l1_dist.w))
-					return false;
-				else if ((sphere_volume < o_optimize_dynamic_l2_size.w) && (adjusted_distane >
-					o_optimize_dynamic_l2_dist.w))
-					return false;
-				else if ((sphere_volume < o_optimize_dynamic_l3_size.w) && (adjusted_distane >
-					o_optimize_dynamic_l3_dist.w))
-					return false;
-			}
+			++dbg.queue_dynamic_packets;
+			if (opt_bucket)
+				++dbg.queue_dynamic_packets_opt;
 			else
-			{
-				if ((sphere_volume < o_optimize_dynamic_l1_size.x) && (adjusted_distane > o_optimize_dynamic_l1_dist.x))
-					return false;
-				else if ((sphere_volume < o_optimize_dynamic_l2_size.x) && (adjusted_distane >
-					o_optimize_dynamic_l2_dist.x))
-					return false;
-				else if ((sphere_volume < o_optimize_dynamic_l3_size.x) && (adjusted_distane >
-					o_optimize_dynamic_l3_dist.x))
-					return false;
-			}
+				++dbg.queue_dynamic_packets_noopt;
 		}
 	}
 
-	return true;
+	queue.emplace_back(item, pass);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void CRender::add_leafs_Dynamic(dxRender_Visual* pVisual)
+void CDSGraphManager::add_Dynamic(IRenderVisual* piVisual, Fmatrix* xform)
 {
-	if (!pVisual)
-		return;
+	
+	dxRender_Visual* pVisual = (dxRender_Visual*)piVisual;
+	if (!pVisual) return;
 
-	Flags16& flags = pVisual->flags;
+	Flags16& flags = piVisual->flags;
 
-	if (phase != PHASE_NORMAL && !!flags.test(IRenderVisualFlags::eNoShadow))
-		return;
-
-	if (!!!flags.test(IRenderVisualFlags::eIgnoreOptimization) && !IsValuableToRender(pVisual, false, phase == 1, *val_pTransform))
+	if (!i_mask[CDSGraphManager::fl_normal] && !!flags.test(IRenderVisualFlags::eNoShadow))
 		return;
 
 	// Visual is 100% visible - simply add it
-	xr_vector<IRenderVisual*>::iterator I, E; // it may be useful for 'hierrarhy' visual
-
 	switch (pVisual->Type)
 	{
 	case MT_PARTICLE_GROUP:
+	{
+		// Add all children, doesn't perform any tests
+		PS::CParticleGroup* pG = (PS::CParticleGroup*)pVisual->dcast_ParticleCustom();
+		xrCriticalSectionGuard guard(&pG->onframe_lock);
+		for (PS::CParticleGroup::SItem& I_ : pG->items)
 		{
-			// Add all children, doesn't perform any tests
-			PS::CParticleGroup* pG = (PS::CParticleGroup*)pVisual;
-			xrCriticalSectionGuard guard(pG->onframe_lock);
-			for (PS::CParticleGroup::SItemVecIt i_it = pG->items.begin(); i_it != pG->items.end(); ++i_it)
-			{
-				PS::CParticleGroup::SItem& I = *i_it;
-				if (I._effect) add_leafs_Dynamic(I._effect);
-				for (xr_vector<dxRender_Visual*>::iterator pit = I._children_related.begin(); pit != I
-				                                                                                     ._children_related.
-				                                                                                     end(); ++pit)
-					add_leafs_Dynamic(*pit);
-				for (xr_vector<dxRender_Visual*>::iterator pit = I._children_free.begin(); pit != I._children_free.end()
-				     ; ++pit)
-					add_leafs_Dynamic(*pit);
-			}
+			add_Dynamic(I_._effect, xform);
+			add_leafs_Dynamic(I_._children_related, xform);
+			add_leafs_Dynamic(I_._children_free, xform);
 		}
-		return;
+	}return;
+
 	case MT_HIERRARHY:
-		{
-			// Add all children, doesn't perform any tests
-			FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
-			I = pV->children.begin();
-			E = pV->children.end();
-			for (; I != E; ++I) add_leafs_Dynamic((dxRender_Visual*)*I);
-		}
-		return;
+	{
+		// Add all children, doesn't perform any tests
+		FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
+		add_leafs_Dynamic(pV->children, xform);
+	}return;
+
 	case MT_SKELETON_ANIM:
 	case MT_SKELETON_RIGID:
+	{
+		// Add all children, doesn't perform any tests
+		CKinematics* pV = (CKinematics*)pVisual;
+		BOOL _use_lod = FALSE;
+		if (pV->m_lod && !get_UI3D())
 		{
-			// Add all children, doesn't perform any tests
-			CKinematics* pV = (CKinematics*)pVisual;
-			BOOL _use_lod = FALSE;
-			if (pV->m_lod)
-			{
-				Fvector Tpos;
-				float D;
-				val_pTransform->transform_tiny(Tpos, pV->vis.sphere.P);
-				float ssa = CalcSSA(D, Tpos, pV->vis.sphere.R / 2.f); // assume dynamics never consume full sphere
-				if (ssa < r_ssaLOD_A) _use_lod = TRUE;
-			}
-			if (_use_lod)
-			{
-				add_leafs_Dynamic(pV->m_lod);
-			}
-			else
-			{
-				pV->CalculateBones(TRUE);
-				pV->CalculateWallmarks(); //. bug?
-				I = pV->children.begin();
-				E = pV->children.end();
-				for (; I != E; ++I) add_leafs_Dynamic((dxRender_Visual*)*I);
-			}
-		}
-		return;
-	default:
-		{
-			// General type of visual
-			// Calculate distance to it's center
 			Fvector Tpos;
-			val_pTransform->transform_tiny(Tpos, pVisual->vis.sphere.P);
-			r_dsgraph_insert_dynamic(pVisual, Tpos);
+			float D;
+			xform->transform_tiny(Tpos, pV->vis.sphere.P);
+			float ssa = CalcSSA(D, Tpos, pV->vis.sphere.R * 0.5f);	// assume dynamics never consume full sphere
+			if (ssa < r_ssaLOD_A)
+				_use_lod = TRUE;
 		}
-		return;
+		if (_use_lod)
+			add_Dynamic(pV->m_lod, xform);
+		else
+		{
+			//pV->CalculateBones(TRUE);
+			if (get_UI3D())
+				pV->CalculateBones(TRUE);
+			else if (i_mask[CDSGraphManager::fl_normal])
+				pV->CalculateWallmarks();
+			add_leafs_Dynamic(pV->children, xform);
+		}
+	}return;
+
+	default:
+	{
+		// General type of visual
+		// Calculate distance to it's center
+		r_dsgraph_insert_dynamic(pVisual, xform);
+	}return;
 	}
 }
 
-void CRender::add_leafs_Static(dxRender_Visual* pVisual)
+void CDSGraphManager::add_Dynamic(dxRender_Visual* pVisual, Fmatrix* xform)
 {
-	if (!HOM.visible(pVisual->vis))
-		return;
+	if (!pVisual) return;
 
 	Flags16& flags = pVisual->dcast_RenderVisual()->flags;
 
-	if (phase != PHASE_NORMAL && !!flags.test(IRenderVisualFlags::eNoShadow))
-		return;
-
-	if (!!!flags.test(IRenderVisualFlags::eIgnoreOptimization) && !IsValuableToRender(pVisual, true, phase == 1, *val_pTransform))
+	if (!i_mask[CDSGraphManager::fl_normal] && !!flags.test(IRenderVisualFlags::eNoShadow))
 		return;
 
 	// Visual is 100% visible - simply add it
-	xr_vector<IRenderVisual*>::iterator I, E; // it may be usefull for 'hierrarhy' visuals
-
 	switch (pVisual->Type)
 	{
 	case MT_PARTICLE_GROUP:
+	{
+		// Add all children, doesn't perform any tests
+		PS::CParticleGroup* pG = (PS::CParticleGroup*)pVisual->dcast_ParticleCustom();
+		xrCriticalSectionGuard guard(&pG->onframe_lock);
+		for (PS::CParticleGroup::SItem& I_ : pG->items)
 		{
-			// Add all children, doesn't perform any tests
-			PS::CParticleGroup* pG = (PS::CParticleGroup*)pVisual;
-			xrCriticalSectionGuard guard(pG->onframe_lock);
-			for (PS::CParticleGroup::SItemVecIt i_it = pG->items.begin(); i_it != pG->items.end(); ++i_it)
-			{
-				PS::CParticleGroup::SItem& I = *i_it;
-				if (I._effect) add_leafs_Dynamic(I._effect);
-				for (xr_vector<dxRender_Visual*>::iterator pit = I._children_related.begin(); pit != I
-				                                                                                     ._children_related.
-				                                                                                     end(); ++pit)
-					add_leafs_Dynamic(*pit);
-				for (xr_vector<dxRender_Visual*>::iterator pit = I._children_free.begin(); pit != I._children_free.end()
-				     ; ++pit)
-					add_leafs_Dynamic(*pit);
-			}
+			add_Dynamic(I_._effect, xform);
+			add_leafs_Dynamic(I_._children_related, xform);
+			add_leafs_Dynamic(I_._children_free, xform);
 		}
-		return;
+	}break;
+
 	case MT_HIERRARHY:
-		{
-			// Add all children, doesn't perform any tests
-			FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
-			I = pV->children.begin();
-			E = pV->children.end();
-			for (; I != E; ++I) add_leafs_Static((dxRender_Visual*)*I);
-		}
-		return;
+	{
+		// Add all children, doesn't perform any tests
+		FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
+		add_leafs_Dynamic(pV->children, xform);
+	}break;
+
 	case MT_SKELETON_ANIM:
 	case MT_SKELETON_RIGID:
+	{
+		// Add all children, doesn't perform any tests
+		CKinematics* pV = (CKinematics*)pVisual;
+		BOOL _use_lod = FALSE;
+		if (pV->m_lod && !get_UI3D())
 		{
-			// Add all children, doesn't perform any tests
-			CKinematics* pV = (CKinematics*)pVisual;
-			pV->CalculateBones(TRUE);
-			I = pV->children.begin();
-			E = pV->children.end();
-			for (; I != E; ++I) add_leafs_Static((dxRender_Visual*)*I);
-		}
-		return;
-	case MT_LOD:
-		{
-			FLOD* pV = (FLOD*)pVisual;
+			Fvector Tpos;
 			float D;
-			float ssa = CalcSSA(D, pV->vis.sphere.P, pV);
-			ssa *= pV->lod_factor;
+			xform->transform_tiny(Tpos, pV->vis.sphere.P);
+			float ssa = CalcSSA(D, Tpos, pV->vis.sphere.R * 0.5f);	// assume dynamics never consume full sphere
 			if (ssa < r_ssaLOD_A)
-			{
-				if (ssa < r_ssaDISCARD) return;
-				mapLOD_Node* N = mapLOD.insertInAnyWay(D);
-				N->val.ssa = ssa;
-				N->val.pVisual = pVisual;
-			}
-#if RENDER!=R_R1
-			if (ssa > r_ssaLOD_B || phase == PHASE_SMAP)
-#else
-			if (ssa > r_ssaLOD_B)
-#endif
-			{
-				// Add all children, doesn't perform any tests
-				I = pV->children.begin();
-				E = pV->children.end();
-				for (; I != E; ++I) add_leafs_Static((dxRender_Visual*)*I);
-			}
+				_use_lod = TRUE;
 		}
-		return;
-	case MT_TREE_PM:
-	case MT_TREE_ST:
+		if (_use_lod)
+			add_Dynamic(pV->m_lod, xform);
+		else
 		{
-			// General type of visual
-			r_dsgraph_insert_static(pVisual);
-		}
-		return;
-	default:
-		{
-			// General type of visual
-			r_dsgraph_insert_static(pVisual);
-		}
-		return;
-	}
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////
-BOOL CRender::add_Dynamic(dxRender_Visual* pVisual, u32 planes)
-{
-	Flags16& flags = pVisual->dcast_RenderVisual()->flags;
-
-	if (phase != PHASE_NORMAL && !!flags.test(IRenderVisualFlags::eNoShadow))
-		return FALSE;
-
-	if (!!!flags.test(IRenderVisualFlags::eIgnoreOptimization) && !IsValuableToRender(pVisual, false, phase == 1, *val_pTransform))
-		return FALSE;
-
-	// Check frustum visibility and calculate distance to visual's center
-	Fvector Tpos; // transformed position
-	EFC_Visible VIS;
-
-	val_pTransform->transform_tiny(Tpos, pVisual->vis.sphere.P);
-	VIS = View->testSphere(Tpos, pVisual->vis.sphere.R, planes);
-	if (fcvNone == VIS) return FALSE;
-
-	// If we get here visual is visible or partially visible
-	xr_vector<IRenderVisual*>::iterator I, E; // it may be usefull for 'hierrarhy' visuals
-
-	switch (pVisual->Type)
-	{
-	case MT_PARTICLE_GROUP:
-		{
-			// Add all children, doesn't perform any tests
-			PS::CParticleGroup* pG = (PS::CParticleGroup*)pVisual;
-			xrCriticalSectionGuard guard(pG->onframe_lock);
-			for (PS::CParticleGroup::SItemVecIt i_it = pG->items.begin(); i_it != pG->items.end(); i_it++)
-			{
-				PS::CParticleGroup::SItem& I = *i_it;
-				if (fcvPartial == VIS)
-				{
-					if (I._effect) add_Dynamic(I._effect, planes);
-					for (xr_vector<dxRender_Visual*>::iterator pit = I._children_related.begin(); pit != I
-					                                                                                     .
-					                                                                                     _children_related
-					                                                                                     .end(); ++pit)
-						add_Dynamic(*pit, planes);
-					for (xr_vector<dxRender_Visual*>::iterator pit = I._children_free.begin(); pit != I
-					                                                                                  ._children_free.
-					                                                                                  end(); ++pit)
-						add_Dynamic(*pit, planes);
-				}
-				else
-				{
-					if (I._effect) add_leafs_Dynamic(I._effect);
-					for (xr_vector<dxRender_Visual*>::iterator pit = I._children_related.begin(); pit != I
-					                                                                                     .
-					                                                                                     _children_related
-					                                                                                     .end(); ++pit)
-						add_leafs_Dynamic(*pit);
-					for (xr_vector<dxRender_Visual*>::iterator pit = I._children_free.begin(); pit != I
-					                                                                                  ._children_free.
-					                                                                                  end(); ++pit)
-						add_leafs_Dynamic(*pit);
-				}
-			}
-		}
-		break;
-	case MT_HIERRARHY:
-		{
-			// Add all children
-			FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
-			I = pV->children.begin();
-			E = pV->children.end();
-			if (fcvPartial == VIS)
-			{
-				for (; I != E; ++I) add_Dynamic((dxRender_Visual*)*I, planes);
-			}
-			else
-			{
-				for (; I != E; ++I) add_leafs_Dynamic((dxRender_Visual*)*I);
-			}
-		}
-		break;
-	case MT_SKELETON_ANIM:
-	case MT_SKELETON_RIGID:
-		{
-			// Add all children, doesn't perform any tests
-			CKinematics* pV = (CKinematics*)pVisual;
-			BOOL _use_lod = FALSE;
-			if (pV->m_lod)
-			{
-				Fvector Tpos;
-				float D;
-				val_pTransform->transform_tiny(Tpos, pV->vis.sphere.P);
-				float ssa = CalcSSA(D, Tpos, pV->vis.sphere.R / 2.f); // assume dynamics never consume full sphere
-				if (ssa < r_ssaLOD_A) _use_lod = TRUE;
-			}
-			if (_use_lod)
-			{
-				add_leafs_Dynamic(pV->m_lod);
-			}
-			else
-			{
+			//pV->CalculateBones(TRUE);
+			if (get_UI3D())
 				pV->CalculateBones(TRUE);
-				pV->CalculateWallmarks(); //. bug?
-				I = pV->children.begin();
-				E = pV->children.end();
-				for (; I != E; ++I) add_leafs_Dynamic((dxRender_Visual*)*I);
-			}
-			/*
-			I = pV->children.begin		();
-			E = pV->children.end		();
-			if (fcvPartial==VIS) {
-				for (; I!=E; I++)	add_Dynamic			(*I,planes);
-			} else {
-				for (; I!=E; I++)	add_leafs_Dynamic	(*I);
-			}
-			*/
+			else if (i_mask[CDSGraphManager::fl_normal])
+				pV->CalculateWallmarks();
+			add_leafs_Dynamic(pV->children, xform);
 		}
-		break;
+	}break;
+
 	default:
-		{
-			// General type of visual
-			r_dsgraph_insert_dynamic(pVisual, Tpos);
-		}
-		break;
+	{
+		// General type of visual
+		// Calculate distance to it's center
+		r_dsgraph_insert_dynamic(pVisual, xform);
+	}break;
 	}
-	return TRUE;
 }
 
-void CRender::add_Static(dxRender_Visual* pVisual, u32 planes)
+void CDSGraphManager::add_leafs_Dynamic(xr_vector<dxRender_Visual*>& children, Fmatrix* xform)
 {
-	Flags16& flags = pVisual->dcast_RenderVisual()->flags;
+	for (dxRender_Visual* pVisual : children)
+	{
+		add_Dynamic(pVisual, xform);
+	}
+}
 
-	if (phase != PHASE_NORMAL && !!flags.test(IRenderVisualFlags::eNoShadow))
-		return;
+void CDSGraphManager::add_leafs_Dynamic(xr_vector<IRenderVisual*>& children, Fmatrix* xform)
+{
+	for (IRenderVisual* pVisual : children)
+	{
+		add_Dynamic(pVisual, xform);
+	}
+}
 
-	if (!!!flags.test(IRenderVisualFlags::eIgnoreOptimization) && !IsValuableToRender(pVisual, true, phase == 1, *val_pTransform))
+////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void CDSGraphManager::add_Static(IRenderVisual* piVisual, CFrustum& frustum, u32 planes)
+{
+	dxRender_Visual* pVisual = (dxRender_Visual*)piVisual;
+	if (!pVisual) return;
+
+	Flags16& flags = piVisual->flags;
+	if (!i_mask[CDSGraphManager::fl_normal] && !!flags.test(IRenderVisualFlags::eNoShadow))
 		return;
 
 	// Check frustum visibility and calculate distance to visual's center
-	EFC_Visible VIS;
 	vis_data& vis = pVisual->vis;
-	VIS = View->testSAABB(vis.sphere.P, vis.sphere.R, vis.box.data(), planes);
-	if (VIS == fcvNone)
+	EFC_Visible VIS = frustum.testSAABB(vis.sphere.P, vis.sphere.R, vis.box.data(), planes);
+
+	if (fcvNone == VIS)
 		return;
 
-	if (!HOM.visible(vis))
+	if (R4FullDetailRejectStatic(pVisual, i_mask[CDSGraphManager::fl_normal]))
 		return;
+
+#if RENDER!=R_R1
+	if (i_mask[CDSGraphManager::fl_normal])//phase normal
+#endif
+		if (!RImplementation.HOM.visible(vis))
+			return;
 
 	// If we get here visual is visible or partially visible
-	xr_vector<IRenderVisual*>::iterator I, E; // it may be usefull for 'hierrarhy' visuals
-
 	switch (pVisual->Type)
 	{
-	case MT_PARTICLE_GROUP:
-		{
-			// Add all children, doesn't perform any tests
-			PS::CParticleGroup* pG = (PS::CParticleGroup*)pVisual;
-			xrCriticalSectionGuard guard(pG->onframe_lock);
-			for (PS::CParticleGroup::SItem& I : pG->items)
-			{
-				if (fcvPartial == VIS)
-				{
-					if (I._effect) add_Dynamic(I._effect, planes);
-
-					for (dxRender_Visual* childRelated : I._children_related)
-					{
-						add_Dynamic(childRelated, planes);
-					}
-
-					for (dxRender_Visual* childFree : I._children_free)
-					{
-						add_Dynamic(childFree, planes);
-					}
-				}
-				else
-				{
-					if (I._effect) add_leafs_Dynamic(I._effect);
-
-					for (dxRender_Visual* childRelated : I._children_related)
-					{
-						add_leafs_Dynamic(childRelated);
-					}
-
-					for (dxRender_Visual* childFree : I._children_free)
-					{
-						add_leafs_Dynamic(childFree);
-					}
-				}
-			}
-		}
-		break;
 	case MT_HIERRARHY:
+	{
+		// Add all children
+		FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
+		if (fcvPartial == VIS)
 		{
-			// Add all children
-			FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
-			if (VIS == fcvPartial)
-			{
-				for (IRenderVisual* childRenderable : pV->children)
-				{
-					add_Static((dxRender_Visual*)childRenderable, planes);
-				}
-			}
-			else
-			{
-				for (IRenderVisual* childRenderable : pV->children)
-				{
-					add_leafs_Static((dxRender_Visual*)childRenderable);
-				}
-			}
+			for (auto V : pV->children)
+				add_Static(V, frustum, planes);
 		}
-		break;
-	case MT_SKELETON_ANIM:
-	case MT_SKELETON_RIGID:
-		{
-			// Add all children, doesn't perform any tests
-			CKinematics* pV = (CKinematics*)pVisual;
-			pV->CalculateBones(TRUE);
-			if (VIS == fcvPartial)
-			{
-				for (IRenderVisual* childRenderable : pV->children)
-				{
-					add_Static((dxRender_Visual*)childRenderable, planes);
-				}
-			}
-			else
-			{
-				for (IRenderVisual* childRenderable : pV->children)
-				{
-					add_leafs_Static((dxRender_Visual*)childRenderable);
-				}
-			}
-		}
-		break;
+		else
+			add_leafs_Static(pV->children);
+	}break;
+
 	case MT_LOD:
+	{
+		FLOD* pV = (FLOD*)pVisual;
+		float D;
+		float ssa = CalcSSA(D, pV->vis.sphere.P, pV) * pV->lod_factor;
+
+		if (ssa < r_ssaLOD_A)
 		{
-			FLOD* pV = (FLOD*)pVisual;
-			float D;
-			float ssa = CalcSSA(D, pV->vis.sphere.P, pV);
-			ssa *= pV->lod_factor;
-			if (ssa < r_ssaLOD_A)
-			{
-				if (ssa < r_ssaDISCARD) return;
-				mapLOD_Node* N = mapLOD.insertInAnyWay(D);
-				N->val.ssa = ssa;
-				N->val.pVisual = pVisual;
-			}
-#if RENDER!=R_R1
-			if (ssa > r_ssaLOD_B || phase == PHASE_SMAP)
-#else
-			if (ssa > r_ssaLOD_B)
-#endif
-			{
-				// Add all children, perform tests
-				for (IRenderVisual* childRenderable : pV->children)
-				{
-					add_leafs_Static((dxRender_Visual*)childRenderable);
-				}
-			}
+			if (ssa < r_ssaDISCARD)
+				return;
+
+			RGraph.mapLOD.emplace_back(D, ssa, nullptr, pVisual, nullptr, nullptr, false);
 		}
-		break;
+
+#if RENDER!=R_R1
+		if (ssa > r_ssaLOD_B || i_mask[CDSGraphManager::fl_shmap])//phase shmap
+#else
+		if (ssa > r_ssaLOD_B)
+#endif
+		{
+			// Add all children, perform tests
+			add_leafs_Static(pV->children);
+		}
+	}break;
+
 	case MT_TREE_ST:
 	case MT_TREE_PM:
-		{
-			// General type of visual
-			r_dsgraph_insert_static(pVisual);
-		}
-		return;
 	default:
+	{
+		// General type of visual
+		r_dsgraph_insert_static(pVisual);
+	}return;
+	}
+}
+
+void CDSGraphManager::add_Static_MultiFrustum(IRenderVisual* piVisual, const xr_vector<CFrustum>& frustums, const xr_vector<u32>& masks)
+{
+	constexpr u32 FULLY_VISIBLE_MASK = u32(-1);
+
+	dxRender_Visual* pVisual = (dxRender_Visual*)piVisual;
+	if (!pVisual) return;
+
+	Flags16& flags = piVisual->flags;
+	if (!i_mask[CDSGraphManager::fl_normal] && !!flags.test(IRenderVisualFlags::eNoShadow))
+		return;
+
+	// Check visibility against all active frustums and propagate per-frustum masks.
+	vis_data& vis = pVisual->vis;
+	bool anyVisible = false;
+	bool hasFullyVisibleFrustum = false;
+	xr_vector<u32> childMasks;
+	childMasks.resize(masks.size(), 0);
+
+	for (u32 i = 0; i < masks.size(); ++i)
+	{
+		u32 planeMask = masks[i];
+		if (!planeMask)
+			continue;
+
+		// Propagated from parent: this visual is fully visible in this frustum.
+		if (planeMask == FULLY_VISIBLE_MASK)
 		{
-			// General type of visual
-			r_dsgraph_insert_static(pVisual);
+			anyVisible = true;
+			hasFullyVisibleFrustum = true;
+			childMasks[i] = FULLY_VISIBLE_MASK;
+			continue;
 		}
-		break;
+
+		EFC_Visible VIS = frustums[i].testSAABB(vis.sphere.P, vis.sphere.R, vis.box.data(), planeMask);
+		if (VIS == fcvNone)
+		{
+			continue;
+		}
+
+		anyVisible = true;
+		if (VIS == fcvFully)
+		{
+			// In original per-frustum traversal this path immediately adds leafs.
+			// Preserve union semantics by marking this frustum as fully visible.
+			hasFullyVisibleFrustum = true;
+			childMasks[i] = FULLY_VISIBLE_MASK;
+		}
+		else
+		{
+			childMasks[i] = planeMask;
+		}
+	}
+
+	if (!anyVisible)
+		return;
+
+	if (R4FullDetailRejectStatic(pVisual, i_mask[CDSGraphManager::fl_normal]))
+		return;
+
+#if RENDER!=R_R1
+	if (i_mask[CDSGraphManager::fl_normal])//phase normal
+#endif
+		if (!RImplementation.HOM.visible(vis))
+			return;
+
+	// If we get here visual is visible in at least one frustum
+	switch (pVisual->Type)
+	{
+	case MT_HIERRARHY:
+	{
+		FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
+		if (hasFullyVisibleFrustum)
+			add_leafs_Static(pV->children);
+		else
+		{
+			for (auto V : pV->children)
+				add_Static_MultiFrustum(V, frustums, childMasks);
+		}
+	}break;
+
+	case MT_LOD:
+	{
+		FLOD* pV = (FLOD*)pVisual;
+		float D;
+		float ssa = CalcSSA(D, pV->vis.sphere.P, pV) * pV->lod_factor;
+
+		if (ssa < r_ssaLOD_A)
+		{
+			if (ssa < r_ssaDISCARD)
+				return;
+
+			RGraph.mapLOD.emplace_back(D, ssa, nullptr, pVisual, nullptr, nullptr, false);
+		}
+
+#if RENDER!=R_R1
+		if (ssa > r_ssaLOD_B || i_mask[CDSGraphManager::fl_shmap])//phase shmap
+#else
+		if (ssa > r_ssaLOD_B)
+#endif
+		{
+			add_leafs_Static(pV->children);
+		}
+	}break;
+
+	case MT_TREE_ST:
+	case MT_TREE_PM:
+	default:
+	{
+		r_dsgraph_insert_static(pVisual);
+	}return;
+	}
+}
+
+void CDSGraphManager::add_leaf_Static(dxRender_Visual* pVisual)
+{
+	if (R4FullDetailRejectStatic(pVisual, i_mask[CDSGraphManager::fl_normal]))
+		return;
+
+#if RENDER!=R_R1
+	if (i_mask[CDSGraphManager::fl_normal])//phase normal
+#endif
+		if (!RImplementation.HOM.visible(pVisual->vis))
+			return;
+
+	// Visual is 100% visible - simply add it
+	switch (pVisual->Type)
+	{
+	case MT_HIERRARHY:
+	{
+		FHierrarhyVisual* pV = (FHierrarhyVisual*)pVisual;
+		add_leafs_Static(pV->children);
+	}break;
+
+	case MT_LOD:
+	{
+		FLOD* pV = (FLOD*)pVisual;
+		float D;
+		float ssa = CalcSSA(D, pV->vis.sphere.P, pV) * pV->lod_factor;
+
+		if (ssa < r_ssaLOD_A)
+		{
+			if (ssa < r_ssaDISCARD)
+				break;
+
+			RGraph.mapLOD.emplace_back(D, ssa, nullptr, pVisual, nullptr, nullptr, false);
+		}
+
+#if RENDER!=R_R1
+		if (ssa > r_ssaLOD_B || i_mask[CDSGraphManager::fl_shmap])//phase shmap
+#else
+		if (ssa > r_ssaLOD_B)
+#endif
+		{
+			// Add all children, doesn't perform any tests
+			add_leafs_Static(pV->children);
+		}
+	}break;
+
+	case MT_TREE_PM:
+	case MT_TREE_ST:
+	default:
+	{
+		// General type of visual
+		r_dsgraph_insert_static(pVisual);
+	}break;
+	}
+}
+
+void CDSGraphManager::add_leafs_Static(xr_vector<dxRender_Visual*>& children)
+{
+	for (dxRender_Visual* pVisual : children)
+	{
+		add_leaf_Static(pVisual);
+	}
+}
+
+void CDSGraphManager::add_leafs_Static(xr_vector<IRenderVisual*>& children)
+{
+	for (IRenderVisual* pVisual : children)
+	{
+		dxRender_Visual* pV = (dxRender_Visual*)pVisual;
+		if (!pV) continue;
+		add_leaf_Static(pV);
 	}
 }

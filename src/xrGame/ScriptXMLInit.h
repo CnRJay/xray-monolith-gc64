@@ -6,6 +6,7 @@
 class CUIWindow;
 class CUIFrameWindow;
 class CUIStatic;
+class CUI3dStatic;
 class CUITextWnd;
 class CUICheckButton;
 class CUISpinNum;
@@ -29,6 +30,7 @@ class CUIMMShniaga;
 class CUIScrollView;
 class CUIListBox;
 class CUIProgressBar;
+class CUIBinocularsVision;
 class UIHint;
 
 class CScriptXmlInit
@@ -52,6 +54,7 @@ public:
 	CUIFrameLineWnd* InitFrameLine(LPCSTR path, CUIWindow* parent);
 	CUIEditBox* InitEditBox(LPCSTR path, CUIWindow* parent);
 	CUIStatic* InitStatic(LPCSTR path, CUIWindow* parent);
+	CUI3dStatic* Init3dStatic(LPCSTR path, CUIWindow* parent);
 	CUIStatic* InitAnimStatic(LPCSTR path, CUIWindow* parent);
 	CUIStatic* InitSleepStatic(LPCSTR path, CUIWindow* parent);
 	CUITextWnd* InitTextWnd(LPCSTR path, CUIWindow* parent);
@@ -74,6 +77,7 @@ public:
 	CUIScrollView* InitScrollView(LPCSTR path, CUIWindow* parent);
 	CUIListBox* InitListBox(LPCSTR path, CUIWindow* parent);
 	CUIProgressBar* InitProgressBar(LPCSTR path, CUIWindow* parent);
+	CUIBinocularsVision* InitBinocularsVision(LPCSTR path, CUIWindow* parent);
 
 	CUIXml& GetXml() { return m_xml; };
 protected:

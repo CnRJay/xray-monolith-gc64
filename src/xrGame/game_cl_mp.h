@@ -8,7 +8,7 @@
 #include "configs_dumper.h"
 #include "configs_dump_verifyer.h"
 #include "screenshot_server.h"
-#include <fastdelegate/fastdelegate.h>
+#include "../xrCore/xr_delegate.h"
 
 class CUIWindow;
 class CUISpeechMenu;
@@ -98,7 +98,7 @@ struct Bonus_Struct
 		BonusName = "";
 		MoneyStr = "";
 		Money = 0;
-		//IconShader = nullptr;
+		//IconShader = NULL;
 		IconRects.clear();
 	}
 
@@ -106,7 +106,7 @@ struct Bonus_Struct
 	{
 		//if (IconShader)
 		//	IconShader.destroy();
-		//IconShader = nullptr;
+		//IconShader = NULL;
 		IconRects.clear();
 	}
 
@@ -323,7 +323,7 @@ public:
 
 	void AddSoundMessage(LPCSTR sound_name, u32 const sound_priority, u32 const soundID);
 	void PlaySndMessage(u32 ID);
-	typedef fastdelegate::FastDelegate<void (u32 const)> player_info_reply_cb_t;
+	typedef xr_delegate<void (u32 const)> player_info_reply_cb_t;
 	bool RequestPlayersInfo(player_info_reply_cb_t const pinfo_repl_cb);
 private:
 	u8* buffer_for_compress;
@@ -353,7 +353,7 @@ public:
 		game_cl_mp* m_owner;
 		CMemoryWriter m_writer;
 
-		fr_callback_binder() : m_frnode(nullptr), m_active(false)
+		fr_callback_binder() : m_frnode(NULL), m_active(false)
 		{
 		};
 		void __stdcall receiving_file_callback(file_transfer::receiving_status_t status, u32 bytes_received,

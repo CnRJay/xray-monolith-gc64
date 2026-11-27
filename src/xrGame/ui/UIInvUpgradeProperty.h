@@ -48,6 +48,8 @@ public:
 	bool read_value_from_section(LPCSTR section, LPCSTR param, float& result);
 	bool compute_value(ItemUpgrades_type const& item_upgrades);
 	bool show_result(LPCSTR values);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 }; // class UIProperty
 
 // =========================================================================================
@@ -72,6 +74,8 @@ public:
 
 	void set_upgrade_info(Upgrade_type& upgrade);
 	void set_item_info(CInventoryItem& item);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 protected:
 	void set_info(ItemUpgrades_type const& item_upgrades);

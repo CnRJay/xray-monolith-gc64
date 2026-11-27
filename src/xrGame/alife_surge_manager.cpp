@@ -33,10 +33,13 @@ void CALifeSurgeManager::spawn_new_spawns()
 	xr_vector<ALife::_SPAWN_ID>::const_iterator E = m_temp_spawns.end();
 	for (; I != E; ++I)
 	{
+		const CALifeSpawnRegistry::SPAWN_GRAPH::CVertex* const vertex_ptr = spawns().spawns().vertex(*I);
+		if (!vertex_ptr)
+			continue;
 		CSE_ALifeDynamicObject *object, *spawn = smart_cast<CSE_ALifeDynamicObject*>(
-			                       &spawns().spawns().vertex(*I)->data()->object());
-		VERIFY3(spawn, spawns().spawns().vertex(*I)->data()->object().name(),
-		        spawns().spawns().vertex(*I)->data()->object().name_replace());
+			                       &vertex_ptr->data()->object());
+		VERIFY3(spawn, vertex_ptr->data()->object().name(),
+		        vertex_ptr->data()->object().name_replace());
 
 #ifdef DEBUG
 		CTimer					timer;

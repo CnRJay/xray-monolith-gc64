@@ -123,9 +123,6 @@
     <ClCompile Include="xr_area.cpp">
       <Filter>engine</Filter>
     </ClCompile>
-    <ClCompile Include="xr_area_query.cpp">
-      <Filter>engine</Filter>
-    </ClCompile>
     <ClCompile Include="xr_area_raypick.cpp">
       <Filter>engine</Filter>
     </ClCompile>
@@ -261,6 +258,9 @@
       <Filter>Opcode</Filter>
     </ClInclude>
     <ClInclude Include="ISpatial.h">
+      <Filter>engine</Filter>
+    </ClInclude>
+    <ClInclude Include="sse_intersect.h">
       <Filter>engine</Filter>
     </ClInclude>
     <ClInclude Include="xr_area.h">

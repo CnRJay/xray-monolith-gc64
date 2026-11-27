@@ -34,6 +34,7 @@ public:
 	bool IsActive() { return !!m_flags.test(etsActive); }
 
 
+	LPCSTR m_name;
 	//IInputReceiver
 	virtual void IR_OnMousePress(int btn);
 	virtual void IR_OnMouseRelease(int btn);
@@ -49,7 +50,7 @@ public:
 	virtual void IR_OnActivate(void);
 	bool Persistent() { return !!m_flags.test(etsPersistent); }
 
-	fastdelegate::FastDelegate0<> m_on_destroy_event;
+	xr_delegate<void()> m_on_destroy_event;
 
 	enum
 	{

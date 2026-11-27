@@ -41,6 +41,23 @@ private:
 public:
 	attack_params const& get_attack_params() const { return m_attack_params; }
 
+	// The monolithic attack brain's phase, cached each attack execute (chimera_attack_state_inline.h):
+	// 0 undefined, 1 rotate (circling the behind-point), 2 prepare_jump (winding up). 0 outside combat.
+	// The only read into the chimera's combat state - get_monster_state collapses it to eStateAttack.
+	u32 m_attack_phase;
+	u32 get_attack_phase() const { return m_attack_phase; }
+
+	// negative argument keeps the current value
+	void set_attack_params(float attack_radius, float prepare_timeout_ms, float attack_timeout_ms,
+	                       int num_prepare_jumps, int num_attack_jumps)
+	{
+		if (attack_radius >= 0.f) m_attack_params.attack_radius = attack_radius;
+		if (prepare_timeout_ms >= 0.f) m_attack_params.prepare_jump_timeout = (TTime)prepare_timeout_ms;
+		if (attack_timeout_ms >= 0.f) m_attack_params.attack_jump_timeout = (TTime)attack_timeout_ms;
+		if (num_prepare_jumps >= 0) m_attack_params.num_prepare_jumps = (u32)num_prepare_jumps;
+		if (num_attack_jumps >= 0) m_attack_params.num_attack_jumps = (u32)num_attack_jumps;
+	}
+
 
 DECLARE_SCRIPT_REGISTER_FUNCTION
 };

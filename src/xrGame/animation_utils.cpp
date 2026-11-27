@@ -6,7 +6,7 @@
 #include "game_object_space.h"
 
 anim_bone_fix::anim_bone_fix()
-	: bone(nullptr), parent(nullptr), matrix(Fmatrix().identity())
+	: bone(NULL), parent(NULL), matrix(Fmatrix().identity())
 {
 }
 
@@ -62,8 +62,8 @@ void anim_bone_fix::refix()
 void anim_bone_fix::deinit()
 {
 	release();
-	bone = nullptr;
-	parent = nullptr;
+	bone = NULL;
+	parent = NULL;
 }
 
 void anim_bone_fix::release()

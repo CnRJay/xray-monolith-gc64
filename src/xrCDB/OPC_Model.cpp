@@ -141,8 +141,8 @@ OPCODECREATE::OPCODECREATE()
 {
 	NbTris = 0;
 	NbVerts = 0;
-	Tris = nullptr;
-	Verts = nullptr;
+	Tris = null;
+	Verts = null;
 	Rules = SPLIT_COMPLETE | SPLIT_LARGESTAXIS;
 	NoLeaf = true;
 	Quantized = true;
@@ -157,10 +157,10 @@ OPCODECREATE::OPCODECREATE()
  *	Constructor.
  */
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-OPCODE_Model::OPCODE_Model() : mSource(nullptr), mTree(nullptr), mNoLeaf(false), mQuantized(false)
+OPCODE_Model::OPCODE_Model() : mSource(null), mTree(null), mNoLeaf(false), mQuantized(false)
 {
 #ifdef __MESHMERIZER_H__	// Collision hulls only supported within ICE !
-	mHull	= nullptr;
+	mHull	= null;
 #endif // __MESHMERIZER_H__
 }
 

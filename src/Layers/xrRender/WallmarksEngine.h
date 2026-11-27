@@ -10,7 +10,6 @@ namespace WallmarksEngine
 
 class CSkeletonWallmark;
 class CKinematics;
-class IRender_Sector;
 
 class CWallmarksEngine
 {
@@ -30,9 +29,9 @@ public:
 		IC float TimeEnd() { return m_fTimeEnd; }
 	};
 
-	DEFINE_VECTOR(static_wallmark*, StaticWMVec, StaticWMVecIt);
-	DEFINE_VECTOR(wm_slot*, WMSlotVec, WMSlotVecIt);
-	typedef xr_unordered_map<IRender_Sector*, StaticWMVec> StaticWMSectorMap;
+    typedef xr_vector<static_wallmark*> StaticWMVec;
+    typedef xr_unordered_map<IRender_Sector*, StaticWMVec> StaticWMSectorMap;
+    typedef xr_vector< wm_slot* > WMSlotVec;
 private:
 	StaticWMVec static_pool;
 	WMSlotVec marks;
@@ -58,7 +57,7 @@ private:
 	void AddWallmark_internal(CDB::TRI* pTri, const Fvector* pVerts, const Fvector& contact_point, ref_shader hTexture, float sz, float ttl, float rotation);
 
 	static_wallmark* static_wm_allocate();
-	void static_wm_render(static_wallmark* W, FVF::LIT* & V);
+	void static_wm_render(static_wallmark* W, FVF::LIT* & V, u32 first, u32 count);
 	void static_wm_destroy(static_wallmark* W);
 
 	void skeleton_wm_render(intrusive_ptr<CSkeletonWallmark>, FVF::LIT* & V);
@@ -75,10 +74,9 @@ public:
 	void AddSkeletonWallmark(const Fmatrix* xf, CKinematics* obj, ref_shader& sh, const Fvector& start,
 	                         const Fvector& dir, float size, float ttl = 0.f, bool ignore_opt = false);
 
-	void RemoveSkeletonWallmarksFromObject(CKinematics* obj);
+    void RemoveSkeletonWallmarksFromObject(CKinematics* obj);
 
-	// perframe lifecycle update call once before Render
-	void UpdateWallmarks();
+    void UpdateWallmarks();
 
 	// render
 	void Render();

@@ -73,7 +73,7 @@ protected:
 	CCameraManager* m_pCameras;
 
 	// temporary
-	xr_vector<ISpatial*> snd_ER;
+	xr_vector<ISpatialShared> snd_ER;
 public:
 	CObjectList Objects;
 	CObjectSpace ObjectSpace;
@@ -82,6 +82,8 @@ public:
 	BOOL bReady;
 
 	CInifile* pLevel;
+
+    bool schedulerFlush;
 public: // deferred sound events
 	struct _esound_delegate
 	{

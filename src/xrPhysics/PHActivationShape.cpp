@@ -164,8 +164,8 @@ void RestoreVelocityState(V_PH_WORLD_STATE& state)
 
 CPHActivationShape::CPHActivationShape()
 {
-	m_geom = nullptr;
-	m_body = nullptr;
+	m_geom = NULL;
+	m_body = NULL;
 	m_flags.zero();
 	m_flags.set(flFixedRotation,TRUE);
 }
@@ -217,9 +217,9 @@ void CPHActivationShape::Destroy()
 	CPHObject::deactivate();
 	dGeomDestroyUserData(m_geom);
 	dGeomDestroy(m_geom);
-	m_geom = nullptr;
+	m_geom = NULL;
 	dBodyDestroy(m_body);
-	m_body = nullptr;
+	m_body = NULL;
 }
 
 bool CPHActivationShape::Activate(const Fvector need_size, u16 steps, float max_displacement, float max_rotation,
@@ -353,7 +353,7 @@ dGeomID CPHActivationShape::dSpacedGeom()
 
 void CPHActivationShape::get_spatial_params()
 {
-	spatialParsFromDGeom(m_geom, spatial.sphere.P, AABB, spatial.sphere.R);
+	spatialParsFromDGeom(m_geom, SpatialComponent->spatial.sphere.P, AABB, SpatialComponent->spatial.sphere.R);
 }
 
 void CPHActivationShape::InitContact(dContact* c, bool& do_collide, u16, u16)

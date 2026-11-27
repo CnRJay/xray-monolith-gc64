@@ -101,11 +101,6 @@ void CRender::level_Load(IReader* fs)
 	// End
 	pApp->LoadEnd();
 
-	// sanity-clear
-	lstLODs.clear();
-	lstLODgroups.clear();
-	mapLOD.clear();
-
 	// signal loaded
 	b_loaded = TRUE;
 }
@@ -114,6 +109,10 @@ void CRender::level_Unload()
 {
 	if (0 == g_pGameLevel) return;
 	if (!b_loaded) return;
+
+	GMBase.clear();
+	for (sun::cascade& cascade : m_sun_cascades)
+		cascade.GMCascade.clear();
 
 	u32 I;
 
@@ -127,7 +126,8 @@ void CRender::level_Unload()
 	// 1.
 	xr_delete(rmPortals);
 	pLastSector = 0;
-	vLastCameraPos.set(0, 0, 0);
+	pOutdoorSector = 0;
+	vLastCameraPos.set(0,0,0);
 	// 2.
 	for (I = 0; I < Sectors.size(); I++) xr_delete(Sectors[I]);
 	Sectors.clear();
@@ -190,10 +190,17 @@ void CRender::level_Unload()
 	//*** Shaders
 	Shaders.clear_and_free();
 
-	if (psDeviceFlags2.test(rsClearModels))
+	const bool clearResources = psDeviceFlags2.test(rsClearAllResources);
+	if (psDeviceFlags2.test(rsClearModels) || clearResources)
 	{
 		Models->ClearPool(true);
 		Visuals.clear_and_free();
+		if (clearResources)
+		{
+			dxRenderDeviceRender::Instance().Resources->UnloadAllTexturesOnLevelUnload();
+			dxRenderDeviceRender::Instance().ResourcesDestroyNecessaryTextures();
+			dxRenderDeviceRender::Instance().Resources->Evict();
+		}
 		dxRenderDeviceRender::Instance().Resources->Dump(false);
 		//static int unload_counter = 0;
 		//Msg("The Level Unloaded.======================== %d", ++unload_counter);
@@ -377,6 +384,23 @@ void CRender::LoadSectors(IReader* fs)
 	//		Sectors[d]->DebugDump	();
 
 	pLastSector = 0;
+
+	// Search for default sector - assume "default" or "outdoor" sector is the largest one
+	//. hack: need to know real outdoor sector
+	CSector* largest_sector = 0;
+	float largest_sector_vol = 0;
+	for (u32 s = 0; s < Sectors.size(); s++)
+	{
+		CSector* S = (CSector*)Sectors[s];
+		dxRender_Visual* V = S->root();
+		float vol = V->vis.box.getvolume();
+		if (vol > largest_sector_vol)
+		{
+			largest_sector_vol = vol;
+			largest_sector = S;
+		}
+	}
+	pOutdoorSector = largest_sector;
 }
 
 void CRender::LoadSWIs(CStreamReader* base_fs)

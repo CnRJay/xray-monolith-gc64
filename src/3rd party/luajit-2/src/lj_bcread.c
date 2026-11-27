@@ -1,6 +1,6 @@
 /*
 ** Bytecode reader.
-** Copyright (C) 2005-2021 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2015 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_bcread_c
@@ -9,7 +9,6 @@
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
-#include "lj_buf.h"
 #include "lj_str.h"
 #include "lj_tab.h"
 #include "lj_bc.h"
@@ -21,7 +20,6 @@
 #include "lj_lex.h"
 #include "lj_bcdump.h"
 #include "lj_state.h"
-#include "lj_strfmt.h"
 
 /* Reuse some lexer fields for our own purposes. */
 #define bcread_flags(ls)	ls->level
@@ -40,74 +38,84 @@ static LJ_NOINLINE void bcread_error(LexState *ls, ErrMsg em)
   const char *name = ls->chunkarg;
   if (*name == BCDUMP_HEAD1) name = "(binary)";
   else if (*name == '@' || *name == '=') name++;
-  lj_strfmt_pushf(L, "%s: %s", name, err2msg(em));
+  lj_str_pushf(L, "%s: %s", name, err2msg(em));
   lj_err_throw(L, LUA_ERRSYNTAX);
 }
 
-/* Refill buffer. */
+/* Resize input buffer. */
+static void bcread_resize(LexState *ls, MSize len)
+{
+  if (ls->sb.sz < len) {
+    MSize sz = ls->sb.sz * 2;
+    while (len > sz) sz = sz * 2;
+    lj_str_resizebuf(ls->L, &ls->sb, sz);
+    /* Caveat: this may change ls->sb.buf which may affect ls->p. */
+  }
+}
+
+/* Refill buffer if needed. */
 static LJ_NOINLINE void bcread_fill(LexState *ls, MSize len, int need)
 {
-  lj_assertLS(len != 0, "empty refill");
-  if (len > LJ_MAX_BUF || ls->c < 0)
+  lua_assert(len != 0);
+  if (len > LJ_MAX_MEM || ls->current < 0)
     bcread_error(ls, LJ_ERR_BCBAD);
   do {
     const char *buf;
-    size_t sz;
-    char *p = sbufB(&ls->sb);
-    MSize n = (MSize)(ls->pe - ls->p);
-    if (n) {  /* Copy remainder to buffer. */
-      if (sbuflen(&ls->sb)) {  /* Move down in buffer. */
-	lj_assertLS(ls->pe == sbufP(&ls->sb), "bad buffer pointer");
-	if (ls->p != p) memmove(p, ls->p, n);
+    size_t size;
+    if (ls->n) {  /* Copy remainder to buffer. */
+      if (ls->sb.n) {  /* Move down in buffer. */
+	lua_assert(ls->p + ls->n == ls->sb.buf + ls->sb.n);
+	if (ls->n != ls->sb.n)
+	  memmove(ls->sb.buf, ls->p, ls->n);
       } else {  /* Copy from buffer provided by reader. */
-	p = lj_buf_need(&ls->sb, len);
-	memcpy(p, ls->p, n);
+	bcread_resize(ls, len);
+	memcpy(ls->sb.buf, ls->p, ls->n);
       }
-      ls->p = p;
-      ls->pe = p + n;
+      ls->p = ls->sb.buf;
     }
-    setsbufP(&ls->sb, p + n);
-    buf = ls->rfunc(ls->L, ls->rdata, &sz);  /* Get more data from reader. */
-    if (buf == NULL || sz == 0) {  /* EOF? */
+    ls->sb.n = ls->n;
+    buf = ls->rfunc(ls->L, ls->rdata, &size);  /* Get more data from reader. */
+    if (buf == NULL || size == 0) {  /* EOF? */
       if (need) bcread_error(ls, LJ_ERR_BCBAD);
-      ls->c = -1;  /* Only bad if we get called again. */
+      ls->current = -1;  /* Only bad if we get called again. */
       break;
     }
-    if (sz >= LJ_MAX_BUF - n) lj_err_mem(ls->L);
-    if (n) {  /* Append to buffer. */
-      n += (MSize)sz;
-      p = lj_buf_need(&ls->sb, n < len ? len : n);
-      memcpy(sbufP(&ls->sb), buf, sz);
-      setsbufP(&ls->sb, p + n);
-      ls->p = p;
-      ls->pe = p + n;
+    if (ls->sb.n) {  /* Append to buffer. */
+      MSize n = ls->sb.n + (MSize)size;
+      bcread_resize(ls, n < len ? len : n);
+      memcpy(ls->sb.buf + ls->sb.n, buf, size);
+      ls->n = ls->sb.n = n;
+      ls->p = ls->sb.buf;
     } else {  /* Return buffer provided by reader. */
+      ls->n = (MSize)size;
       ls->p = buf;
-      ls->pe = buf + sz;
     }
-  } while ((MSize)(ls->pe - ls->p) < len);
+  } while (ls->n < len);
 }
 
 /* Need a certain number of bytes. */
 static LJ_AINLINE void bcread_need(LexState *ls, MSize len)
 {
-  if (LJ_UNLIKELY((MSize)(ls->pe - ls->p) < len))
+  if (LJ_UNLIKELY(ls->n < len))
     bcread_fill(ls, len, 1);
 }
 
 /* Want to read up to a certain number of bytes, but may need less. */
 static LJ_AINLINE void bcread_want(LexState *ls, MSize len)
 {
-  if (LJ_UNLIKELY((MSize)(ls->pe - ls->p) < len))
+  if (LJ_UNLIKELY(ls->n < len))
     bcread_fill(ls, len, 0);
 }
 
+#define bcread_dec(ls)		check_exp(ls->n > 0, ls->n--)
+#define bcread_consume(ls, len)	check_exp(ls->n >= (len), ls->n -= (len))
+
 /* Return memory block from buffer. */
-static LJ_AINLINE uint8_t *bcread_mem(LexState *ls, MSize len)
+static uint8_t *bcread_mem(LexState *ls, MSize len)
 {
   uint8_t *p = (uint8_t *)ls->p;
-  ls->p += len;
-  lj_assertLS(ls->p <= ls->pe, "buffer read overflow");
+  bcread_consume(ls, len);
+  ls->p = (char *)p + len;
   return p;
 }
 
@@ -120,15 +128,25 @@ static void bcread_block(LexState *ls, void *q, MSize len)
 /* Read byte from buffer. */
 static LJ_AINLINE uint32_t bcread_byte(LexState *ls)
 {
-  lj_assertLS(ls->p < ls->pe, "buffer read overflow");
+  bcread_dec(ls);
   return (uint32_t)(uint8_t)*ls->p++;
 }
 
 /* Read ULEB128 value from buffer. */
-static LJ_AINLINE uint32_t bcread_uleb128(LexState *ls)
+static uint32_t bcread_uleb128(LexState *ls)
 {
-  uint32_t v = lj_buf_ruleb128(&ls->p);
-  lj_assertLS(ls->p <= ls->pe, "buffer read overflow");
+  const uint8_t *p = (const uint8_t *)ls->p;
+  uint32_t v = *p++;
+  if (LJ_UNLIKELY(v >= 0x80)) {
+    int sh = 0;
+    v &= 0x7f;
+    do {
+     v |= ((*p & 0x7f) << (sh += 7));
+     bcread_dec(ls);
+   } while (*p++ >= 0x80);
+  }
+  bcread_dec(ls);
+  ls->p = (char *)p;
   return v;
 }
 
@@ -142,10 +160,11 @@ static uint32_t bcread_uleb128_33(LexState *ls)
     v &= 0x3f;
     do {
      v |= ((*p & 0x7f) << (sh += 7));
+     bcread_dec(ls);
    } while (*p++ >= 0x80);
   }
+  bcread_dec(ls);
   ls->p = (char *)p;
-  lj_assertLS(ls->p <= ls->pe, "buffer read overflow");
   return v;
 }
 
@@ -192,8 +211,8 @@ static void bcread_ktabk(LexState *ls, TValue *o)
     o->u32.lo = bcread_uleb128(ls);
     o->u32.hi = bcread_uleb128(ls);
   } else {
-    lj_assertLS(tp <= BCDUMP_KTAB_TRUE, "bad constant type %d", tp);
-    setpriV(o, ~tp);
+    lua_assert(tp <= BCDUMP_KTAB_TRUE);
+    setitype(o, ~tp);
   }
 }
 
@@ -214,7 +233,7 @@ static GCtab *bcread_ktab(LexState *ls)
     for (i = 0; i < nhash; i++) {
       TValue key;
       bcread_ktabk(ls, &key);
-      lj_assertLS(!tvisnil(&key), "nil key");
+      lua_assert(!tvisnil(&key));
       bcread_ktabk(ls, lj_tab_set(ls->L, t, &key));
     }
   }
@@ -251,7 +270,7 @@ static void bcread_kgc(LexState *ls, GCproto *pt, MSize sizekgc)
 #endif
     } else {
       lua_State *L = ls->L;
-      lj_assertLS(tp == BCDUMP_KGC_CHILD, "bad constant type %d", tp);
+      lua_assert(tp == BCDUMP_KGC_CHILD);
       if (L->top <= bcread_oldtop(L, ls))  /* Stack underflow? */
 	bcread_error(ls, LJ_ERR_BCBAD);
       L->top--;
@@ -307,13 +326,25 @@ static void bcread_uv(LexState *ls, GCproto *pt, MSize sizeuv)
 }
 
 /* Read a prototype. */
-GCproto *lj_bcread_proto(LexState *ls)
+static GCproto *bcread_proto(LexState *ls)
 {
   GCproto *pt;
   MSize framesize, numparams, flags, sizeuv, sizekgc, sizekn, sizebc, sizept;
   MSize ofsk, ofsuv, ofsdbg;
   MSize sizedbg = 0;
   BCLine firstline = 0, numline = 0;
+  MSize len, startn;
+
+  /* Read length. */
+  if (ls->n > 0 && ls->p[0] == 0) {  /* Shortcut EOF. */
+    ls->n--; ls->p++;
+    return NULL;
+  }
+  bcread_want(ls, 5);
+  len = bcread_uleb128(ls);
+  if (!len) return NULL;  /* EOF */
+  bcread_need(ls, len);
+  startn = ls->n;
 
   /* Read prototype header. */
   flags = bcread_byte(ls);
@@ -382,6 +413,9 @@ GCproto *lj_bcread_proto(LexState *ls)
     setmref(pt->uvinfo, NULL);
     setmref(pt->varinfo, NULL);
   }
+
+  if (len != startn - ls->n)
+    bcread_error(ls, LJ_ERR_BCBAD);
   return pt;
 }
 
@@ -395,7 +429,6 @@ static int bcread_header(LexState *ls)
       bcread_byte(ls) != BCDUMP_VERSION) return 0;
   bcread_flags(ls) = flags = bcread_uleb128(ls);
   if ((flags & ~(BCDUMP_F_KNOWN)) != 0) return 0;
-  if ((flags & BCDUMP_F_FR2) != LJ_FR2*BCDUMP_F_FR2) return 0;
   if ((flags & BCDUMP_F_FFI)) {
 #if LJ_HASFFI
     lua_State *L = ls->L;
@@ -422,33 +455,19 @@ static int bcread_header(LexState *ls)
 GCproto *lj_bcread(LexState *ls)
 {
   lua_State *L = ls->L;
-  lj_assertLS(ls->c == BCDUMP_HEAD1, "bad bytecode header");
+  lua_assert(ls->current == BCDUMP_HEAD1);
   bcread_savetop(L, ls, L->top);
-  lj_buf_reset(&ls->sb);
+  lj_str_resetbuf(&ls->sb);
   /* Check for a valid bytecode dump header. */
   if (!bcread_header(ls))
     bcread_error(ls, LJ_ERR_BCFMT);
   for (;;) {  /* Process all prototypes in the bytecode dump. */
-    GCproto *pt;
-    MSize len;
-    const char *startp;
-    /* Read length. */
-    if (ls->p < ls->pe && ls->p[0] == 0) {  /* Shortcut EOF. */
-      ls->p++;
-      break;
-    }
-    bcread_want(ls, 5);
-    len = bcread_uleb128(ls);
-    if (!len) break;  /* EOF */
-    bcread_need(ls, len);
-    startp = ls->p;
-    pt = lj_bcread_proto(ls);
-    if (ls->p != startp + len)
-      bcread_error(ls, LJ_ERR_BCBAD);
+    GCproto *pt = bcread_proto(ls);
+    if (!pt) break;
     setprotoV(L, L->top, pt);
     incr_top(L);
   }
-  if ((ls->pe != ls->p && !ls->endmark) || L->top-1 != bcread_oldtop(L, ls))
+  if ((int32_t)ls->n > 0 || L->top-1 != bcread_oldtop(L, ls))
     bcread_error(ls, LJ_ERR_BCBAD);
   /* Pop off last prototype. */
   L->top--;

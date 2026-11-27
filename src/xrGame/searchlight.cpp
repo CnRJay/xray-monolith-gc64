@@ -97,6 +97,7 @@ BOOL CProjector::net_Spawn(CSE_Abstract* DC)
 		if (str && strlen(str))
 		{
 			int num = _GetItemCount(str);
+            m_lights.reserve(num);
 			for (int idx = 0; idx < num; idx++)
 			{
 				string64 sec;
@@ -117,6 +118,7 @@ BOOL CProjector::net_Spawn(CSE_Abstract* DC)
 		if (str && strlen(str))
 		{
 			int num = _GetItemCount(str);
+            m_controls.reserve(num);
 			for (int idx = 0; idx < num; idx++)
 			{
 				string64 sec;
@@ -290,9 +292,9 @@ void CProjector::UpdateCL()
 }
 
 
-void CProjector::renderable_Render()
+void CProjector::renderable_Render(IDSGraphManager* DM)
 {
-	inherited::renderable_Render();
+	inherited::renderable_Render(DM);
 }
 
 BOOL CProjector::UsedAI_Locations()

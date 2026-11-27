@@ -79,15 +79,15 @@ void TTestDepthCallback(bool& do_colide, bool bo1, dContact& c, SGameMtl* materi
 			dxGeomUserData* ud1 = retrieveGeomUserData(c.geom.g1);
 			dxGeomUserData* ud2 = retrieveGeomUserData(c.geom.g2);
 
-			if (ud1)
+			if (ud1 && ud1->ph_ref_object)
 			{
-				CPhysicsShell* phsl = ud1->ph_ref_object->ObjectPPhysicsShell();
+				CPhysicsShell* phsl = ud1->ph_ref_object ? ud1->ph_ref_object->ObjectPPhysicsShell() : nullptr;
 				if (phsl) phsl->Enable();
 			}
 
-			if (ud2)
+			if (ud2 && ud2->ph_ref_object)
 			{
-				CPhysicsShell* phsl = ud2->ph_ref_object->ObjectPPhysicsShell();
+				CPhysicsShell* phsl = ud2->ph_ref_object ? ud2->ph_ref_object->ObjectPPhysicsShell() : nullptr;
 				if (phsl) phsl->Enable();
 			}
 
@@ -318,7 +318,7 @@ bool ActivateBoxDynamic(IPHMovementControl* mov_control, bool character_exist, D
 	{
 		if(m_character)
 			return m_character->ObjectContactCallBack();
-		else return nullptr; 
+		else return NULL; 
 	}*/
 
 	saved_callback = mov_control->character()->ObjectContactCallBack();

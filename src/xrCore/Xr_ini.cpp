@@ -12,8 +12,8 @@
 #include <sstream>
 #include "mezz_stringbuffer.h"
 
-XRCORE_API CInifile const* pSettings = nullptr;
-XRCORE_API CInifile const* pSettingsAuth = nullptr;
+XRCORE_API CInifile const* pSettings = NULL;
+XRCORE_API CInifile const* pSettingsAuth = NULL;
 
 BOOL print_dltx_warnings = FALSE;
 
@@ -111,15 +111,12 @@ BOOL dltx_use_cache = TRUE;
 xr_unordered_flat_map<xr_string, CInifile::Root> CInifile::CachedData;
 xrCriticalSection CInifile::CacheCS;
 void CInifile::InvalidateCache(LPCSTR path) {
-	if (path)
+	if (path && path[0])
 	{
-		if (path[0])
-		{
-			xr_string FileName(path);
-			toLowerCase(FileName);
-			xrCriticalSectionGuard g(CacheCS);
-			CachedData.erase(FileName);
-		}
+		xr_string FileName(path);
+		toLowerCase(FileName);
+		xrCriticalSectionGuard g(CacheCS);
+		CachedData.erase(FileName);
 	}
 	else
 	{
@@ -152,6 +149,7 @@ CInifile::CInifile(IReader* F, LPCSTR path
 #endif
 )
 {
+	PROF_EVENT("CInifile::CInifile IReader", PROF_CAT(IO));
 	m_file_name[0] = 0;
 	m_flags.zero();
 	m_flags.set(eSaveAtEnd, FALSE);
@@ -175,6 +173,7 @@ CInifile::CInifile(LPCSTR szFileName,
 )
 
 {
+	PROF_EVENT("CInifile::CInifile FileName", PROF_CAT(IO));
 	if (szFileName && strstr(szFileName, "system"))
 		Msg("-----loading %s", szFileName);
 
@@ -265,19 +264,16 @@ IC BOOL is_empty_line_now(IReader* F)
 	return (*a0 == 13) && (*a1 == 10) && (*a2 == 13) && (*a3 == 10);
 };
 
+// Regex pattern cache (added before Load function)
 static const std::regex& GetCachedRegex(const xr_string& pattern)
 {
 	static xr_unordered_flat_map<xr_string, std::regex> g_RegexCache;
-	static xrCriticalSection regex_cache_lock;
-	regex_cache_lock.Enter();
 	auto it = g_RegexCache.find(pattern);
 	if (it == g_RegexCache.end())
 	{
 		auto result = g_RegexCache.emplace(pattern, std::regex(pattern.c_str()));
-		regex_cache_lock.Leave();
 		return result.first->second;
 	}
-	regex_cache_lock.Leave();
 	return it->second;
 }
 
@@ -556,7 +552,7 @@ void CInifile::LTXLoad (
 			MezzStringBuffer split_dir;
 			MezzStringBuffer split_name;
 
-				_splitpath_s(m_file_name, split_drive, split_drive.GetSize(), split_dir, split_dir.GetSize(), split_name, split_name.GetSize(), nullptr, 0);
+			_splitpath_s(m_file_name, split_drive, split_drive.GetSize(), split_dir, split_dir.GetSize(), split_name, split_name.GetSize(), NULL, 0);
 
 			xr_string FilePath = xr_string(split_drive) + xr_string(split_dir);
 			xr_string FileName = split_name;
@@ -860,14 +856,14 @@ void CInifile::LTXLoad (
 			}
 
 			Item I;
-			I.first = (name[0] ? name : nullptr);
+			I.first = (name[0] ? name : NULL);
 			if (!I.first)
 			{
                 if (print_dltx_warnings)
 				    Msg("~[DLTX] WARNING: Malformed line %s in file %s, can't get key name, skipping, section data might be altered unexpectedly", currentLine.c_str(), currentFileName);
 				continue;
 			}
-			I.second = bIsDelete ? DLTX_DELETE.c_str() : (str2[0] ? str2.GetBuffer() : nullptr);
+			I.second = bIsDelete ? DLTX_DELETE.c_str() : (str2[0] ? str2.GetBuffer() : NULL);
 
 			auto fname = toLowerCaseCopy(trimCopy(getFilename(std::string(currentFileName))));
 			I.filename = fname.c_str();
@@ -1513,9 +1509,7 @@ void CInifile::save_as(IWriter& writer, bool bcheck) const
 		writer.w_string(temp);
 		if (bcheck)
 		{
-			xr_sprintf(temp, sizeof(temp), "; %d %d %d", (*r_it).Name._get()->dwCRC,
-			           (*r_it).Name._get()->dwReference,
-			           (*r_it).Name._get()->dwLength);
+			xr_sprintf(temp, sizeof(temp), "; %d %d", (*r_it).Name._get()->intrusive_ref_count(), xr_strlen((*r_it).Name._get()->value));
 			writer.w_string(temp);
 		}
 
@@ -1680,7 +1674,7 @@ u64 CInifile::r_u64(LPCSTR S, LPCSTR L) const
 {
 	LPCSTR C = r_string(S, L);
 #ifndef _EDITOR
-	return _strtoui64(C, nullptr, 10);
+	return _strtoui64(C, NULL, 10);
 #else
     return (u64)_atoi64(C);
 #endif
@@ -2033,4 +2027,24 @@ void CInifile::remove_line(LPCSTR S, LPCSTR L)
 		if (A != data.Data.end() && xr_strcmp(*A->first, L) == 0)
 			data.Data.erase(A);
 	}
+}
+
+bool CInifile::remove_section(LPCSTR S)
+{
+	R_ASSERT(!m_flags.test(eReadOnly));
+
+	if (!S || !S[0])
+		return false;
+
+	// sections are stored parsed and lower cased, the same way a write creates them
+	string256 sect;
+	_parse(sect, S);
+	_strlwr(sect);
+
+	RootIt I = std::lower_bound(DATA.begin(), DATA.end(), sect, sect_pred);
+	if (I == DATA.end() || xr_strcmp(*(*I).Name, sect) != 0)
+		return false;
+
+	DATA.erase(I);
+	return true;
 }

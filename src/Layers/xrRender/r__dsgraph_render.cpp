@@ -7,6 +7,14 @@
 #include "../../xrEngine/CustomHUD.h"
 
 #include "FBasicVisual.h"
+#include "CHudInitializer.h"
+
+#include "fhierrarhyvisual.h"
+#include "SkeletonCustom.h"
+#include "../../xrEngine/fmesh.h"
+#include "flod.h"
+
+#include "../../xrEngine/xr_object.h"
 
 using namespace R_dsgraph;
 
@@ -15,1013 +23,824 @@ extern float r_ssaDONTSORT;
 extern float r_ssaHZBvsTEX;
 extern float r_ssaGLOD_start, r_ssaGLOD_end;
 
+ICF bool R4FullDetailRejectSpatial(ISpatial* spatial, bool normalPhase)
+{
+#if RENDER == R_R4
+	if (ps_r4_full_detail_distance_scale >= 1.f || !normalPhase || !spatial || !g_pGamePersistent ||
+		!g_pGamePersistent->Environment().CurrentEnv)
+		return false;
+
+	const float farPlane = g_pGamePersistent->Environment().CurrentEnv->far_plane;
+	const float fullDetailDistance = std::max(100.f, farPlane * ps_r4_full_detail_distance_scale);
+	if (Device.vCameraPosition.distance_to_sqr(spatial->spatial.sphere.P) <=
+		_sqr(fullDetailDistance + spatial->spatial.sphere.R))
+		return false;
+
+	if (spatial->spatial.type & STYPE_LIGHTSOURCE)
+	{
+		light* L = (light*)spatial->dcast_Light();
+		if (L && L->flags.bHudMode)
+			return false;
+	}
+
+	return true;
+#else
+	return false;
+#endif
+}
+
 ICF float calcLOD(float ssa/*fDistSq*/, float R)
 {
 	return _sqrt(clampr((ssa - r_ssaGLOD_end) / (r_ssaGLOD_start - r_ssaGLOD_end), 0.f, 1.f));
 }
 
-// NORMAL
-IC bool cmp_normal_items(const _NormalItem& N1, const _NormalItem& N2)
+namespace
 {
-	return (N1.ssa > N2.ssa);
-}
+class CCustomFOVInitializer
+{
+	bool enabled;
+	bool near_depth;
+	Fmatrix saved_project;
+	Fmatrix saved_full;
 
-void __fastcall mapNormal_Render(mapNormalItems& N)
-{
-	// *** DIRECT ***
-	std::sort(N.begin(), N.end(), cmp_normal_items);
-	_NormalItem *I = &*N.begin(), *E = &*N.end();
-	for (; I != E; I++)
+public:
+	explicit CCustomFOVInitializer(float fov, bool adjust_depth = false)
+		: enabled(fov != 0.f), near_depth(adjust_depth)
 	{
-		_NormalItem& Ni = *I;
-		float LOD = calcLOD(Ni.ssa, Ni.pVisual->vis.sphere.R);
-#ifdef USE_DX11
-		RCache.LOD.set_LOD(LOD);
-#endif
-		Ni.pVisual->Render(LOD);
+		if (!enabled) return;
+		saved_project = RCache.get_xform_project();
+		saved_full = Device.mFullTransform;
+		Fmatrix project;
+		project.build_projection(deg2rad(fov), Device.fASPECT, R_VIEWPORT_NEAR,
+			g_pGamePersistent->Environment().CurrentEnv->far_plane);
+		if (near_depth) RImplementation.rmNear();
+		Device.mFullTransform.mul(project, Device.mView);
+		RCache.set_xform_project(project);
 	}
-}
 
-// Matrix
-IC bool cmp_matrix_items(const _MatrixItem& N1, const _MatrixItem& N2)
-{
-	return (N1.ssa > N2.ssa);
-}
-
-void __fastcall mapMatrix_Render(mapMatrixItems& N)
-{
-	// *** DIRECT ***
-	std::sort(N.begin(), N.end(), cmp_matrix_items);
-	_MatrixItem *I = &*N.begin(), *E = &*N.end();
-	for (; I != E; I++)
+	~CCustomFOVInitializer()
 	{
-		_MatrixItem& Ni = *I;
-		RCache.set_xform_world(Ni.Matrix);
-		RImplementation.apply_object(Ni.pObject);
+		if (!enabled) return;
+		if (near_depth) RImplementation.rmNormal();
+		Device.mFullTransform = saved_full;
+		RCache.set_xform_project(saved_project);
+	}
+};
+}
+
+template<typename T, bool Reverse>
+void CDSGraphManager::r_dsgraph_render_graph_sorted(R_dsgraph::mapDSGraphItems<T, Reverse>& graph, bool _clear)
+{
+    if (graph.empty())
+        return;
+
+    std::sort(graph.begin(), graph.end());
+
+	for (auto& item : graph)
+	{
+		dxRender_Visual* V = item.pVisual;
+		VERIFY(V && V->shader._get());
+		RCache.set_Element(item.pSE);
+		CCustomFOVInitializer projection(item.fov);
+		RCache.set_xform_world(*item.pMatrix);
+		RImplementation.apply_object(item.pObject);
 		RImplementation.apply_lmaterial();
-
-		float LOD = calcLOD(Ni.ssa, Ni.pVisual->vis.sphere.R);
-#ifdef USE_DX11
-		RCache.LOD.set_LOD(LOD);
-#endif
-		Ni.pVisual->Render(LOD);
-	}
-	N.clear();
-}
-
-// ALPHA
-void __fastcall sorted_L1(mapSorted_Node* N)
-{
-	VERIFY(N);
-	dxRender_Visual* V = N->val.pVisual;
-	VERIFY(V && V->shader._get());
-	RCache.set_Element(N->val.se);
-	RCache.set_xform_world(N->val.Matrix);
-	RImplementation.apply_object(N->val.pObject);
-	RImplementation.apply_lmaterial();
-	V->Render(calcLOD(N->key, V->vis.sphere.R));
-}
-
-void __fastcall water_node_ssr(mapSorted_Node* N)
-{
-#ifdef USE_DX11
-	VERIFY(N);
-	dxRender_Visual* V = N->val.pVisual;
-	VERIFY(V);
-
-	RCache.set_Shader(RImplementation.Target->s_ssfx_water_ssr);
-
-	RCache.set_xform_world(N->val.Matrix);
-	RImplementation.apply_object(N->val.pObject);
-	RImplementation.apply_lmaterial();
-
-	RCache.set_c("cam_pos", RImplementation.Target->GetPrevious()->Position_previous.x, RImplementation.Target->GetPrevious()->Position_previous.y, RImplementation.Target->GetPrevious()->Position_previous.z, 0.0f);
-
-	// Previous matrix data
-	RCache.set_c("m_current", RImplementation.Target->GetPrevious()->Matrix_current);
-	RCache.set_c("m_previous", RImplementation.Target->GetPrevious()->Matrix_previous);
-
-	V->Render(calcLOD(N->key, V->vis.sphere.R));
-#endif
-}
-
-void __fastcall water_node(mapSorted_Node* N)
-{
-	VERIFY(N);
-	dxRender_Visual* V = N->val.pVisual;
-	VERIFY(V);
-
-#ifdef USE_DX11
-	if (RImplementation.o.ssfx_water)
-	{
-		RCache.set_Shader(RImplementation.Target->s_ssfx_water);
-	}
-#endif
-
-	RCache.set_xform_world(N->val.Matrix);
-	RImplementation.apply_object(N->val.pObject);
-	RImplementation.apply_lmaterial();
-
-	// Wind settings
-	float WindDir = g_pGamePersistent->Environment().CurrentEnv->wind_direction;
-	float WindVel = g_pGamePersistent->Environment().CurrentEnv->wind_velocity;
-	RCache.set_c("wind_setup", WindDir, WindVel, 0, 0);
-
-	V->Render(calcLOD(N->key, V->vis.sphere.R));
-}
-
-/*void __fastcall hud_node(mapSorted_Node* N)
-{
-	VERIFY(N);
-	dxRender_Visual* V = N->val.pVisual;
-	VERIFY(V && V->shader._get());
-	RCache.set_xform_world(N->val.Matrix);
-
-#ifdef USE_DX11
-
-	if (N->val.se->passes[0]->ps->hud_disabled)
-		return;
-
-	int skinning = N->val.se->passes[0]->vs->skinning;
-	RCache.set_Shader(RImplementation.Target->s_ssfx_hud[skinning]);
-
-	RImplementation.Target->GetPrevious()->Matrix_HUD_previous.set(N->val.PrevMatrix);
-	N->val.PrevMatrix.set(RCache.xforms.m_wvp);
-
-	RImplementation.Target->GetPrevious()->RVelocity = true;
-
-#endif
-
-	V->Render(calcLOD(N->key, V->vis.sphere.R));
-
-#ifdef USE_DX11
-	RImplementation.Target->GetPrevious()->RVelocity = false;
-#endif
-}*/
-
-IC bool cmp_vs_nrm(mapNormalVS::TNode* N1, mapNormalVS::TNode* N2)
-{
-	return (N1->val.ssa > N2->val.ssa);
-}
-
-IC bool cmp_vs_mat(mapMatrixVS::TNode* N1, mapMatrixVS::TNode* N2)
-{
-	return (N1->val.ssa > N2->val.ssa);
-}
-
-IC bool cmp_ps_nrm(mapNormalPS::TNode* N1, mapNormalPS::TNode* N2)
-{
-#ifdef USE_DX11
-	return (N1->val.mapCS.ssa > N2->val.mapCS.ssa);
-#else
-	return (N1->val.ssa > N2->val.ssa);
-#endif
-}
-
-IC bool cmp_ps_mat(mapMatrixPS::TNode* N1, mapMatrixPS::TNode* N2)
-{
-#ifdef USE_DX11
-	return (N1->val.mapCS.ssa > N2->val.mapCS.ssa);
-#else
-	return (N1->val.ssa > N2->val.ssa);
-#endif
-}
-
-#if defined(USE_DX10) || defined(USE_DX11)
-IC bool cmp_gs_nrm(mapNormalGS::TNode* N1, mapNormalGS::TNode* N2) { return (N1->val.ssa > N2->val.ssa); }
-IC bool cmp_gs_mat(mapMatrixGS::TNode* N1, mapMatrixGS::TNode* N2) { return (N1->val.ssa > N2->val.ssa); }
-#endif	//	USE_DX10
-
-IC bool cmp_cs_nrm(mapNormalCS::TNode* N1, mapNormalCS::TNode* N2) { return (N1->val.ssa > N2->val.ssa); }
-IC bool cmp_cs_mat(mapMatrixCS::TNode* N1, mapMatrixCS::TNode* N2) { return (N1->val.ssa > N2->val.ssa); }
-
-IC bool cmp_states_nrm(mapNormalStates::TNode* N1, mapNormalStates::TNode* N2) { return (N1->val.ssa > N2->val.ssa); }
-IC bool cmp_states_mat(mapMatrixStates::TNode* N1, mapMatrixStates::TNode* N2) { return (N1->val.ssa > N2->val.ssa); }
-
-IC bool cmp_textures_lex2_nrm(mapNormalTextures::TNode* N1, mapNormalTextures::TNode* N2)
-{
-	STextureList* t1 = N1->key;
-	STextureList* t2 = N2->key;
-	if ((*t1)[0] < (*t2)[0]) return true;
-	if ((*t1)[0] > (*t2)[0]) return false;
-	if ((*t1)[1] < (*t2)[1]) return true;
-	else return false;
-}
-
-IC bool cmp_textures_lex2_mat(mapMatrixTextures::TNode* N1, mapMatrixTextures::TNode* N2)
-{
-	STextureList* t1 = N1->key;
-	STextureList* t2 = N2->key;
-	if ((*t1)[0] < (*t2)[0]) return true;
-	if ((*t1)[0] > (*t2)[0]) return false;
-	if ((*t1)[1] < (*t2)[1]) return true;
-	else return false;
-}
-
-IC bool cmp_textures_lex3_nrm(mapNormalTextures::TNode* N1, mapNormalTextures::TNode* N2)
-{
-	STextureList* t1 = N1->key;
-	STextureList* t2 = N2->key;
-	if ((*t1)[0] < (*t2)[0]) return true;
-	if ((*t1)[0] > (*t2)[0]) return false;
-	if ((*t1)[1] < (*t2)[1]) return true;
-	if ((*t1)[1] > (*t2)[1]) return false;
-	if ((*t1)[2] < (*t2)[2]) return true;
-	else return false;
-}
-
-IC bool cmp_textures_lex3_mat(mapMatrixTextures::TNode* N1, mapMatrixTextures::TNode* N2)
-{
-	STextureList* t1 = N1->key;
-	STextureList* t2 = N2->key;
-	if ((*t1)[0] < (*t2)[0]) return true;
-	if ((*t1)[0] > (*t2)[0]) return false;
-	if ((*t1)[1] < (*t2)[1]) return true;
-	if ((*t1)[1] > (*t2)[1]) return false;
-	if ((*t1)[2] < (*t2)[2]) return true;
-	else return false;
-}
-
-IC bool cmp_textures_lexN_nrm(mapNormalTextures::TNode* N1, mapNormalTextures::TNode* N2)
-{
-	STextureList* t1 = N1->key;
-	STextureList* t2 = N2->key;
-	return std::lexicographical_compare(t1->begin(), t1->end(), t2->begin(), t2->end());
-}
-
-IC bool cmp_textures_lexN_mat(mapMatrixTextures::TNode* N1, mapMatrixTextures::TNode* N2)
-{
-	STextureList* t1 = N1->key;
-	STextureList* t2 = N2->key;
-	return std::lexicographical_compare(t1->begin(), t1->end(), t2->begin(), t2->end());
-}
-
-IC bool cmp_textures_ssa_nrm(mapNormalTextures::TNode* N1, mapNormalTextures::TNode* N2)
-{
-	return (N1->val.ssa > N2->val.ssa);
-}
-
-IC bool cmp_textures_ssa_mat(mapMatrixTextures::TNode* N1, mapMatrixTextures::TNode* N2)
-{
-	return (N1->val.ssa > N2->val.ssa);
-}
-
-void sort_tlist_nrm
-(
-	xr_vector<mapNormalTextures::TNode*,render_alloc<mapNormalTextures::TNode*>>& lst,
-	xr_vector<mapNormalTextures::TNode*,render_alloc<mapNormalTextures::TNode*>>& temp,
-	mapNormalTextures& textures,
-	BOOL bSSA
-)
-{
-	int amount = textures.begin()->key->size();
-	if (bSSA)
-	{
-		if (amount <= 1)
-		{
-			// Just sort by SSA
-			textures.getANY_P(lst);
-			std::sort(lst.begin(), lst.end(), cmp_textures_ssa_nrm);
-		}
-		else
-		{
-			// Split into 2 parts
-			mapNormalTextures::TNode* _it = textures.begin();
-			mapNormalTextures::TNode* _end = textures.end();
-			for (; _it != _end; _it++)
-			{
-				if (_it->val.ssa > r_ssaHZBvsTEX) lst.push_back(_it);
-				else temp.push_back(_it);
-			}
-
-			// 1st - part - SSA, 2nd - lexicographically
-			std::sort(lst.begin(), lst.end(), cmp_textures_ssa_nrm);
-			if (2 == amount) std::sort(temp.begin(), temp.end(), cmp_textures_lex2_nrm);
-			else if (3 == amount) std::sort(temp.begin(), temp.end(), cmp_textures_lex3_nrm);
-			else std::sort(temp.begin(), temp.end(), cmp_textures_lexN_nrm);
-
-			// merge lists
-			lst.insert(lst.end(), temp.begin(), temp.end());
-		}
-	}
-	else
-	{
-		textures.getANY_P(lst);
-		if (2 == amount) std::sort(lst.begin(), lst.end(), cmp_textures_lex2_nrm);
-		else if (3 == amount) std::sort(lst.begin(), lst.end(), cmp_textures_lex3_nrm);
-		else std::sort(lst.begin(), lst.end(), cmp_textures_lexN_nrm);
-	}
-}
-
-void sort_tlist_mat
-(
-	xr_vector<mapMatrixTextures::TNode*,render_alloc<mapMatrixTextures::TNode*>>& lst,
-	xr_vector<mapMatrixTextures::TNode*,render_alloc<mapMatrixTextures::TNode*>>& temp,
-	mapMatrixTextures& textures,
-	BOOL bSSA
-)
-{
-	int amount = textures.begin()->key->size();
-	if (bSSA)
-	{
-		if (amount <= 1)
-		{
-			// Just sort by SSA
-			textures.getANY_P(lst);
-			std::sort(lst.begin(), lst.end(), cmp_textures_ssa_mat);
-		}
-		else
-		{
-			// Split into 2 parts
-			mapMatrixTextures::TNode* _it = textures.begin();
-			mapMatrixTextures::TNode* _end = textures.end();
-			for (; _it != _end; _it++)
-			{
-				if (_it->val.ssa > r_ssaHZBvsTEX) lst.push_back(_it);
-				else temp.push_back(_it);
-			}
-
-			// 1st - part - SSA, 2nd - lexicographically
-			std::sort(lst.begin(), lst.end(), cmp_textures_ssa_mat);
-			if (2 == amount) std::sort(temp.begin(), temp.end(), cmp_textures_lex2_mat);
-			else if (3 == amount) std::sort(temp.begin(), temp.end(), cmp_textures_lex3_mat);
-			else std::sort(temp.begin(), temp.end(), cmp_textures_lexN_mat);
-
-			// merge lists
-			lst.insert(lst.end(), temp.begin(), temp.end());
-		}
-	}
-	else
-	{
-		textures.getANY_P(lst);
-		if (2 == amount) std::sort(lst.begin(), lst.end(), cmp_textures_lex2_mat);
-		else if (3 == amount) std::sort(lst.begin(), lst.end(), cmp_textures_lex3_mat);
-		else std::sort(lst.begin(), lst.end(), cmp_textures_lexN_mat);
-	}
-}
-
-void R_dsgraph_structure::r_dsgraph_render_graph(u32 _priority, bool _clear)
-{
-	//PIX_EVENT(r_dsgraph_render_graph);
-	Device.Statistic->RenderDUMP.Begin();
-
-	// **************************************************** NORMAL
-	// Perform sorting based on ScreenSpaceArea
-	// Sorting by SSA and changes minimizations
-	{
-		RCache.set_xform_world(Fidentity);
-
-		// Render several passes
-		for (u32 iPass = 0; iPass < SHADER_PASSES_MAX; ++iPass)
-		{
-			//mapNormalVS&	vs				= mapNormal	[_priority];
-			mapNormalVS& vs = mapNormalPasses[_priority][iPass];
-			vs.getANY_P(nrmVS);
-			std::sort(nrmVS.begin(), nrmVS.end(), cmp_vs_nrm);
-			for (u32 vs_id = 0; vs_id < nrmVS.size(); vs_id++)
-			{
-				mapNormalVS::TNode* Nvs = nrmVS[vs_id];
-				RCache.set_VS(Nvs->key);
-
-#if defined(USE_DX10) || defined(USE_DX11)
-				//	GS setup
-				mapNormalGS& gs = Nvs->val;
-				gs.ssa = 0;
-
-				gs.getANY_P(nrmGS);
-				std::sort(nrmGS.begin(), nrmGS.end(), cmp_gs_nrm);
-				for (u32 gs_id = 0; gs_id < nrmGS.size(); gs_id++)
-				{
-					mapNormalGS::TNode* Ngs = nrmGS[gs_id];
-					RCache.set_GS(Ngs->key);
-
-					mapNormalPS& ps = Ngs->val;
-					ps.ssa = 0;
-#else	//	USE_DX10
-				mapNormalPS& ps = Nvs->val;
-				ps.ssa = 0;
-#endif	//	USE_DX10
-
-				ps.getANY_P(nrmPS);
-				std::sort(nrmPS.begin(), nrmPS.end(), cmp_ps_nrm);
-				for (u32 ps_id = 0; ps_id < nrmPS.size(); ps_id++)
-				{
-					mapNormalPS::TNode* Nps = nrmPS[ps_id];
-					RCache.set_PS(Nps->key);
-#ifdef USE_DX11
-						mapNormalCS& cs = Nps->val.mapCS;
-						cs.ssa = 0;
-						RCache.set_HS(Nps->val.hs);
-						RCache.set_DS(Nps->val.ds);
-#else
-					mapNormalCS& cs = Nps->val;
-					cs.ssa = 0;
-#endif
-					cs.getANY_P(nrmCS);
-					std::sort(nrmCS.begin(), nrmCS.end(), cmp_cs_nrm);
-					for (u32 cs_id = 0; cs_id < nrmCS.size(); cs_id++)
-					{
-						mapNormalCS::TNode* Ncs = nrmCS[cs_id];
-						RCache.set_Constants(Ncs->key);
-
-						mapNormalStates& states = Ncs->val;
-						states.ssa = 0;
-						states.getANY_P(nrmStates);
-						std::sort(nrmStates.begin(), nrmStates.end(), cmp_states_nrm);
-						for (u32 state_id = 0; state_id < nrmStates.size(); state_id++)
-						{
-							mapNormalStates::TNode* Nstate = nrmStates[state_id];
-							RCache.set_States(Nstate->key);
-
-							mapNormalTextures& tex = Nstate->val;
-							tex.ssa = 0;
-							sort_tlist_nrm(nrmTextures, nrmTexturesTemp, tex, true);
-							for (u32 tex_id = 0; tex_id < nrmTextures.size(); tex_id++)
-							{
-								mapNormalTextures::TNode* Ntex = nrmTextures[tex_id];
-								RCache.set_Textures(Ntex->key);
-								RImplementation.apply_lmaterial();
-
-								mapNormalItems& items = Ntex->val;
-								items.ssa = 0;
-								mapNormal_Render(items);
-								if (_clear) items.clear();
-							}
-							nrmTextures.clear();
-							nrmTexturesTemp.clear();
-							if (_clear) tex.clear();
-						}
-						nrmStates.clear();
-						if (_clear) states.clear();
-					}
-					nrmCS.clear();
-					if (_clear) cs.clear();
-				}
-				nrmPS.clear();
-				if (_clear) ps.clear();
-#if defined(USE_DX10) || defined(USE_DX11)
-				}
-				nrmGS.clear();
-				if (_clear) gs.clear();
-#endif	//	USE_DX10
-			}
-			nrmVS.clear();
-			if (_clear) vs.clear();
-		}
+		//if (item.b_hud_mode)
+		//{
+		//	//new feature
+		//}
+		V->Render(calcLOD(item.ssa, V->vis.sphere.R));
 	}
 
-	// **************************************************** MATRIX
-	// Perform sorting based on ScreenSpaceArea
-	// Sorting by SSA and changes minimizations
-	// Render several passes
+	if (_clear)
+		graph.clear();
+
+	RCache.set_xform_world(Fidentity);
+}
+
+void CDSGraphManager::r_dsgraph_render_graph(RenderQueueArray& queues, u32 _priority, bool _clear, bool static_geometry)
+{
+	RCache.set_xform_world(Fidentity);
+
 	for (u32 iPass = 0; iPass < SHADER_PASSES_MAX; ++iPass)
 	{
-		//mapMatrixVS&	vs				= mapMatrix	[_priority];
-		mapMatrixVS& vs = mapMatrixPasses[_priority][iPass];
-		vs.getANY_P(matVS);
-		std::sort(matVS.begin(), matVS.end(), cmp_vs_mat);
-		for (u32 vs_id = 0; vs_id < matVS.size(); vs_id++)
+		auto& queue = queues[_priority][iPass];
+		if (queue.empty())
+			continue;
+
+		// 1. Sort by generated sort key to replicate previous fixed map behaviour
 		{
-			mapMatrixVS::TNode* Nvs = matVS[vs_id];
-			RCache.set_VS(Nvs->key);
+			PROF_EVENT("r_dsgraph_sort", PROF_CAT(Rendering));
+			if (queue.size() < 4096)
+				std::sort(queue.begin(), queue.end());
+			else
+				xr_parallel_sort(queue.begin(), queue.end());
+		}
+
+		// 2. Render
+		PROF_EVENT("r_dsgraph_submit", PROF_CAT(Rendering));
+		vs_type pVS = nullptr;
 
 #if defined(USE_DX10) || defined(USE_DX11)
-			mapMatrixGS& gs = Nvs->val;
-			gs.ssa = 0;
+		gs_type pGS = nullptr;
+#endif
 
-			gs.getANY_P(matGS);
-			std::sort(matGS.begin(), matGS.end(), cmp_gs_mat);
-			for (u32 gs_id = 0; gs_id < matGS.size(); gs_id++)
-			{
-				mapMatrixGS::TNode* Ngs = matGS[gs_id];
-				RCache.set_GS(Ngs->key);
-
-				mapMatrixPS& ps = Ngs->val;
-				ps.ssa = 0;
-#else	//	USE_DX10
-			mapMatrixPS& ps = Nvs->val;
-			ps.ssa = 0;
-#endif	//	USE_DX10
-
-			ps.getANY_P(matPS);
-			std::sort(matPS.begin(), matPS.end(), cmp_ps_mat);
-			for (u32 ps_id = 0; ps_id < matPS.size(); ps_id++)
-			{
-				mapMatrixPS::TNode* Nps = matPS[ps_id];
-				RCache.set_PS(Nps->key);
+		ps_type pPS = nullptr;
 
 #ifdef USE_DX11
-					mapMatrixCS& cs = Nps->val.mapCS;
-					cs.ssa = 0;
-					RCache.set_HS(Nps->val.hs);
-					RCache.set_DS(Nps->val.ds);
-#else
-				mapMatrixCS& cs = Nps->val;
-				cs.ssa = 0;
+		hs_type pHS = nullptr;
+		ds_type pDS = nullptr;
 #endif
-				cs.getANY_P(matCS);
-				std::sort(matCS.begin(), matCS.end(), cmp_cs_mat);
-				for (u32 cs_id = 0; cs_id < matCS.size(); cs_id++)
-				{
-					mapMatrixCS::TNode* Ncs = matCS[cs_id];
-					RCache.set_Constants(Ncs->key);
+		
+		R_constant_table* pCS = nullptr;
+		ID3DState* pState = nullptr;
+		STextureList* pTextures = nullptr;
 
-					mapMatrixStates& states = Ncs->val;
-					states.ssa = 0;
-					states.getANY_P(matStates);
-					std::sort(matStates.begin(), matStates.end(), cmp_states_mat);
-					for (u32 state_id = 0; state_id < matStates.size(); state_id++)
-					{
-						mapMatrixStates::TNode* Nstate = matStates[state_id];
-						RCache.set_States(Nstate->key);
+        u64 high = 0;
 
-						mapMatrixTextures& tex = Nstate->val;
-						tex.ssa = 0;
-						sort_tlist_mat(matTextures, matTexturesTemp, tex, true);
-						for (u32 tex_id = 0; tex_id < matTextures.size(); tex_id++)
-						{
-							mapMatrixTextures::TNode* Ntex = matTextures[tex_id];
-							RCache.set_Textures(Ntex->key);
-							RImplementation.apply_lmaterial();
+        for (auto& packet : queue)
+        {
+            auto& currentKey = packet.sortKey;
+            if (currentKey.high != high)
+            {
+                high = currentKey.high;
 
-							mapMatrixItems& items = Ntex->val;
-							items.ssa = 0;
-							mapMatrix_Render(items);
-						}
-						matTextures.clear();
-						matTexturesTemp.clear();
-						if (_clear) tex.clear();
-					}
-					matStates.clear();
-					if (_clear) states.clear();
-				}
-				matCS.clear();
-				if (_clear) cs.clear();
-			}
-			matPS.clear();
-			if (_clear) ps.clear();
+                if (packet.pState != pState)
+                {
+                    pState = packet.pState;
+                    RCache.set_States(pState);
+                }
+
 #if defined(USE_DX10) || defined(USE_DX11)
-			}
-			matGS.clear();
-			if (_clear) gs.clear();
-#endif	//	USE_DX10
-		}
-		matVS.clear();
-		if (_clear) vs.clear();
-	}
+                if (packet.pGS != pGS)
+                {
+                    pGS = packet.pGS;
+                    RCache.set_GS(pGS);
+                }
+#endif
 
-	Device.Statistic->RenderDUMP.End();
+#ifdef USE_DX11
+                if (packet.pHS != pHS)
+                {
+                    pHS = packet.pHS;
+                    RCache.set_HS(pHS);
+                }
+                if (packet.pDS != pDS)
+                {
+                    pDS = packet.pDS;
+                    RCache.set_DS(pDS);
+                }
+#endif
+            }
+
+            // Compare low key stuff regardless, too high collision probability
+            if (packet.pVS != pVS)
+            {
+                pVS = packet.pVS;
+                RCache.set_VS(pVS);
+            }
+
+            if (packet.pPS != pPS)
+            {
+                pPS = packet.pPS;
+                RCache.set_PS(pPS);
+            }
+
+            if (packet.pCS != pCS)
+            {
+                pCS = packet.pCS;
+                RCache.set_Constants(pCS);
+            }
+
+            if (packet.pTextures != pTextures)
+            {
+                pTextures = packet.pTextures;
+                RCache.set_Textures(pTextures);
+                RImplementation.apply_lmaterial();
+            }
+
+			auto& item = packet.item;
+			// Opaque custom-FOV geometry keeps all of its original material passes.
+			CCustomFOVInitializer projection(item.fov, true);
+			if (!static_geometry)
+			{
+				RCache.set_xform_world(*item.pMatrix);
+				RImplementation.apply_object(item.pObject);
+				RImplementation.apply_lmaterial();
+			}
+
+			float LOD = calcLOD(item.ssa, item.pVisual->vis.sphere.R);
+#ifdef USE_DX11
+			RCache.LOD.set_LOD(LOD);
+#endif
+			item.pVisual->Render(LOD);
+		}
+
+		if (_clear)
+			queue.clear();
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////
 // HUD render
-void R_dsgraph_structure::r_dsgraph_render_hud(bool NoPS)
+void CDSGraphManager::r_dsgraph_render_hud()
 {
-	//PIX_EVENT(r_dsgraph_render_hud);
-
-	// Change projection
-	Fmatrix FTold = Device.mFullTransform;
-
-	Device.mFullTransform = Device.mFullTransformHud;
-	RCache.set_xform_project(Device.mProjectHud);
-
-	// Apply HUD Matrix
-	Fmatrix Pold_prev = Device.mProject_prev;
-	RCache.set_xform_project_prev(Device.mProjectHud);
+	PROF_EVENT("r_dsgraph_render_hud", PROF_CAT(Rendering));
+	CHudInitializer initializer(true);
 
 	// Rendering
-	rmNear();
-	if (!NoPS)
+	RImplementation.rmNear();
+	r_dsgraph_render_graph_sorted(RGraph.mapHUD);
+	r_dsgraph_render_graph_sorted(RGraph.mapCustomFOV);
+
+	if (!RGraph.mapCamAttached.empty())
 	{
-		mapHUD.traverseLR(sorted_L1);
-		mapHUD.clear();
-
-		rmNormal();
-
-		if (mapCamAttached.size())
-		{
-			rmNear();
-
-			// Change projection
-			Fmatrix camproj;
-			camproj.build_projection(
-				deg2rad(83.f),
-				Device.fASPECT, R_VIEWPORT_NEAR,
-				g_pGamePersistent->Environment().CurrentEnv->far_plane);
-
-			Device.mFullTransform.mul(camproj, Device.mView);
-			RCache.set_xform_project(camproj);
-
-			// Rendering
-			mapCamAttached.traverseLR(sorted_L1);
-			mapCamAttached.clear();
-
-			rmNormal();
-		}
+		initializer.SetCamMode();
+		r_dsgraph_render_graph_sorted(RGraph.mapCamAttached);
 	}
-	/*else
-	{
-		HUDMask.traverseLR(hud_node);
-		HUDMask.clear();
-
-		if (HUDMaskCamAttached.size())
-		{
-			rmNear();
-
-			// Change projection
-			Fmatrix camproj;
-			camproj.build_projection(
-				deg2rad(83.f),
-				Device.fASPECT, R_VIEWPORT_NEAR,
-				g_pGamePersistent->Environment().CurrentEnv->far_plane);
-
-			Device.mFullTransform.mul(camproj, Device.mView);
-			RCache.set_xform_project(camproj);
-
-			// Rendering
-			HUDMaskCamAttached.traverseLR(hud_node);
-			HUDMaskCamAttached.clear();
-		}
-
-		rmNormal();
-	}*/
-
-
-	// Restore projection
-	Device.mFullTransform = FTold;
-	RCache.set_xform_project(Device.mProject);
-
-	// Restore Prev Matrix
-	RCache.set_xform_project_prev(Pold_prev);
+	RImplementation.rmNormal();
 }
 
-void R_dsgraph_structure::r_dsgraph_render_hud_ui()
+void CDSGraphManager::r_dsgraph_render_hud_ui()
 {
-	// Change projection
-	Fmatrix FTold = Device.mFullTransform;
+	PROF_EVENT("r_dsgraph_render_hud_ui", PROF_CAT(Rendering));
+	CHudInitializer initializer(true);
 
-	Device.mFullTransform = Device.mFullTransformHud;
-	RCache.set_xform_project(Device.mProjectHud);
-
-	rmNear();
+	RImplementation.rmNear();
 	g_hud->RenderActiveItemUI();
-	rmNormal();
-
-	// Restore projection
-	Device.mFullTransform = FTold;
-	RCache.set_xform_project(Device.mProject);
+	RImplementation.rmNormal();
 }
 
-void R_dsgraph_structure::r_dsgraph_render_cam_ui()
+void CDSGraphManager::r_dsgraph_render_cam_ui()
 {
+	PROF_EVENT("r_dsgraph_render_cam_ui", PROF_CAT(Rendering));
+
 	// Change projection
-	Fmatrix FTold = Device.mFullTransform;
-
-	Fmatrix camproj;
-	camproj.build_projection(
-		deg2rad(83.f),
-		Device.fASPECT, R_VIEWPORT_NEAR,
-		g_pGamePersistent->Environment().CurrentEnv->far_plane);
-
-	Device.mFullTransform.mul(camproj, Device.mView);
-	RCache.set_xform_project(camproj);
-
+	CHudInitializer initializer(2);
+	
 	// Rendering
-	rmNear();
+	RImplementation.rmNear();
 	g_hud->RenderCamAttachedUI();
-	rmNormal();
-
-	// Restore projection
-	Device.mFullTransform = FTold;
-	RCache.set_xform_project(Device.mProject);
+	RImplementation.rmNormal();
 }
 
 //////////////////////////////////////////////////////////////////////////
 // strict-sorted render
-void R_dsgraph_structure::r_dsgraph_render_sorted()
+void CDSGraphManager::r_dsgraph_render_sorted(bool render_hud)
 {
-	// Sorted (back to front)
-	mapSorted.traverseRL(sorted_L1);
-	mapSorted.clear();
-
-	// Change projection
-	Fmatrix FTold = Device.mFullTransform;
-
-	Device.mFullTransform = Device.mFullTransformHud;
-	RCache.set_xform_project(Device.mProjectHud);
-
-	// Rendering
-	rmNear();
-	mapHUDSorted.traverseRL(sorted_L1);
-	mapHUDSorted.clear();
-
-	// Camera Script Attachments
-	if (mapCamAttachedSorted.size())
+	r_dsgraph_render_ui();
 	{
-		// Change projection
-		Fmatrix camproj;
-		camproj.build_projection(
-			deg2rad(83.f),
-			Device.fASPECT, R_VIEWPORT_NEAR,
-			g_pGamePersistent->Environment().CurrentEnv->far_plane);
-
-		Device.mFullTransform.mul(camproj, Device.mView);
-		RCache.set_xform_project(camproj);
-
+		PROF_EVENT("r_dsgraph_render_sorted", PROF_CAT(Rendering));
 		// Rendering
-		mapCamAttachedSorted.traverseRL(sorted_L1);
-		mapCamAttachedSorted.clear();
+		r_dsgraph_render_graph_sorted(RGraph.mapStaticSorted.Sorted, true);
+		r_dsgraph_render_graph_sorted(RGraph.mapDynamicSorted.Sorted, true);
+		r_dsgraph_render_graph_sorted(RGraph.mapCustomFOVSorted.Sorted, true);
 	}
 
-	rmNormal();
+	if (render_hud)
+		r_dsgraph_render_sorted_hud();
 
-	// Restore projection
-	Device.mFullTransform = FTold;
-	RCache.set_xform_project(Device.mProject);
+}
+
+void CDSGraphManager::r_dsgraph_capture_hud()
+{
+	if (g_hud)
+	{
+#if RENDER == R_R4
+		RImplementation.Target->bCaptureScopeLens = true;
+#endif
+		g_hud->Render_Last(dcast_IPortalTraverser());
+#if RENDER == R_R4
+		RImplementation.Target->bCaptureScopeLens = false;
+#endif
+		set_Object();
+	}
+}
+
+#if defined(USE_DX11)
+//////////////////////////////////////////////////////////////////////////
+// strict-sorted render
+void CDSGraphManager::r_dsgraph_render_ScopeSorted()  //  Redotix99: for 3D Shader Based Scopes 	
+{
+	// Change projection
+	CHudInitializer initializer(true);
+
+	// Rendering
+	RImplementation.rmNear();
+	r_dsgraph_render_graph_sorted(RGraph.mapScopeHUDSorted, true);
+	initializer.SetCamMode();
+	r_dsgraph_render_graph_sorted(RGraph.mapScopeCamAttachedSorted, true);
+	RImplementation.rmNormal();
+}
+#endif
+
+void CDSGraphManager::r_dsgraph_render_sorted_hud()
+{
+	PROF_EVENT("r_dsgraph_render_sorted_hud", PROF_CAT(Rendering));
+#if	RENDER==R_R4
+	HW.pContext->CopyResource(RImplementation.Target->rt_Accumulator->pSurface, RImplementation.Target->rt_Generic_0->pSurface);
+#endif
+	CHudInitializer initializer(true);
+
+	RImplementation.rmNear();
+	r_dsgraph_render_graph_sorted(RGraph.mapHUDSorted.Sorted, true);
+	initializer.SetCamMode();
+	r_dsgraph_render_graph_sorted(RGraph.mapCamAttachedSorted.Sorted, true);
+	RImplementation.rmNormal();
 }
 
 //////////////////////////////////////////////////////////////////////////
 // strict-sorted render
-void R_dsgraph_structure::r_dsgraph_render_emissive(bool clear, bool renderHUD)
+void CDSGraphManager::r_dsgraph_render_emissive(bool clear, bool renderHUD)
 {
+	PROF_EVENT("r_dsgraph_render_emissive", PROF_CAT(Rendering));
 #if	RENDER!=R_R1
-	// Sorted (back to front)
-	mapEmissive.traverseLR(sorted_L1);
-
-	// Change projection
-	Fmatrix FTold = Device.mFullTransform;
+	r_dsgraph_render_graph_sorted(RGraph.mapStaticSorted.Emissive, clear);
+	r_dsgraph_render_graph_sorted(RGraph.mapDynamicSorted.Emissive, clear);
+	r_dsgraph_render_graph_sorted(RGraph.mapCustomFOVSorted.Emissive, clear);
 	
-	Device.mFullTransform = Device.mFullTransformHud;
-	RCache.set_xform_project(Device.mProjectHud);
+	//	HACK: Calculate this only once
+	CHudInitializer initializer(true);
 
-	// Rendering
-	rmNear();
-	// Sorted (back to front)
-	mapHUDEmissive.traverseLR(sorted_L1);
+	RImplementation.rmNear();
+	r_dsgraph_render_graph_sorted(RGraph.mapHUDSorted.Emissive, clear);
 	
 	if (renderHUD)
-		mapHUDSorted.traverseRL(sorted_L1);
+		r_dsgraph_render_graph_sorted(RGraph.mapHUDSorted.Sorted, false);
 
-	rmNormal();
-
-	// Restore projection
-	Device.mFullTransform = FTold;
-	RCache.set_xform_project(Device.mProject);
+	RImplementation.rmNormal();
 #endif
 }
 
-void R_dsgraph_structure::r_dsgraph_render_water_ssr()
+void CDSGraphManager::r_dsgraph_render_water_ssr()
 {
-	mapWater[Device.m_SecondViewport.IsSVPFrame()].traverseLR(water_node_ssr);
+#ifdef USE_DX11
+	PROF_EVENT("r_dsgraph_render_water_ssr", PROF_CAT(Rendering));
+	std::sort(RGraph.mapWater.begin(), RGraph.mapWater.end());
+	for (auto& N : RGraph.mapWater)
+	{
+		dxRender_Visual* V = N.pVisual;
+		VERIFY(V);
+
+		RCache.set_Shader(RImplementation.Target->s_ssfx_water_ssr);
+
+		RCache.set_xform_world(*N.pMatrix);
+		RImplementation.apply_object(N.pObject);
+		RImplementation.apply_lmaterial();
+
+		RCache.set_c("cam_pos", RImplementation.Target->GetPrevious()->Position_previous.x, RImplementation.Target->GetPrevious()->Position_previous.y, RImplementation.Target->GetPrevious()->Position_previous.z, 0.0f);
+
+		// Previous matrix data
+		RCache.set_c("m_current", RImplementation.Target->GetPrevious()->Matrix_current);
+		RCache.set_c("m_previous", RImplementation.Target->GetPrevious()->Matrix_previous);
+
+		V->Render(calcLOD(N.ssa, V->vis.sphere.R));
+	}
+#endif
 }
 
-void R_dsgraph_structure::r_dsgraph_render_water()
+void CDSGraphManager::r_dsgraph_render_water()
 {
-	mapWater[Device.m_SecondViewport.IsSVPFrame()].traverseLR(water_node);
-	mapWater[Device.m_SecondViewport.IsSVPFrame()].clear();
+	PROF_EVENT("r_dsgraph_render_water_ssr", PROF_CAT(Rendering));
+    std::sort(RGraph.mapWater.begin(), RGraph.mapWater.end());
+    for (auto& N : RGraph.mapWater)
+	{
+		dxRender_Visual* V = N.pVisual;
+		VERIFY(V);
+
+#ifdef USE_DX11
+		if (RImplementation.o.ssfx_water)
+		{
+			RCache.set_Shader(RImplementation.Target->s_ssfx_water);
+		}
+#endif
+
+		RCache.set_xform_world(*N.pMatrix);
+		RImplementation.apply_object(N.pObject);
+		RImplementation.apply_lmaterial();
+
+		// Wind settings
+		float WindDir = g_pGamePersistent->Environment().CurrentEnv->wind_direction;
+		float WindVel = g_pGamePersistent->Environment().CurrentEnv->wind_velocity;
+		RCache.set_c("wind_setup", WindDir, WindVel, 0, 0);
+
+		V->Render(calcLOD(N.ssa, V->vis.sphere.R));
+	}
+	RGraph.mapWater.clear();
 }
 
 //////////////////////////////////////////////////////////////////////////
 // strict-sorted render
-void R_dsgraph_structure::r_dsgraph_render_wmarks()
+void CDSGraphManager::r_dsgraph_render_wmarks()
 {
+	PROF_EVENT("r_dsgraph_render_wmarks", PROF_CAT(Rendering));
 #if	RENDER!=R_R1
-	// Sorted (back to front)
-	mapWmark.traverseLR(sorted_L1);
-	mapWmark.clear();
+	// Rendering
+	r_dsgraph_render_graph_sorted(RGraph.mapStaticSorted.Wmark);
+	r_dsgraph_render_graph_sorted(RGraph.mapDynamicSorted.Wmark);
+	//	HACK: Calculate this only once
+	CHudInitializer initalizer(true);
+
+	RImplementation.rmNear();
+	r_dsgraph_render_graph_sorted(RGraph.mapHUDSorted.Wmark);
+	RImplementation.rmNormal();
 #endif
 }
 
 //////////////////////////////////////////////////////////////////////////
 // strict-sorted render
-void R_dsgraph_structure::r_dsgraph_render_distort()
+void CDSGraphManager::r_dsgraph_render_distort()
 {
-	// Sorted (back to front)
-	mapDistort.traverseRL(sorted_L1);
-	mapDistort.clear();
+	PROF_EVENT("r_dsgraph_render_distort", PROF_CAT(Rendering));
+	// Rendering
+	r_dsgraph_render_graph_sorted(RGraph.mapStaticSorted.Distort, true);
+	r_dsgraph_render_graph_sorted(RGraph.mapDynamicSorted.Distort, true);
+	r_dsgraph_render_graph_sorted(RGraph.mapCustomFOVSorted.Distort, true);
+	//	HACK: Calculate this only once
+	CHudInitializer initalizer(true);
 
-	// Change projection
-	Fmatrix FTold = Device.mFullTransform;
-	Device.mFullTransform = Device.mFullTransformHud;
-	RCache.set_xform_project(Device.mProjectHud);
-
-	rmNear();
-	mapHUDDistort.traverseLR(sorted_L1);
-	mapHUDDistort.clear();
-	rmNormal();
-
-	// Restore projection
-	Device.mFullTransform = FTold;
-	RCache.set_xform_project(Device.mProject);
+	RImplementation.rmNear();
+	r_dsgraph_render_graph_sorted(RGraph.mapHUDSorted.Distort);
+	RImplementation.rmNormal();
 }
 
-//////////////////////////////////////////////////////////////////////////
-// sub-space rendering - shortcut to render with frustum extracted from matrix
-void R_dsgraph_structure::r_dsgraph_render_subspace(IRender_Sector* _sector, Fmatrix& mCombined, Fvector& _cop,
-                                                    BOOL _dynamic, BOOL _precise_portals)
+#include"LightTrack.h"
+void CDSGraphManager::r_dsgraph_capture_static()
 {
-	CFrustum temp;
-	temp.CreateFromMatrix(mCombined, FRUSTUM_P_ALL & (~FRUSTUM_P_NEAR));
-	r_dsgraph_render_subspace(_sector, &temp, mCombined, _cop, _dynamic, _precise_portals);
-}
+	PROF_EVENT("r_dsgraph_capture_static", PROF_CAT(Visibility))
+	const bool dbg_enabled = PortalTraverseDbg_Enabled();
+	PortalTraverseDebugStats* dbg = dbg_enabled ? &PortalTraverseDbg_Get() : nullptr;
+	const bool opt_bucket = PortalTraverseDbg_IsOptions(i_options);
 
-// sub-space rendering - main procedure
-void R_dsgraph_structure::r_dsgraph_render_subspace(IRender_Sector* _sector, CFrustum* _frustum, Fmatrix& mCombined,
-                                                    Fvector& _cop, BOOL _dynamic, BOOL _precise_portals)
-{
-	VERIFY(_sector);
-	RImplementation.marker ++; // !!! critical here
-
-	// Save and build new frustum, disable HOM
-	CFrustum ViewSave = ViewBase;
-	ViewBase = *_frustum;
-	View = &ViewBase;
-
-	if (_precise_portals && RImplementation.rmPortals)
+	if (i_start)
 	{
-		// Check if camera is too near to some portal - if so force DualRender
-		Fvector box_radius;
-		box_radius.set(EPS_L * 20, EPS_L * 20, EPS_L * 20);
-		RImplementation.Sectors_xrc.box_options(CDB::OPT_FULL_TEST);
-		RImplementation.Sectors_xrc.box_query(RImplementation.rmPortals, _cop, box_radius);
-		for (int K = 0; K < RImplementation.Sectors_xrc.r_count(); K++)
+		// Traverse sector/portal structure
+		if (psDeviceFlags.test(rsDrawStatic))
 		{
-			CPortal* pPortal = (CPortal*)RImplementation.Portals[RImplementation.rmPortals->get_tris()[RImplementation
-			                                                                                           .Sectors_xrc.
-			                                                                                           r_begin()[K].id].
-				dummy];
-			pPortal->bDualRender = TRUE;
-		}
-	}
-
-	// Traverse sector/portal structure
-	PortalTraverser.traverse(_sector, ViewBase, _cop, mCombined, 0);
-
-	// Determine visibility for static geometry hierrarhy
-	for (u32 s_it = 0; s_it < PortalTraverser.r_sectors.size(); s_it++)
-	{
-		CSector* sector = (CSector*)PortalTraverser.r_sectors[s_it];
-		dxRender_Visual* root = sector->root();
-		for (u32 v_it = 0; v_it < sector->r_frustums.size(); v_it++)
-		{
-			set_Frustum(&(sector->r_frustums[v_it]));
-			add_Geometry(root);
-		}
-	}
-
-	if (_dynamic)
-	{
-		set_Object(0);
-
-		// Traverse object database
-		g_SpatialSpace->q_frustum
-		(
-			lstRenderables,
-			ISpatial_DB::O_ORDERED,
-			STYPE_RENDERABLE,
-			ViewBase
-		);
-
-		// Determine visibility for dynamic part of scene
-		for (u32 o_it = 0; o_it < lstRenderables.size(); o_it++)
-		{
-			ISpatial* spatial = lstRenderables[o_it];
-			CSector* sector = (CSector*)spatial->spatial.sector;
-			if (0 == sector) continue; // disassociated from S/P structure
-			if (PortalTraverser.i_marker != sector->r_marker) continue; // inactive (untouched) sector
-			for (u32 v_it = 0; v_it < sector->r_frustums.size(); v_it++)
+			if (dbg)
 			{
-				set_Frustum(&(sector->r_frustums[v_it]));
-				if (!View->testSphere_dirty(spatial->spatial.sphere.P, spatial->spatial.sphere.R)) continue;
-
-				// renderable
-				IRenderable* renderable = spatial->dcast_Renderable();
-				if (0 == renderable) continue; // unknown, but renderable object (r1_glow???)
-
-				renderable->renderable_Render();
+				const u32 sector_nodes = u32(m_sector_frustums.size());
+				dbg->static_sector_nodes += sector_nodes;
+				if (opt_bucket)
+					dbg->static_sector_nodes_opt += sector_nodes;
+				else
+					dbg->static_sector_nodes_noopt += sector_nodes;
 			}
-		}
-	}
 
-	// Restore
-	ViewBase = ViewSave;
-	View = 0;
-}
-
-#include "fhierrarhyvisual.h"
-#include "SkeletonCustom.h"
-#include "../../xrEngine/fmesh.h"
-#include "flod.h"
-
-void R_dsgraph_structure::r_dsgraph_render_R1_box(IRender_Sector* _S, Fbox& BB, int sh)
-{
-	CSector* S = (CSector*)_S;
-	lstVisuals.clear();
-	lstVisuals.push_back(S->root());
-
-	for (u32 test = 0; test < lstVisuals.size(); test++)
-	{
-		dxRender_Visual* V = lstVisuals[test];
-
-		// Visual is 100% visible - simply add it
-		xr_vector<IRenderVisual*>::iterator I, E; // it may be usefull for 'hierrarhy' visuals
-
-		switch (V->Type)
-		{
-		case MT_HIERRARHY:
+			// Determine visibility for static geometry hierrarhy
+			for (auto& pair : m_sector_frustums)
 			{
-				// Add all children
-				FHierrarhyVisual* pV = (FHierrarhyVisual*)V;
-				I = pV->children.begin();
-				E = pV->children.end();
-				for (; I != E; ++I)
+				xr_vector<CFrustum>& frustums = pair.val.first;
+				if (frustums.empty())
+					continue;
+
+				if (frustums.size() == 1)
 				{
-					dxRender_Visual* T = (dxRender_Visual*)*I;
-					if (BB.intersect(T->vis.box)) lstVisuals.push_back(T);
-				}
-			}
-			break;
-		case MT_SKELETON_ANIM:
-		case MT_SKELETON_RIGID:
-			{
-				// Add all children	(s)
-				CKinematics* pV = (CKinematics*)V;
-				pV->CalculateBones(TRUE);
-				I = pV->children.begin();
-				E = pV->children.end();
-				for (; I != E; ++I)
-				{
-					dxRender_Visual* T = (dxRender_Visual*)*I;
-					if (BB.intersect(T->vis.box)) lstVisuals.push_back(T);
-				}
-			}
-			break;
-		case MT_LOD:
-			{
-				FLOD* pV = (FLOD*)V;
-				I = pV->children.begin();
-				E = pV->children.end();
-				for (; I != E; ++I)
-				{
-					dxRender_Visual* T = (dxRender_Visual*)*I;
-					if (BB.intersect(T->vis.box)) lstVisuals.push_back(T);
-				}
-			}
-			break;
-		default:
-			{
-				// Renderable visual
-				ShaderElement* E = V->shader->E[sh]._get();
-				if (E && !(E->flags.bDistort))
-				{
-					for (u32 pass = 0; pass < E->passes.size(); pass++)
+					if (dbg)
 					{
-						RCache.set_Element(E, pass);
-						V->Render(-1.f);
+						++dbg->static_frustum_nodes;
+						++dbg->static_add_root_calls;
+						if (opt_bucket)
+						{
+							++dbg->static_frustum_nodes_opt;
+							++dbg->static_add_root_calls_opt;
+						}
+						else
+						{
+							++dbg->static_frustum_nodes_noopt;
+							++dbg->static_add_root_calls_noopt;
+						}
+					}
+					add_Static((IRenderVisual*)pair.key->root(), frustums.front(), frustums.front().getMask());
+					continue;
+				}
+
+				xr_vector<u32> masks;
+				masks.reserve(frustums.size());
+				for (CFrustum& frustum_node : frustums)
+					masks.push_back(frustum_node.getMask());
+
+				if (dbg)
+				{
+					dbg->static_frustum_nodes += u32(frustums.size());
+					++dbg->static_add_root_calls;
+					if (opt_bucket)
+					{
+						dbg->static_frustum_nodes_opt += u32(frustums.size());
+						++dbg->static_add_root_calls_opt;
+					}
+					else
+					{
+						dbg->static_frustum_nodes_noopt += u32(frustums.size());
+						++dbg->static_add_root_calls_noopt;
+					}
+				}
+
+				add_Static_MultiFrustum((IRenderVisual*)pair.key->root(), frustums, masks);
+			}
+		}
+	}
+}
+
+void CDSGraphManager::r_dsgraph_capture_lights()
+{
+	PROF_EVENT("r_dsgraph_capture_lights", PROF_CAT(Visibility))
+	g_SpatialSpaceLights->q_frustum
+	(
+		lstLights,
+		ISpatial_DB::O_ORDERED,
+		STYPE_LIGHTSOURCE,
+		i_frustum
+	);
+
+#if	RENDER==R_R1
+	std::sort(lstLights.begin(), lstLights.end(), [](const ISpatialShared& _1, const ISpatialShared& _2) noexcept
+	{
+		if (!_1.get() || !_2.get()) return false;
+
+		return	_1->spatial.sphere.P.distance_to_sqr(Device.vCameraPosition_saved) < _2->spatial.sphere.P.distance_to_sqr(Device.vCameraPosition_saved);
+	});
+#endif
+
+	for (ISpatialShared spatial : lstLights)
+	{
+		if (0 == spatial) continue;
+		if (R4FullDetailRejectSpatial(spatial.get(), i_mask[CDSGraphManager::fl_normal])) continue;
+		spatial->spatial_updatesector();
+		CSector* sector = (CSector*)spatial->spatial.sector;
+		if (0 == sector) continue;
+
+		if (!RImplementation.HOM.visible(spatial->spatial.sphere)) continue;
+
+		if ((spatial->spatial.type & STYPE_LIGHTSOURCE))
+		{
+			// lightsource
+			if (light* L = (light*)(spatial->dcast_Light()))
+			{
+#if	RENDER==R_R1
+				RImplementation.L_DB->add_light(L);
+#else
+				if (L->get_LOD() > ps_r2_shadow_lod_min && L->has_light_visible_from_sectors(*this))
+				{
+					RImplementation.Lights.add_light(L);
+				}
+#endif
+			}
+		}
+	}
+}
+
+void CDSGraphManager::r_dsgraph_capture_dynamic(CObject* O)
+{
+	PROF_EVENT("r_dsgraph_capture_dynamic", PROF_CAT(Visibility))
+	const bool dbg_enabled = PortalTraverseDbg_Enabled();
+	PortalTraverseDebugStats* dbg = dbg_enabled ? &PortalTraverseDbg_Get() : nullptr;
+	const bool opt_bucket = PortalTraverseDbg_IsOptions(i_options);
+
+	if (i_start)
+	{
+		if (psDeviceFlags.test(rsDrawDynamic))
+		{
+			// Traverse object database
+			g_SpatialSpace->q_frustum
+			(
+				lstRenderables,
+				ISpatial_DB::O_ORDERED,
+				i_doptions,
+				i_frustum
+			);
+			if (dbg)
+			{
+				const u32 spatial_count = u32(lstRenderables.size());
+				dbg->dynamic_spatials += spatial_count;
+				if (opt_bucket)
+					dbg->dynamic_spatials_opt += spatial_count;
+				else
+					dbg->dynamic_spatials_noopt += spatial_count;
+			}
+			set_Object();
+#if	RENDER==R_R1
+			if (i_mask[CDSGraphManager::fl_normal])//normal phase
+			{
+				std::sort(lstRenderables.begin(), lstRenderables.end(), [](const ISpatialShared& _1, const ISpatialShared& _2) noexcept
+				{
+					if (!_1.get() || !_2.get()) return false;
+
+					return	_1->spatial.sphere.P.distance_to_sqr(Device.vCameraPosition_saved) < _2->spatial.sphere.P.distance_to_sqr(Device.vCameraPosition_saved);
+				});
+
+				if (ps_actor_shadow_flags.test(1))
+					g_hud->Render_First(dcast_IPortalTraverser());
+
+				r_dsgraph_capture_hud();
+			}
+#endif
+			u32 uID_LTRACK = u32(-1);
+			if (i_mask[CDSGraphManager::fl_normal])//normal phase
+			{
+				// update light-vis for current entity / actor
+				if (CObject* O = g_pGameLevel->CurrentViewEntity())
+				{
+					if (!O->getDestroy())
+					{
+						if (CROS_impl* R = (CROS_impl*)O->ROS())
+							R->update(O);
+					}
+				}
+
+				RImplementation.uLastLTRACK++;
+				if (!lstRenderables.empty())
+				{
+					uID_LTRACK = RImplementation.uLastLTRACK % lstRenderables.size();
+#if	RENDER!=R_R1
+					// update light-vis for selected entity
+					// track lighting environment
+					if (IRenderable* renderable = (IRenderable*)lstRenderables[uID_LTRACK]->dcast_Renderable())
+					{
+						if (CROS_impl* T = (CROS_impl*)renderable->renderable_ROS())
+							T->update(renderable);
+					}
+#endif
+				}
+
+			}
+
+			// Determine visibility for dynamic part of scene
+			for (u32 o_it = 0; o_it < lstRenderables.size(); o_it++)
+			{
+				ISpatialShared spatial = lstRenderables[o_it];
+				if (0 == spatial) continue;
+				if (R4FullDetailRejectSpatial(spatial.get(), i_mask[CDSGraphManager::fl_normal])) continue;
+				CSector* sector = (CSector*)spatial->spatial.sector;
+				if (0 == sector) continue;
+
+				if (i_mask[CDSGraphManager::fl_normal] && !RImplementation.HOM.visible(spatial->spatial.sphere))
+					continue;
+
+#if	RENDER==R_R1
+				if ((spatial->spatial.type & STYPE_GLOW))
+				{
+					if (CGlow* glow = spatial->dcast_CGlow())
+					{
+						// It may be an glow
+						RImplementation.L_Glows->add(glow);
+					}
+					continue;
+				}
+#endif
+
+//				if ((spatial->spatial.type & STYPE_LIGHTSOURCE))
+//				{
+//					// lightsource
+//					if (light* L = (light*)(spatial->dcast_Light()))
+//					{
+//#if	RENDER==R_R1
+//						RImplementation.L_DB->add_light(L);
+//#else
+//						if (L->get_LOD() > EPS_L && L->has_light_visible_from_sectors(PT))
+//						{
+//							RImplementation.Lights.add_light(L);
+//						}
+//#endif
+//					}
+//					continue;
+//				}
+
+				if(!(spatial->spatial.type & STYPE_RENDERABLE) && !(spatial->spatial.type & STYPE_PARTICLE) && !(spatial->spatial.type & STYPE_RENDERABLESHADOW))
+					continue;
+				if (!is_sector_visible(sector))
+					continue;
+
+				for (CFrustum& frustum : m_sector_frustums.find(sector)->val.first)
+				{
+					if (dbg)
+					{
+						++dbg->dynamic_frustum_tests;
+						if (opt_bucket)
+							++dbg->dynamic_frustum_tests_opt;
+						else
+							++dbg->dynamic_frustum_tests_noopt;
+					}
+
+					if (frustum.testSphere_dirty(spatial->spatial.sphere.P, spatial->spatial.sphere.R))
+					{
+						if (dbg)
+						{
+							++dbg->dynamic_frustum_hits;
+							if (opt_bucket)
+								++dbg->dynamic_frustum_hits_opt;
+							else
+								++dbg->dynamic_frustum_hits_noopt;
+						}
+
+						// renderable
+						IRenderable* renderable = spatial->dcast_Renderable();
+						if (0 == renderable) break;
+
+						if (O && O->dcast_Renderable() == renderable) break;
+
+						// Rendering
+#if	RENDER==R_R1
+						if (i_mask[CDSGraphManager::fl_normal] && o_it == uID_LTRACK && renderable->renderable_ROS())
+						{
+							// track lighting environment
+							if(CROS_impl* T = (CROS_impl*)renderable->renderable_ROS())
+								T->update(renderable);
+						}
+#endif
+						if (i_mask[CDSGraphManager::fl_normal] && !(spatial->spatial.type & STYPE_PARTICLE))
+							set_Object(renderable);
+
+						renderable->renderable_Render(dcast_IPortalTraverser());
+						if (dbg)
+						{
+							++dbg->dynamic_rendered;
+							if (opt_bucket)
+								++dbg->dynamic_rendered_opt;
+							else
+								++dbg->dynamic_rendered_noopt;
+						}
+
+						if (i_mask[CDSGraphManager::fl_normal] && !(spatial->spatial.type & STYPE_PARTICLE))
+							set_Object();
+						break;
 					}
 				}
 			}
-			break;
 		}
 	}
 }
 
-void __fastcall pLandscape_0(mapLandscape_Node *N)
+void CDSGraphManager::r_dsgraph_capture(bool lights, bool dynamic, CObject* O)
 {
-	VERIFY(N);
-	dxRender_Visual *V = N->val.pVisual;
-	VERIFY(V && V->shader._get());
-	RCache.set_Element(N->val.se, 0);
-	float LOD = calcLOD(N->val.ssa, V->vis.sphere.R);
-#ifdef USE_DX11
-	RCache.LOD.set_LOD(LOD);
-#endif
-	V->Render(LOD);
+	PROF_EVENT("r_dsgraph_capture", PROF_CAT(Visibility))
+	r_dsgraph_capture_static();
+
+	if(lights)
+		r_dsgraph_capture_lights();
+
+	if (dynamic)
+		r_dsgraph_capture_dynamic(O);
 }
 
-void __fastcall pLandscape_1(mapLandscape_Node *N)
+void CDSGraphManager::r_dsgraph_render_ui_3d()
 {
-	VERIFY(N);
-	dxRender_Visual *V = N->val.pVisual;
-	VERIFY(V && V->shader._get());
-	RCache.set_Element(N->val.se, 1);
-	RImplementation.apply_lmaterial();
-	float LOD = calcLOD(N->val.ssa, V->vis.sphere.R);
-#ifdef USE_DX11
-	RCache.LOD.set_LOD(LOD);
+    const Fmatrix saved_world = RCache.get_xform_world();
+    const Fmatrix saved_view = RCache.get_xform_view();
+    const Fmatrix saved_project = RCache.get_xform_project();
+    const Fmatrix saved_full = Device.mFullTransform;
+    Device.mFullTransform = Device.mFullTransform3DIcons;
+    RCache.set_xform_view(Device.mView);
+    RCache.set_xform_project(Device.mProject3DIcons);
+    auto render_icons = [&](auto& graph, bool material_shader = false)
+    {
+        std::sort(graph.begin(), graph.end());
+        for (auto& item : graph)
+        {
+            dxRender_Visual* visual = item.pVisual;
+            VERIFY(visual && visual->shader._get());
+            if (material_shader)
+            {
+                // DX11 sorted icons use main's selected mesh material and distance-based LOD.
+                RCache.set_Element(item.pSE);
+                RCache.set_xform_world(*item.pMatrix);
+                RImplementation.apply_object(item.pObject);
+                RImplementation.apply_lmaterial();
+                visual->Render(calcLOD(item.sortKey, visual->vis.sphere.R));
+                continue;
+            }
+            R_ASSERT(visual->skinning >= -1 && visual->skinning <= 4);
+            RCache.set_Shader(RImplementation.Target->s_ui_icons[visual->skinning + 1]);
+            RCache.set_Textures(visual->shader->E[0]->passes[0]->T);
+            RCache.set_xform_world(*item.pMatrix);
+#if RENDER == R_R4
+            RImplementation.apply_object(nullptr);
+            RImplementation.apply_lmaterial();
 #endif
-	V->Render(LOD);
+            visual->Render(0.f);
+        }
+        graph.clear();
+    };
+    render_icons(RGraph.mapUI3D);
+#if RENDER != R_R1
+    render_icons(RGraph.mapUI3DEmissive);
+#endif
+#if RENDER == R_R4
+    render_icons(RGraph.mapUI3DSorted, true);
+#else
+    render_icons(RGraph.mapUI3DSorted);
+#endif
+    owned_transforms.clear();
+    Device.mFullTransform = saved_full;
+    RCache.set_xform_world(saved_world);
+    RCache.set_xform_view(saved_view);
+    RCache.set_xform_project(saved_project);
 }
 
-void R_dsgraph_structure::r_dsgraph_render_landscape(u32 pass, bool _clear)
+void CDSGraphManager::r_dsgraph_render_ui()
 {
-	RCache.set_xform_world(Fidentity);
-
-	if (pass == 0) 
-		mapLandscape.traverseLR(pLandscape_0);
-	else 
-		mapLandscape.traverseLR(pLandscape_1);
-
-	if (_clear)
-		mapLandscape.clear();
+	// Capture may run on workers; UI drawing touches RCache and runs here on the render thread.
+	for (IRenderable* object : renderable_ui)
+		object->renderable_RenderUI();
+	renderable_ui.clear();
 }

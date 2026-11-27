@@ -21,17 +21,17 @@ void DamageReceiverCollisionCallback(bool& do_colide, bool bo1, dContact& c, SGa
 	SGameMtl* material_damager = bo1 ? material_2 : material_1;
 	VERIFY(ud_self);
 	IPhysicsShellHolder* o_self = ud_self->ph_ref_object;
-	IPhysicsShellHolder* o_damager = nullptr;
+	IPhysicsShellHolder* o_damager = NULL;
 	if (ud_damager)o_damager = ud_damager->ph_ref_object;
 	u16 source_id = o_damager ? o_damager->ObjectID() : u16(-1);
 
 	//CPHCollisionDamageReceiver	*dr	= static_cast<CPhysicsShellHolder*>( o_self )->PHCollisionDamageReceiver();
-	ICollisionDamageReceiver* dr = (o_self)->ObjectPhCollisionDamageReceiver();
-	VERIFY2(dr, "wrong callback");
+	ICollisionDamageReceiver* dr = o_self ? o_self->ObjectPhCollisionDamageReceiver() : nullptr;
+	if (!dr) return;
 
 	float damager_material_factor = material_damager->fBounceDamageFactor;
 
-	if (ud_damager && ud_damager->ph_object &&
+	if (o_damager && ud_damager && ud_damager->ph_object &&
 		ud_damager->ph_object->CastType() == CPHObject::tpCharacter)
 		o_damager->BonceDamagerCallback(damager_material_factor);
 
@@ -47,8 +47,8 @@ void DamageReceiverCollisionCallback(bool& do_colide, bool bo1, dContact& c, SGa
 	pos.sub(*(Fvector*)c.geom.pos, *(Fvector*)dGeomGetPosition(bo1 ? c.geom.g1 : c.geom.g2));
 	//it is not true pos in bone space
 
-	dr->CollisionHit(source_id, ud_self->bone_id, E_NL(b1, b2, c.geom.normal) * damager_material_factor / dfs, dir,
-	                 pos);
+    if (dr)
+	    dr->CollisionHit(source_id, ud_self->bone_id, E_NL(b1, b2, c.geom.normal) * damager_material_factor / dfs, dir, pos);
 }
 
 
@@ -57,8 +57,8 @@ void BreakableObjectCollisionCallback(bool&/**do_colide/**/, bool bo1, dContact&
 {
 	dxGeomUserData* usr_data_1 = retrieveGeomUserData(c.geom.g1);
 	dxGeomUserData* usr_data_2 = retrieveGeomUserData(c.geom.g2);
-	VERIFY(usr_data_1);
-	VERIFY(usr_data_2);
+	if (!usr_data_1) return;
+	if (!usr_data_2) return;
 	//CBreakableObject* this_object	= 0;
 	ICollisionDamageReceiver* damag_receiver = 0;
 
@@ -68,19 +68,19 @@ void BreakableObjectCollisionCallback(bool&/**do_colide/**/, bool bo1, dContact&
 
 	if (bo1)
 	{
-		VERIFY(usr_data_1->ph_ref_object);
+		if (!usr_data_1->ph_ref_object) return;
 		damag_receiver = usr_data_1->ph_ref_object->ObjectPhCollisionDamageReceiver();
 		body = dGeomGetBody(c.geom.g2);
 		norm_sign = -1.f;
 	}
 	else
 	{
-		VERIFY(usr_data_2->ph_ref_object);
+		if (!usr_data_2->ph_ref_object) return;
 		damag_receiver = usr_data_2->ph_ref_object->ObjectPhCollisionDamageReceiver();
 		body = dGeomGetBody(c.geom.g1);
 		norm_sign = 1.f;
 	}
-	VERIFY(damag_receiver);
+	if (!damag_receiver) return;
 
 	/*
 	

@@ -8,9 +8,9 @@
 #include <sys\stat.h>
 #include <share.h>
 
-void* FileDownload(LPCSTR fn, u32* pdwSize = nullptr);
+void* FileDownload(LPCSTR fn, u32* pdwSize = NULL);
 void FileCompress(const char* fn, const char* sign, void* data, u32 size);
-void* FileDecompress(const char* fn, const char* sign, u32* size = nullptr);
+void* FileDecompress(const char* fn, const char* sign, u32* size = NULL);
 
 class CFileWriter : public IWriter
 {

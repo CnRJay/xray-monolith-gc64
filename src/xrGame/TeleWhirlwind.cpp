@@ -124,7 +124,7 @@ void CTeleWhirlwind::clear_notrelevant()
 CTeleWhirlwindObject::CTeleWhirlwindObject()
 {
 	m_bDestroyable = false;
-	m_pTelekinesis = nullptr;
+	m_pTelekinesis = NULL;
 	m_fThrowPower = 0.f;
 }
 
@@ -215,8 +215,7 @@ bool CTeleWhirlwindObject::destroy_object(const Fvector dir, float val)
 		CEntityAlive* pEntity = smart_cast<CEntityAlive*>(object);
 		if (pEntity)
 		{
-			CParticlesObject* pParticles = CParticlesObject::Create(
-				m_pTelekinesis->GetTearingParticles(), true, true);
+			intrusive_ptr<CParticlesObject> pParticles = Particles::Details::Create(m_pTelekinesis->GetTearingParticles(), true, true);
 			
 			Fmatrix xform, m;
 			Fvector angles;
@@ -422,7 +421,7 @@ void CTeleWhirlwindObject::switch_state(ETelekineticState new_state)
 
 bool CTeleWhirlwindObject::can_activate(CPhysicsShellHolder* obj)
 {
-	return (obj != nullptr);
+	return (obj != NULL);
 }
 
 
@@ -436,7 +435,7 @@ static float clampF(float x, float a, float b)
 CTeleTrampolinObject::CTeleTrampolinObject()
 {
 	m_bDestroyable = false;
-	m_pTelekinesis = nullptr;
+	m_pTelekinesis = NULL;
 	m_fThrowPower = 0.f;
 }
 
@@ -470,7 +469,7 @@ void CTeleTrampolinObject::set_throw_power(float throw_pow)
 
 bool CTeleTrampolinObject::can_activate(CPhysicsShellHolder* obj)
 {
-	return (obj != nullptr);
+	return (obj != NULL);
 }
 
 void CTeleTrampolinObject::raise(float step)
@@ -578,8 +577,7 @@ bool CTeleTrampolinObject::destroy_object(const Fvector dir, float val)
 		CEntityAlive* pEntity = smart_cast<CEntityAlive*>(object);
 		if (pEntity)
 		{
-			CParticlesObject* pParticles = CParticlesObject::Create(
-				m_pTelekinesis->GetTearingParticles(), true, true);
+			intrusive_ptr<CParticlesObject> pParticles = Particles::Details::Create(m_pTelekinesis->GetTearingParticles(), true, true);
 
 			Fmatrix xform, m;
 			Fvector angles;

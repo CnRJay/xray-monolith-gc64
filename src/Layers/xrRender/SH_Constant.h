@@ -23,6 +23,11 @@ public:
 	WaveForm _B;
 	WaveForm _A;
 
+	// Non-Copyable (mt-safe)
+	/*CConstant& operator=(const CConstant& Other) = delete;
+	CConstant& operator=(CConstant&& Other) = delete;
+	CConstant(const CConstant& Other) = delete;*/
+
 	CConstant()
 	{
 		Memory.mem_fill(this, 0, sizeof(CConstant));

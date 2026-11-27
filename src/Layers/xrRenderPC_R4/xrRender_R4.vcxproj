@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="ProfiledDX11|x64">
       <Configuration>ProfiledDX11</Configuration>
@@ -11,6 +11,10 @@
     </ProjectConfiguration>
     <ProjectConfiguration Include="Release|x64">
       <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="VerifiedDX11ASAN|x64">
+      <Configuration>VerifiedDX11ASAN</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
     <ProjectConfiguration Include="VerifiedDX11|x64">
@@ -57,6 +61,14 @@
     <WholeProgramOptimization>false</WholeProgramOptimization>
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <EnableASAN>true</EnableASAN>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-AVX|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <PlatformToolset>v145</PlatformToolset>
@@ -87,6 +99,11 @@
     <Import Project="$(VCTargetsPath)Microsoft.CPP.UpgradeFromVC71.props" />
     <Import Project="$(SolutionDir)Common.props" />
   </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(VCTargetsPath)Microsoft.CPP.UpgradeFromVC71.props" />
+    <Import Project="$(SolutionDir)Common.props" />
+  </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release-AVX|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="$(VCTargetsPath)Microsoft.CPP.UpgradeFromVC71.props" />
@@ -112,6 +129,11 @@
     <IntDir>$(xrIntDir)$(ProjectName)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Verified|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(xrGameDir)bin_dbg\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(xrIntDir)$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(xrGameDir)bin_dbg\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(xrIntDir)$(ProjectName)\</IntDir>
@@ -200,7 +222,7 @@
       <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)xrCore;$(xrSdkDir)include;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)nvapi;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>USE_VERIFY_IN_RELEASE;USE_DX11;WIN32;NDEBUG;_WINDOWS;_USRDLL;XRRENDER_R4_EXPORTS;_SECURE_SCL=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>XRCORE_PROFILER;USE_VERIFY_IN_RELEASE;USE_DX11;WIN32;NDEBUG;_WINDOWS;_USRDLL;XRRENDER_R4_EXPORTS;_SECURE_SCL=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
@@ -239,10 +261,49 @@
       <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)xrCore;$(xrSdkDir)include;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)nvapi;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>USE_VERIFY_IN_RELEASE;USE_DX11;WIN32;NDEBUG;_WINDOWS;_USRDLL;XRRENDER_R4_EXPORTS;_SECURE_SCL=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>XRCORE_PROFILER;USE_VERIFY_IN_RELEASE;USE_DX11;WIN32;NDEBUG;_WINDOWS;_USRDLL;XRRENDER_R4_EXPORTS;_SECURE_SCL=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+      <AdditionalOptions>-Zm113 %(AdditionalOptions)</AdditionalOptions>
+      <UndefinePreprocessorDefinitions>USE_LUAJIT_ONE</UndefinePreprocessorDefinitions>
+      <DisableSpecificWarnings>4005;4099</DisableSpecificWarnings>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
+      <WarningLevel>Level4</WarningLevel>
+      <RemoveUnreferencedCodeData>false</RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <ExceptionHandling>false</ExceptionHandling>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>dxguid.lib;d3dx11.lib;D3DCompiler.lib;d3d11.lib;dxgi.lib;nvapi.lib;dxerr.lib;d3d10.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)3rd party\luajit-2\src\;$(xrSdkDir)libraries\x64;$(xrLibDir);$(XRAY_16X_LIBS)OpenAutomate\libraries;$(SolutionDir)x64\Release;$(xrGameDir)bin_dbg;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <SubSystem>NotSet</SubSystem>
+      <LargeAddressAware>true</LargeAddressAware>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <ImportLibrary>$(xrLibDir)$(TargetName).lib</ImportLibrary>
+      <IgnoreSpecificDefaultLibraries>LIBCMT</IgnoreSpecificDefaultLibraries>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Neither</FavorSizeOrSpeed>
+      <OmitFramePointers>false</OmitFramePointers>
+      <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)xrCore;$(xrSdkDir)include;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)nvapi;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>XRCORE_PROFILER;USE_VERIFY_IN_RELEASE;_DISABLE_VECTOR_ANNOTATION;_DISABLE_STRING_ANNOTATION;USE_DX11;WIN32;NDEBUG;_WINDOWS;_USRDLL;XRRENDER_R4_EXPORTS;_SECURE_SCL=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <AdditionalOptions>-Zm113 %(AdditionalOptions)</AdditionalOptions>
       <UndefinePreprocessorDefinitions>USE_LUAJIT_ONE</UndefinePreprocessorDefinitions>
       <DisableSpecificWarnings>4005;4099</DisableSpecificWarnings>
@@ -344,6 +405,7 @@
     <ClInclude Include="..\xrRenderDX10\dx10BufferUtils.h" />
     <ClInclude Include="..\xrRenderDX10\dx10ConstantBuffer.h" />
     <ClInclude Include="..\xrRenderDX10\dx10ConstantBuffer_impl.h" />
+    <ClInclude Include="..\xrRenderDX10\dx10DebugName.h" />
     <ClInclude Include="..\xrRenderDX10\dx10R_Backend_Runtime.h" />
     <ClInclude Include="..\xrRenderDX10\dx10r_constants_cache.h" />
     <ClInclude Include="..\xrRenderDX10\dx10StateUtils.h" />
@@ -369,6 +431,7 @@
     <ClInclude Include="..\xrRender\Blender_Particle.h" />
     <ClInclude Include="..\xrRender\Blender_Screen_SET.h" />
     <ClInclude Include="..\xrRender\Blender_tree.h" />
+    <ClInclude Include="..\xrRender\CHudInitializer.h" />
     <ClInclude Include="..\xrRender\ColorMapManager.h" />
     <ClInclude Include="..\xrRender\D3DUtils.h" />
     <ClInclude Include="..\xrRender\Debug\dxPixEventWrapper.h" />
@@ -426,6 +489,7 @@
     <ClInclude Include="..\xrRender\ParticleGroup.h" />
     <ClInclude Include="..\xrRender\PSLibrary.h" />
     <ClInclude Include="..\xrRender\QueryHelper.h" />
+    <ClInclude Include="..\xrRender\R_sun_support.h" />
     <ClInclude Include="..\xrRender\ResourceManager.h" />
     <ClInclude Include="..\xrRender\R_Backend.h" />
     <ClInclude Include="..\xrRender\R_Backend_hemi.h" />
@@ -436,7 +500,7 @@
     <ClInclude Include="..\xrRender\r_constants_cache.h" />
     <ClInclude Include="..\xrRender\R_DStreams.h" />
     <ClInclude Include="..\xrRender\r_sun_cascades.h" />
-    <ClInclude Include="..\xrRender\r__dsgraph_structure.h" />
+    <ClInclude Include="..\xrRender\r__dsgraph_manager.h" />
     <ClInclude Include="..\xrRender\r__dsgraph_types.h" />
     <ClInclude Include="..\xrRender\r__occlusion.h" />
     <ClInclude Include="..\xrRender\r__pixel_calculator.h" />
@@ -496,17 +560,15 @@
     <ClInclude Include="dx11MinMaxSMBlender.h" />
     <ClInclude Include="..\xrRender\light.h" />
     <ClInclude Include="light_gi.h" />
-    <ClInclude Include="Light_Render_Direct.h" />
-    <ClInclude Include="light_smapvis.h" />
     <ClInclude Include="r2_types.h" />
     <ClInclude Include="r4.h" />
     <ClInclude Include="r4_rendertarget.h" />
     <ClInclude Include="r4_rendertarget_wallmarks.h" />
-    <ClInclude Include="r4_R_sun_support.h" />
     <ClInclude Include="R_Backend_LOD.h" />
     <ClInclude Include="SMAP_Allocator.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="..\xrRenderDX10\dx10EventWrapper.h" />
+    <ClInclude Include="..\xrRenderDX10\dx10GpuTimeline.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\xrEngine\ai_script_lua_debug.cpp" />
@@ -555,6 +617,7 @@
     <ClCompile Include="..\xrRender\Blender_Recorder_StandartBinding.cpp" />
     <ClCompile Include="..\xrRender\Blender_Screen_SET.cpp" />
     <ClCompile Include="..\xrRender\Blender_tree.cpp" />
+    <ClCompile Include="..\xrRender\CHudInitializer.cpp" />
     <ClCompile Include="..\xrRender\ColorMapManager.cpp" />
     <ClCompile Include="..\xrRender\D3DUtils.cpp" />
     <ClCompile Include="..\xrRender\Debug\dxPixEventWrapper.cpp" />
@@ -601,9 +664,11 @@
     <ClCompile Include="..\xrRender\HOM.cpp" />
     <ClCompile Include="..\xrRender\HWCaps.cpp" />
     <ClCompile Include="..\xrRender\light.cpp" />
+    <ClCompile Include="..\xrRender\lights_render.cpp" />
     <ClCompile Include="..\xrRender\LightTrack.cpp" />
     <ClCompile Include="..\xrRender\Light_DB.cpp" />
     <ClCompile Include="..\xrRender\Light_Package.cpp" />
+    <ClCompile Include="..\xrRender\light_vis.cpp" />
     <ClCompile Include="..\xrRender\ModelPool.cpp" />
     <ClCompile Include="..\xrRender\NvTriStrip.cpp" />
     <ClCompile Include="..\xrRender\NvTriStripObjects.cpp" />
@@ -614,6 +679,9 @@
     <ClCompile Include="..\xrRender\ParticleEffectDef.cpp" />
     <ClCompile Include="..\xrRender\ParticleGroup.cpp" />
     <ClCompile Include="..\xrRender\PSLibrary.cpp" />
+    <ClCompile Include="..\xrRender\r2_blenders.cpp" />
+    <ClCompile Include="..\xrRender\R_sun.cpp" />
+    <ClCompile Include="..\xrRender\R_sun_support.cpp" />
     <ClCompile Include="..\xrRender\rendertarget_phase_blur.cpp" />
     <ClCompile Include="..\xrRender\rendertarget_phase_dof.cpp" />
     <ClCompile Include="..\xrRender\rendertarget_phase_lut.cpp" />
@@ -632,16 +700,18 @@
     <ClCompile Include="..\xrRender\R_Backend_Runtime.cpp" />
     <ClCompile Include="..\xrRender\R_Backend_tree.cpp" />
     <ClCompile Include="..\xrRender\R_Backend_xform.cpp" />
+    <ClCompile Include="..\xrRender\R_calculate.cpp" />
     <ClCompile Include="..\xrRender\r_constants.cpp" />
     <ClCompile Include="..\xrRender\R_DStreams.cpp" />
     <ClCompile Include="..\xrRender\r__dsgraph_build.cpp" />
+    <ClCompile Include="..\xrRender\r__dsgraph_manager.cpp" />
     <ClCompile Include="..\xrRender\r__dsgraph_render.cpp" />
     <ClCompile Include="..\xrRender\r__dsgraph_render_lods.cpp" />
     <ClCompile Include="..\xrRender\r__occlusion.cpp" />
     <ClCompile Include="..\xrRender\r__pixel_calculator.cpp" />
     <ClCompile Include="..\xrRender\r__screenshot.cpp" />
     <ClCompile Include="..\xrRender\r__sector.cpp" />
-    <ClCompile Include="..\xrRender\r__sector_traversal.cpp" />
+    <ClCompile Include="..\xrRender\r__sector_detect.cpp" />
     <ClCompile Include="..\xrRender\Shader.cpp" />
     <ClCompile Include="..\xrRender\SH_Atomic.cpp" />
     <ClCompile Include="..\xrRender\SH_Constant.cpp" />
@@ -690,15 +760,6 @@
     <ClCompile Include="dx11HDAOCSBlender.cpp" />
     <ClCompile Include="dx11MinMaxSMBlender.cpp" />
     <ClCompile Include="light_GI.cpp" />
-    <ClCompile Include="Light_Render_Direct.cpp" />
-    <ClCompile Include="Light_Render_Direct_ComputeXFS.cpp" />
-    <ClCompile Include="light_smapvis.cpp" />
-    <ClCompile Include="light_vis.cpp" />
-    <ClCompile Include="r2_blenders.cpp" />
-    <ClCompile Include="r2_R_calculate.cpp" />
-    <ClCompile Include="r4_R_lights.cpp" />
-    <ClCompile Include="r2_R_sun.cpp" />
-    <ClCompile Include="r2_sector_detect.cpp" />
     <ClCompile Include="r2_test_hw.cpp" />
     <ClCompile Include="r4.cpp" />
     <ClCompile Include="r4_loader.cpp" />
@@ -731,14 +792,15 @@
     <ClCompile Include="r4_rendertarget_phase_ssao.cpp" />
     <ClCompile Include="r4_R_rain.cpp" />
     <ClCompile Include="r4_R_render.cpp" />
-    <ClCompile Include="r4_R_sun_support.cpp" />
     <ClCompile Include="R_Backend_LOD.cpp" />
     <ClCompile Include="..\xrRenderDX10\dx10EventWrapper.cpp" />
+    <ClCompile Include="..\xrRenderDX10\dx10GpuTimeline.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='ProfiledDX11|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Verified|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release-AVX|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="xrRender_R4.cpp" />
@@ -750,6 +812,10 @@
     </ProjectReference>
     <ProjectReference Include="$(SolutionDir)xrCore\xrCore.vcxproj">
       <Project>{a0f7d1fb-59a7-4717-a7e4-96f37e91998e}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="$(SolutionDir)xrCPU_Pipe\xrCPU_Pipe.vcxproj">
+      <Project>{ca0649dd-d089-423a-981c-46b57a884eb9}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
   </ItemGroup>

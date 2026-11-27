@@ -366,7 +366,7 @@ public:
 	virtual CParticlesPlayer* cast_particles_player() { return this; }
 	virtual CCustomMonster* cast_custom_monster() { return this; }
 	virtual CScriptEntity* cast_script_entity() { return this; }
-	virtual CWeapon* cast_weapon() { return nullptr; }
+	virtual CWeapon* cast_weapon() { return NULL; }
 	virtual CAI_Rat* dcast_Rat() { return this; };
 
 public:
@@ -397,7 +397,7 @@ public:
 
 	/////////////////////////////////////
 	//rat as eatable item
-	virtual void OnHUDDraw(CCustomHUD* hud) { inherited::OnHUDDraw(hud); }
+	virtual void OnHUDDraw(CCustomHUD* hud, IDSGraphManager* DM) { inherited::OnHUDDraw(hud, DM); }
 	virtual void OnH_B_Chield();
 	virtual void OnH_B_Independent();
 	virtual void OnH_A_Independent();

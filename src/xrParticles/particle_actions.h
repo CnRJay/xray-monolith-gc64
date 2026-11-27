@@ -28,62 +28,47 @@ namespace PAPI
 
 	DEFINE_VECTOR(ParticleAction*, PAVec, PAVecIt);
 
-	class ParticleActions
+	class ParticleActions : public intrusive_base
 	{
 		PAVec actions;
-		bool m_bLocked;
 	public:
-		ParticleActions()
-		{
-			actions.reserve(4);
-			m_bLocked = false;
-		}
+		IC ParticleActions();
+		IC ~ParticleActions();
 
-		~ParticleActions() { clear(); }
-		IC void clear()
-		{
-			R_ASSERT(!m_bLocked);
-			for (PAVecIt it = actions.begin(); it != actions.end(); it++)
-				xr_delete(*it);
-			actions.clear();
-		}
+		IC void			clear();
+        IC void         reserve(u32 capacity);
 
-		IC void reserve(int capacity)
-		{
-			actions.reserve(capacity);
-		}
-
-		IC void append(ParticleAction* pa)
-		{
-			R_ASSERT(!m_bLocked);
-			actions.push_back(pa);
-		}
-
-		IC bool empty() { return actions.empty(); }
-		IC PAVecIt begin() { return actions.begin(); }
-		IC PAVecIt end() { return actions.end(); }
-		IC int size() { return actions.size(); }
-		IC void resize(int cnt)
-		{
-			R_ASSERT(!m_bLocked);
-			actions.resize(cnt);
-		}
-
-		void copy(ParticleActions* src);
-
-		void lock()
-		{
-			R_ASSERT(!m_bLocked);
-			m_bLocked = true;
-		}
-
-		void unlock()
-		{
-			R_ASSERT(m_bLocked);
-			m_bLocked = false;
-		}
+		IC void			append(ParticleAction* pa) { actions.push_back(pa); }
+		IC bool			empty() { return	actions.empty(); }
+		IC PAVecIt		begin() { return	actions.begin(); }
+		IC PAVecIt		end() { return actions.end(); }
+		IC int			size() { return (int)actions.size(); }
+		IC void			resize(int cnt) { actions.resize(cnt); }
 	};
 };
+
+IC PAPI::ParticleActions::ParticleActions()
+{
+	actions.reserve(8);
+}
+
+IC PAPI::ParticleActions::~ParticleActions()
+{
+	clear();
+}
+
+IC void PAPI::ParticleActions::clear()
+{
+	for (ParticleAction* pPAction : actions)
+		xr_delete(pPAction);
+
+	actions.clear();
+}
+
+IC void PAPI::ParticleActions::reserve(u32 capacity)
+{
+    actions.reserve(capacity);
+}
 
 //---------------------------------------------------------------------------
 #endif

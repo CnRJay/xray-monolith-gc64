@@ -2,15 +2,17 @@
 // file: PSObject.cpp
 //----------------------------------------------------
 #include "stdafx.h"
-#pragma hdrstop
-
 #include "ParticlesObject.h"
+#include "../xrParticles/ParticlesAsyncManager.h"
 #include "../xrEngine/defines.h"
 #include "../Include/xrRender/RenderVisual.h"
 #include "../Include/xrRender/ParticleCustom.h"
 #include "../xrEngine/render.h"
 #include "../xrEngine/IGame_Persistent.h"
 #include "../xrEngine/environment.h"
+#include "_thread_types.h"
+
+#include "../xrCore/profiler.h"
 
 const Fvector zero_vel = {0.f, 0.f, 0.f};
 
@@ -32,7 +34,7 @@ void CParticlesObject::Init(LPCSTR p_name, IRender_Sector* S, BOOL bAutoRemove)
 		// create visual
 		renderable.visual = Render->model_CreateParticles(p_name);
 		VERIFY(renderable.visual);
-		IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+		IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 		VERIFY(V);
 		time_limit = V->GetTimeLimit();
 	}
@@ -60,24 +62,17 @@ void CParticlesObject::Init(LPCSTR p_name, IRender_Sector* S, BOOL bAutoRemove)
 
 
 	// spatial
-	spatial.type = 0;
-	spatial.sector = S;
+	SpatialComponent->spatial.type = 0;
+	SpatialComponent->spatial.sector = S;
 
-	// sheduled
-	shedule.t_min = 20;
-	shedule.t_max = 50;
-	shedule_register();
+	NeedUpdate = CParticlesAsync::NeedForceUpdate();
 
 	dwLastTime = Device.dwTimeGlobal;
-	mt_dt = 0;
 }
 
+//----------------------------------------------------
 CParticlesObject::~CParticlesObject()
 {
-	VERIFY(0==mt_dt);
-
-	//	we do not need this since CPS_Instance does it
-	//	shedule_unregister		();
 }
 
 void CParticlesObject::UpdateSpatial()
@@ -92,21 +87,21 @@ void CParticlesObject::UpdateSpatial()
 		float R;
 		renderable.xform.transform_tiny(P, vis.sphere.P);
 		R = vis.sphere.R;
-		if (0 == spatial.type)
+		if (0 == SpatialComponent->spatial.type)
 		{
 			// First 'valid' update - register
-			spatial.type = STYPE_RENDERABLE;
-			spatial.sphere.set(P, R);
+			SpatialComponent->spatial.type = STYPE_PARTICLE;
+			SpatialComponent->spatial.sphere.set(P, R);
 			spatial_register();
 		}
 		else
 		{
-			BOOL bMove = FALSE;
-			if (!P.similar(spatial.sphere.P, EPS_L * 10.f)) bMove = TRUE;
-			if (!fsimilar(R, spatial.sphere.R, 0.15f)) bMove = TRUE;
+			bool bMove = false;
+			if (!P.similar(SpatialComponent->spatial.sphere.P, EPS_L * 10.f)) bMove = true;
+			if (!fsimilar(R, SpatialComponent->spatial.sphere.R, 0.15f)) bMove = true;
 			if (bMove)
 			{
-				spatial.sphere.set(P, R);
+				SpatialComponent->spatial.sphere.set(P, R);
 				spatial_move();
 			}
 		}
@@ -117,115 +112,100 @@ const shared_str CParticlesObject::Name()
 {
 	if (g_dedicated_server) return "";
 
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 	VERIFY(V);
 	return (V) ? V->Name() : "";
+}
+
+intrusive_ptr<CParticlesObject> Particles::Details::Create(LPCSTR p_name, BOOL bAutoRemove, bool remove_on_game_load)
+{
+	intrusive_ptr<CParticlesObject> Particle = xr_new<CParticlesObject>(p_name, bAutoRemove, remove_on_game_load);
+	g_pGamePersistent->ps_active_deffer.push_back(Particle);
+
+	return Particle;
 }
 
 void CParticlesObject::Play(bool bHudMode)
 {
 	if (g_dedicated_server) return;
 
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 	VERIFY(V);
 	if (bHudMode)
 		V->SetHudMode(bHudMode);
 
 	V->Play();
 	dwLastTime = Device.dwTimeGlobal - 33ul;
-	mt_dt = 0;
-	PerformAllTheWork(0);
+
+	PerformAllTheWork();
 	m_bStopping = false;
+
+	if (NeedUpdate)
+	{
+		CParticlesAsync::ForceUpdate(this);
+		NeedUpdate = false;
+	}
 }
 
 void CParticlesObject::play_at_pos(const Fvector& pos, BOOL xform)
 {
 	if (g_dedicated_server) return;
 
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 	VERIFY(V);
 	Fmatrix m;
 	m.translate(pos);
 	V->UpdateParent(m, zero_vel, xform);
 	V->Play();
 	dwLastTime = Device.dwTimeGlobal - 33ul;
-	mt_dt = 0;
-	PerformAllTheWork(0);
+
+	PerformAllTheWork();
 	m_bStopping = false;
+
+	if (NeedUpdate)
+	{
+		CParticlesAsync::ForceUpdate(this);
+		NeedUpdate = false;
+	}
 }
 
 void CParticlesObject::Stop(BOOL bDefferedStop)
 {
 	if (g_dedicated_server) return;
 
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 	VERIFY(V);
 	V->Stop(bDefferedStop);
 	m_bStopping = true;
 }
 
-void CParticlesObject::shedule_Update(u32 _dt)
+void CParticlesObject::Update(u32 _dt)
 {
+	PROF_EVENT("CParticlesObject::shedule_Update", PROF_CAT(VFX));
 	inherited::shedule_Update(_dt);
 
-	if (g_dedicated_server) return;
+	if (g_dedicated_server)
+		return;
 
-	// Update
-	if (m_bDead) return;
-	u32 dt = Device.dwTimeGlobal - dwLastTime;
-	if (dt)
-	{
-		if (0)
-		{
-			//.psDeviceFlags.test(mtParticles))	{    //. AlexMX comment this line// NO UNCOMMENT - DON'T WORK PROPERLY
-			mt_dt = dt;
-			fastdelegate::FastDelegate0<> delegate(this, &CParticlesObject::PerformAllTheWork_mt);
-			Device.seqParallel.push_back(delegate);
-		}
-		else
-		{
-			mt_dt = 0;
-			IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
-			VERIFY(V);
-			V->OnFrame(dt);
-		}
-		dwLastTime = Device.dwTimeGlobal;
-	}
+	if (m_bDead)
+		return;
+
 	UpdateSpatial();
 }
 
-void CParticlesObject::PerformAllTheWork(u32 _dt)
+void CParticlesObject::PerformAllTheWork()
 {
 	if (g_dedicated_server) return;
 
 	// Update
-	u32 dt = Device.dwTimeGlobal - dwLastTime;
-	if (dt)
-	{
-		IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
-		VERIFY(V);
-		V->OnFrame(dt);
-		dwLastTime = Device.dwTimeGlobal;
-	}
 	UpdateSpatial();
-}
-
-void CParticlesObject::PerformAllTheWork_mt()
-{
-	if (g_dedicated_server) return;
-
-	if (0 == mt_dt) return; //???
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
-	VERIFY(V);
-	V->OnFrame(mt_dt);
-	mt_dt = 0;
 }
 
 void CParticlesObject::SetXFORM(const Fmatrix& m)
 {
 	if (g_dedicated_server) return;
 
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 	VERIFY(V);
 	V->UpdateParent(m, zero_vel,TRUE);
 	renderable.xform.set(m);
@@ -236,7 +216,7 @@ void CParticlesObject::UpdateParent(const Fmatrix& m, const Fvector& vel)
 {
 	if (g_dedicated_server) return;
 
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 	VERIFY(V);
 	V->UpdateParent(m, vel,FALSE);
 	UpdateSpatial();
@@ -260,20 +240,13 @@ float CParticlesObject::shedule_Scale()
 	return Device.vCameraPosition.distance_to(Position()) / 200.f;
 }
 
-void CParticlesObject::renderable_Render()
+void CParticlesObject::renderable_Render(IDSGraphManager* DM)
 {
-	VERIFY(renderable.visual);
-	u32 dt = Device.dwTimeGlobal - dwLastTime;
-	if (dt)
-	{
-		IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
-		VERIFY(V);
-		V->OnFrame(dt);
-		dwLastTime = Device.dwTimeGlobal;
-	}
+    if (!renderable.visual)
+        return;
 
-	::Render->set_Transform(&renderable.xform);
-	::Render->add_Visual(renderable.visual);
+	DM->add_Dynamic(renderable.visual, &renderable.xform);
+	renderable.visual->getVisData().hom_frame = Device.dwFrame;
 }
 
 bool CParticlesObject::IsAutoRemove()
@@ -292,9 +265,27 @@ void CParticlesObject::SetHudMode(bool bHudMode)
 {
 	if (g_dedicated_server) return;
 
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 	VERIFY(V);
 	V->SetHudMode(bHudMode);
+}
+
+void CParticlesObject::SetLiveUpdate(BOOL b)
+{
+	if(g_dedicated_server)		return;
+
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
+	VERIFY(V);
+	V->SetLiveUpdate(b);
+}
+
+BOOL CParticlesObject::GetLiveUpdate()
+{
+	if(g_dedicated_server)		return FALSE;
+
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
+	VERIFY(V);
+	return V->GetLiveUpdate();
 }
 
 //играются ли партиклы, отличается от PSI_Alive, тем что после
@@ -303,7 +294,7 @@ bool CParticlesObject::IsPlaying()
 {
 	if (g_dedicated_server) return false;
 
-	IParticleCustom* V = smart_cast<IParticleCustom*>(renderable.visual);
+	IParticleCustom* V = renderable.visual ? renderable.visual->dcast_ParticleCustom() : NULL;
 	VERIFY(V);
 	return !!V->IsPlaying();
 }

@@ -80,12 +80,11 @@ BOOL CDestroyablePhysicsObject::net_Spawn(CSE_Abstract* DC)
 void CDestroyablePhysicsObject::Hit(SHit* pHDS)
 {
 	SHit HDS = *pHDS;
-	const CGameObject* who_object = smart_cast<const CGameObject*>(HDS.who);
 	callback(GameObject::eHit)(
 		lua_game_object(),
 		HDS.power,
 		HDS.dir,
-		who_object ? who_object->lua_game_object() : nullptr,
+		smart_cast<const CGameObject*>(HDS.who)->lua_game_object(),
 		HDS.bone()
 	);
 	HDS.power = CHitImmunity::AffectHit(HDS.power, HDS.hit_type);
@@ -159,6 +158,7 @@ void CDestroyablePhysicsObject::InitServerObject(CSE_Abstract* D)
 
 void CDestroyablePhysicsObject::shedule_Update(u32 dt)
 {
+	PROF_EVENT("CDestroyablePhysicsObject::shedule_Update", PROF_CAT(Physics));
 	inherited::shedule_Update(dt);
 	CPHDestroyable::SheduleUpdate(dt);
 }

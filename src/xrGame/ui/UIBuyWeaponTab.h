@@ -12,6 +12,8 @@ class CUIBuyWeaponTab : public CUITabControl
 public:
 	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 	// public:
 	// 				CUIBuyWeaponTab				();
 	// 	virtual		~CUIBuyWeaponTab			();

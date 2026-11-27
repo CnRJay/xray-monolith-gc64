@@ -59,7 +59,23 @@ public:
 		m_UIStaticItem.SetHeadingPivot(p, offset, fixedLT);
 	}
 
+	void SetOnlyHeadingPivot(const Fvector2& p)
+	{
+		m_UIStaticItem.vHeadingPivot = p;
+	}
+
+	void SetOnlyHeadingOffset(const Fvector2& offset)
+	{
+		m_UIStaticItem.vHeadingOffset = offset;
+	}
+
+	Fvector2 GetOnlyHeadingPivot() const { return m_UIStaticItem.vHeadingPivot; }
+	Fvector2 GetOnlyHeadingOffset() const { return m_UIStaticItem.vHeadingOffset; }
+
 	void ResetHeadingPivot() { m_UIStaticItem.ResetHeadingPivot(); }
+
+	float SetLineTo(float x1, float y1, float x2, float y2, float thickness);
+
 	virtual void SetTextureOffset(float x, float y) { m_TextureOffset.set(x, y); }
 	Fvector2 GetTextureOffeset() const { return m_TextureOffset; }
 	void TextureOn() { m_bTextureEnable = true; }
@@ -118,7 +134,11 @@ public:
 	virtual void ColorAnimationSetTextureColor(u32 color, bool only_alpha);
 	virtual void ColorAnimationSetTextColor(u32 color, bool only_alpha);
 
-	void SetNoShaderCache(bool v) { m_UIStaticItem.SetNoShaderCache(v); }
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIStatic* ui_cast_static() { return this; }
+	virtual ITextureOwner* ui_cast_texture_owner() { return this; }
+	virtual CUILightAnimColorConroller* ui_cast_light_anim_color_controller() { return this; }
+    void SetNoShaderCache(bool v) { m_UIStaticItem.SetNoShaderCache(v); }
 
 protected:
 	CUILines* m_pTextControl;
@@ -134,7 +154,7 @@ protected:
 	Fvector2 m_TextureOffset;
 
 public:
-	std::string m_TextureName;
+	xr_string m_TextureName;
 	CUILines* TextItemControl();
 	shared_str m_stat_hint_text;
 
@@ -177,6 +197,17 @@ public:
 	}
 
 	virtual void ColorAnimationSetTextColor(u32 color, bool only_alpha);
+
+    	// antglobes
+   	float GetTextWidth(bool per_line = false) { return TextItemControl().GetTextWidth(per_line); }
+    float GetTextHeight(bool per_line = false) { return TextItemControl().GetTextHeight(per_line); }
+    Fvector2 GetTextSize(bool per_line_width = false, bool per_line_height = false)
+    {
+        return TextItemControl().GetTextSize(per_line_width, per_line_height);
+    };
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUILightAnimColorConroller* ui_cast_light_anim_color_controller() { return this; }
 
 	CUILines& TextItemControl() { return m_lines; }
 

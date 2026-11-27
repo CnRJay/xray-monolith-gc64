@@ -124,6 +124,47 @@ public:
 	}
 };
 
+class ENGINE_API CCC_Mask64 : public IConsole_Command
+{
+protected:
+	Flags64* value;
+	u64 mask;
+public:
+	CCC_Mask64(LPCSTR N, Flags64* V, u64 M) :
+		IConsole_Command(N),
+		value(V),
+		mask(M)
+	{
+	};
+	const BOOL GetValue() const { return value->test(mask); }
+
+	virtual void Execute(LPCSTR args)
+	{
+		if (EQ(args, "on")) value->set(mask, TRUE);
+		else if (EQ(args, "off")) value->set(mask, FALSE);
+		else if (EQ(args, "1")) value->set(mask, TRUE);
+		else if (EQ(args, "0")) value->set(mask, FALSE);
+		else InvalidSyntax();
+	}
+
+	virtual void Status(TStatus& S)
+	{
+		xr_strcpy(S, value->test(mask) ? "on" : "off");
+	}
+
+	virtual void Info(TInfo& I)
+	{
+		xr_strcpy(I, "'on/off' or '1/0'");
+	}
+
+	virtual void fill_tips(vecTips& tips, u32 mode)
+	{
+		TStatus str;
+		xr_sprintf(str, sizeof(str), "%s (current) [on/off]", value->test(mask) ? "on" : "off");
+		tips.push_back(str);
+	}
+};
+
 class ENGINE_API CCC_ToggleMask : public IConsole_Command
 {
 protected:
@@ -375,6 +416,24 @@ class CCC_Vector4 : public IConsole_Command
 protected:
 	Fvector4* value;
 	Fvector4 min, max;
+
+	bool parse(LPCSTR args, Fvector4& v)
+	{
+		if (4 != sscanf(args, "%f,%f,%f,%f", &v.x, &v.y, &v.z, &v.w))
+		{
+			if (4 != sscanf(args, "(%f,%f,%f,%f)", &v.x, &v.y, &v.z, &v.w))
+				return false;
+		}
+
+		if (v.x < min.x || v.y < min.y || v.z < min.z || v.w < min.w)
+			return false;
+
+		if (v.x > max.x || v.y > max.y || v.z > max.z || v.w > max.w)
+			return false;
+
+		return true;
+	}
+
 	public
 :
 	CCC_Vector4(LPCSTR N, Fvector4* V, const Fvector4 _min, const Fvector4 _max) :
@@ -390,21 +449,7 @@ protected:
 	virtual void Execute(LPCSTR args)
 	{
 		Fvector4 v;
-		if (4 != sscanf(args, "%f,%f,%f,%f", &v.x, &v.y, &v.z, &v.w))
-		{
-			if (4 != sscanf(args, "(%f,%f,%f,%f)", &v.x, &v.y, &v.z, &v.w))
-			{
-				InvalidSyntax();
-				return;
-			}
-		}
-
-		if (v.x < min.x || v.y < min.y || v.z < min.z || v.w < min.w)
-		{
-			InvalidSyntax();
-			return;
-		}
-		if (v.x > max.x || v.y > max.y || v.z > max.z || v.w > max.w)
+		if (!parse(args, v))
 		{
 			InvalidSyntax();
 			return;
@@ -648,7 +693,7 @@ public:
 
 	virtual void Execute(LPCSTR args)
 	{
-		strncpy_s(value, size, !xr_strcmp(args, "(nullptr)") ? "" : args, size - 1);
+		strncpy_s(value, size, !xr_strcmp(args, "(NULL)") ? "" : args, size - 1);
 	}
 
 	virtual void Status(TStatus& S)

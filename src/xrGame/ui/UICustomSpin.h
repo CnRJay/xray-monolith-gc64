@@ -23,7 +23,7 @@ public:
 
 	// CUIWindow
 	virtual void InitSpin(Fvector2 pos, Fvector2 size);
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 	virtual void Draw();
 	virtual void Update();
 	virtual void Enable(bool status);
@@ -35,6 +35,8 @@ public:
 
 	void SetTextColor(u32 color);
 	void SetTextColorD(u32 color);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 protected:
 	virtual bool CanPressUp() = 0;

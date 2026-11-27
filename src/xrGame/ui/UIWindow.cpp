@@ -105,21 +105,70 @@ void CUIWindow::ResetPPMode()
 	}
 }
 
+// latched once so an untouched game never pays for the ancestor lookup in the draw path
+static std::atomic<bool> s_clip_used{false};
+
+void CUIWindow::EnableClip(bool enable)
+{
+	m_bClipEnabled = enable;
+	if (enable)
+		s_clip_used.store(true, std::memory_order_relaxed);
+}
+
+bool CUIWindow::AnyClipEnabled()
+{
+	return s_clip_used.load(std::memory_order_relaxed);
+}
+
+// Windows that have taken the mouse, oldest first; the top one receives all mouse input. Nesting is
+// a transient grab (a scrollbar drag) on top of a lasting one (an open popup), so a release restores
+// the previous holder instead of leaving nobody in charge.
+static xr_vector<CUIWindow*> s_capture_stack;
+
+static void erase_capture(CUIWindow* w)
+{
+	auto it = std::find(s_capture_stack.begin(), s_capture_stack.end(), w);
+	if (it != s_capture_stack.end())
+		s_capture_stack.erase(it);
+}
+
+static bool capture_inside(CUIWindow* c, CUIWindow* w)
+{
+	for (CUIWindow* p = c; p; p = p->GetParent())
+		if (p == w)
+			return true;
+	return false;
+}
+
+static void erase_capture_subtree(CUIWindow* w)
+{
+	s_capture_stack.erase(
+		std::remove_if(s_capture_stack.begin(), s_capture_stack.end(),
+		               [w](CUIWindow* c) { return capture_inside(c, w); }),
+		s_capture_stack.end());
+}
+
 CUIWindow::CUIWindow()
-	: m_pParentWnd(nullptr),
-	  m_pMouseCapturer(nullptr),
-	  m_pMessageTarget(nullptr),
-	  m_pKeyboardCapturer(nullptr),
+	: m_pParentWnd(NULL),
+	  m_pMessageTarget(NULL),
+	  m_pKeyboardCapturer(NULL),
 	  m_bAutoDelete(false),
-	  //m_pHint(nullptr),
+	  //m_pHint(NULL),
 	  m_bCursorOverWindow(false),
 	  m_bPP(false),
 	  m_dwFocusReceiveTime(0),
 	  //dwHintDelay(1000),
 	  //bShowHint(false),
 	  //m_sHint(""),
-	  m_bCustomDraw(false)
+	  m_bCustomDraw(false),
+	  m_bHideLock(false),
+	  m_bClipEnabled(false),
+	  m_bClipRectSet(false),
+	  m_bCursorDelta(false)
 {
+	m_clip_rect.set(0.0f, 0.0f, 0.0f, 0.0f);
+	m_capture_cursor.set(0.0f, 0.0f);
+
 	Show(true);
 	Enable(true);
 #ifdef LOG_ALL_WNDS
@@ -135,18 +184,29 @@ CUIWindow::~CUIWindow()
 {
 	VERIFY(!(GetParent()&&IsAutoDelete()));
 
+	erase_capture_subtree(this);
+
 	//if (m_pHint)
 	//	xr_delete(m_pHint);
+
+    if (CurrentGameUI())
+    {
+        CurrentGameUI()->RemoveDialogToRender(this);
+    }
 
 	CUIWindow* parent = GetParent();
 	bool ad = IsAutoDelete();
 	if (parent && !ad)
 		parent->CUIWindow::DetachChild(this);
 
-	DetachAll();
+	if (!m_ChildWndList.empty()) {
+		DetachAll();
+	}
 
 	if (GetPPMode())
 		MainMenu()->UnregisterPPDraw(this);
+
+    CollectGarbage();
 
 #ifdef LOG_ALL_WNDS
 	xr_vector<DBGList>::iterator _it = dbg_list_wnds.begin();
@@ -171,15 +231,17 @@ CUIWindow::~CUIWindow()
 
 void CUIWindow::Draw()
 {
-	for (WINDOW_LIST_it it = m_ChildWndList.begin(); m_ChildWndList.end() != it; ++it)
+	PROF_EVENT("CUIWindow::Draw", PROF_CAT(UI));
+	xrCriticalSectionGuard guard(csUi);
+	for (CUIWindow* W : m_ChildWndList)
 	{
-		if (!(*it)) continue;
-		if (!(*it)->IsShown()) continue;
-		if ((*it)->GetCustomDraw()) continue;
-		(*it)->Draw();
+		if (!W)		continue;
+		if (!W->IsShown())		continue;
+		if (W->GetCustomDraw())	continue;
+		W->Draw();
 	}
 #ifdef DEBUG
-	if(g_show_wnd_rect2){
+	if (g_show_wnd_rect2) {
 		Frect r;
 		GetAbsoluteRect(r);
 		add_rect_to_draw(r);
@@ -189,12 +251,14 @@ void CUIWindow::Draw()
 
 void CUIWindow::Draw(float x, float y)
 {
+	PROF_EVENT("CUIWindow::Draw", PROF_CAT(UI));
 	SetWndPos(Fvector2().set(x, y));
 	Draw();
 }
 
 void CUIWindow::Update()
 {
+	PROF_EVENT("CUIWindow::Update", PROF_CAT(UI));
 	CUIDialogWnd* TIR = CurrentGameUI() ? CurrentGameUI()->TopInputReceiver() : nullptr;
 
 	if (GetUICursor().IsVisible() || (TIR && !TIR->NeedCursor()))
@@ -204,7 +268,7 @@ void CUIWindow::Update()
 		Fvector2 temp = GetUICursor().GetCursorPosition();
 		Frect r;
 		GetAbsoluteRect(r);
-		cursor_on_window = !!r.in(temp);
+		cursor_on_window = !!r.in(temp) && HitClipPass(temp);
 		// RECEIVE and LOST focus
 		if (m_bCursorOverWindow != cursor_on_window)
 		{
@@ -215,20 +279,30 @@ void CUIWindow::Update()
 		}
 	}
 
-	for (WINDOW_LIST_it it = m_ChildWndList.begin(); m_ChildWndList.end() != it; ++it)
-	{
-		if (!(*it)->IsShown()) continue;
-		(*it)->Update();
-	}
+    {
+        xrCriticalSectionGuard guard(csUi);
+        for (WINDOW_LIST_it it = m_ChildWndList.begin(); m_ChildWndList.end() != it; ++it)
+        {
+            if (!(*it)->IsShown()) continue;
+            (*it)->Update();
+        }
+    }
 
-	/*
-	if (m_pHint && bShowHint)
-	{
-		if (Device.dwTimeGlobal < (m_dwFocusReceiveTime + dwHintDelay))
-			return;
-		m_pHint->set_text(m_sHint);
-	}
-	*/
+    CollectGarbage();
+}
+
+void CUIWindow::CollectGarbage()
+{
+    if (m_ChildWndToDelete.empty())
+        return;
+
+    WINDOW_LIST temp;
+    temp.swap(m_ChildWndToDelete);
+    for (CUIWindow* pChild : temp)
+    {
+        if (pChild)
+            xr_delete(pChild);
+    }
 }
 
 void CUIWindow::AttachChild(CUIWindow* pChild)
@@ -243,6 +317,8 @@ void CUIWindow::AttachChild(CUIWindow* pChild)
 	}
 
 	pChild->SetParent(this);
+
+	xrCriticalSectionGuard guard(csUi);
 	m_ChildWndList.push_back(pChild);
 }
 
@@ -252,22 +328,37 @@ void CUIWindow::DetachChild(CUIWindow* pChild)
 	if (NULL == pChild)
 		return;
 
-	if (m_pMouseCapturer == pChild)
-		SetCapture(pChild, false);
+	erase_capture_subtree(pChild);
+	ReleaseKeyboardCaptureFrom(pChild);
 
-	//.	SafeRemoveChild			(pChild);
-	WINDOW_LIST_it it = std::find(m_ChildWndList.begin(), m_ChildWndList.end(), pChild);
-	R_ASSERT(it!=m_ChildWndList.end());
-	m_ChildWndList.erase(it);
+	{
+		xrCriticalSectionGuard guard(csUi);
 
-	pChild->SetParent(nullptr);
+		//.	SafeRemoveChild			(pChild);
+		WINDOW_LIST_it it = std::find(m_ChildWndList.begin(), m_ChildWndList.end(), pChild);
+		R_ASSERT(it != m_ChildWndList.end());
+		m_ChildWndList.erase(it);
+	}
 
-	if (pChild->IsAutoDelete())
-		xr_delete(pChild);
+	pChild->SetParent(NULL);
+
+    if (pChild->IsAutoDelete())
+        if (std::find(m_ChildWndToDelete.begin(), m_ChildWndToDelete.end(), pChild) == m_ChildWndToDelete.end())
+            m_ChildWndToDelete.push_back(pChild);
+}
+
+// SetKeyboardCapture stores, in each ancestor, the child on the path to the capturer. A detached
+// (or dying) child would otherwise stay in that chain and the next capture would message freed memory.
+void CUIWindow::ReleaseKeyboardCaptureFrom(CUIWindow* child)
+{
+	for (CUIWindow* w = this; w && w->m_pKeyboardCapturer == child; child = w, w = w->GetParent())
+		w->m_pKeyboardCapturer = NULL;
 }
 
 void CUIWindow::DetachAll()
 {
+	xrCriticalSectionGuard guard(csUi);
+
 	while (!m_ChildWndList.empty())
 	{
 		DetachChild(m_ChildWndList.back());
@@ -276,7 +367,7 @@ void CUIWindow::DetachAll()
 
 void CUIWindow::GetAbsoluteRect(Frect& r)
 {
-	if (GetParent() == nullptr)
+	if (GetParent() == NULL)
 	{
 		GetWndRect(r);
 		return;
@@ -319,24 +410,37 @@ bool CUIWindow::OnMouseAction(float x, float y, EUIMessages mouse_action)
 		m_dwLastClickTime = dwCurTime;
 	}
 
-	if (GetParent() == nullptr)
+	if (GetParent() == NULL)
 	{
-		if (!wndRect.in(cursor_pos))
+		// the window that captured the mouse gets every message, wherever the cursor is
+		CUIWindow* cap = MouseCapturer();
+		if (cap && cap != this)
+		{
+			CUIWindow* cap_root = cap;
+			while (cap_root->GetParent())
+				cap_root = cap_root->GetParent();
+
+			if (cap_root == this || cap_root == cap) // our tree, or an unattached capturer
+			{
+				Frect cap_rect;
+				cap->GetAbsoluteRect(cap_rect);
+				Fvector2 cur = GetUICursor().GetCursorPosition();
+				if (WINDOW_MOUSE_MOVE == mouse_action)
+					cap->FeedCursorDelta(cur);
+				cap->OnMouseAction(cur.x - cap_rect.left, cur.y - cap_rect.top, mouse_action);
+				return true;
+			}
+		}
+
+		if (cap == this && WINDOW_MOUSE_MOVE == mouse_action)
+			FeedCursorDelta(GetUICursor().GetCursorPosition());
+
+		// a window that captured the mouse keeps receiving actions from outside its rect
+		if (!wndRect.in(cursor_pos) && cap != this)
 			return false;
 		//получить координаты относительно окна
 		cursor_pos.x -= wndRect.left;
 		cursor_pos.y -= wndRect.top;
-	}
-
-
-	//если есть дочернее окно,захватившее мышь, то
-	//сообщение направляем ему сразу
-	if (m_pMouseCapturer)
-	{
-		m_pMouseCapturer->OnMouseAction(cursor_pos.x - m_pMouseCapturer->GetWndRect().left,
-		                                cursor_pos.y - m_pMouseCapturer->GetWndRect().top,
-		                                mouse_action);
-		return true;
 	}
 
 	// handle any action
@@ -370,25 +474,26 @@ bool CUIWindow::OnMouseAction(float x, float y, EUIMessages mouse_action)
 	//Проверка на попадание мыши в окно,
 	//происходит в обратном порядке, чем рисование окон
 	//(последние в списке имеют высший приоритет)
+	xrCriticalSectionGuard guard(csUi);
 	WINDOW_LIST::reverse_iterator it = m_ChildWndList.rbegin();
 
 	for (; it != m_ChildWndList.rend(); ++it)
 	{
 		CUIWindow* w = (*it);
 		Frect wndRect = w->GetWndRect();
-		if (wndRect.in(cursor_pos))
+		if (wndRect.in(cursor_pos) && w->HitClipPass(GetUICursor().GetCursorPosition()))
 		{
 			if (w->IsEnabled())
 			{
 				if (w->OnMouseAction(cursor_pos.x - w->GetWndRect().left,
-				                     cursor_pos.y - w->GetWndRect().top, mouse_action))
+					cursor_pos.y - w->GetWndRect().top, mouse_action))
 					return true;
 			}
 		}
 		else if (w->IsEnabled() && w->CursorOverWindow())
 		{
 			if (w->OnMouseAction(cursor_pos.x - w->GetWndRect().left,
-			                     cursor_pos.y - w->GetWndRect().top, mouse_action))
+				cursor_pos.y - w->GetWndRect().top, mouse_action))
 				return true;
 		}
 	}
@@ -428,7 +533,7 @@ void CUIWindow::OnFocusReceive()
 	m_bCursorOverWindow = true;
 
 	if (GetMessageTarget())
-		GetMessageTarget()->SendMessage(this, WINDOW_FOCUS_RECEIVED, nullptr);
+		GetMessageTarget()->SendMessage(this, WINDOW_FOCUS_RECEIVED, NULL);
 
 	//if (m_pHint)
 	//	bShowHint = true;
@@ -440,7 +545,7 @@ void CUIWindow::OnFocusLost()
 	m_bCursorOverWindow = false;
 
 	if (GetMessageTarget())
-		GetMessageTarget()->SendMessage(this, WINDOW_FOCUS_LOST, nullptr);
+		GetMessageTarget()->SendMessage(this, WINDOW_FOCUS_LOST, NULL);
 
 	//bShowHint = false;
 }
@@ -452,23 +557,61 @@ void CUIWindow::OnFocusLost()
 //ему в независимости от того где мышь
 void CUIWindow::SetCapture(CUIWindow* pChildWindow, bool capture_status)
 {
-	if (GetParent())
-	{
-		GetParent()->SetCapture(this, capture_status);
-	}
-
 	if (capture_status)
 	{
-		//оповестить дочернее окно о потере фокуса мыши
-		if (NULL != m_pMouseCapturer)
-			m_pMouseCapturer->SendMessage(this, WINDOW_MOUSE_CAPTURE_LOST);
+		if (!pChildWindow)
+			return;
 
-		m_pMouseCapturer = pChildWindow;
+		//оповестить дочернее окно о потере фокуса мыши
+		if (!s_capture_stack.empty() && s_capture_stack.back() != pChildWindow)
+			s_capture_stack.back()->SendMessage(this, WINDOW_MOUSE_CAPTURE_LOST);
+
+		erase_capture(pChildWindow); // re-capture moves it to the top rather than stacking twice
+		s_capture_stack.push_back(pChildWindow);
+
+		pChildWindow->m_capture_cursor = GetUICursor().GetCursorPosition();
 	}
 	else
 	{
-		m_pMouseCapturer = nullptr;
+		erase_capture(pChildWindow);
+
+		// the window underneath missed every move made during the capture
+		if (CUIWindow* top = MouseCapturer())
+			top->m_capture_cursor = GetUICursor().GetCursorPosition();
 	}
+}
+
+CUIWindow* CUIWindow::MouseCapturer()
+{
+	return s_capture_stack.empty() ? NULL : s_capture_stack.back();
+}
+
+void CUIWindow::ReleaseMouseCapture()
+{
+	m_bCursorDelta = false;
+	erase_capture_subtree(this);
+}
+
+void CUIWindow::SetMouseCapture(bool status)
+{
+	m_bCursorDelta = status;
+	if (status)
+		m_capture_cursor = GetUICursor().GetCursorPosition();
+
+	SetCapture(this, status);
+}
+
+void CUIWindow::FeedCursorDelta(const Fvector2& cursor)
+{
+	if (!m_bCursorDelta)
+		return;
+
+	Fvector2 d;
+	d.sub(cursor, m_capture_cursor);
+	m_capture_cursor = cursor;
+
+	if (_abs(d.x) > EPS_S || _abs(d.y) > EPS_S)
+		OnMouseMoveRelative(d.x, d.y);
 }
 
 
@@ -486,6 +629,7 @@ bool CUIWindow::OnKeyboardAction(int dik, EUIMessages keyboard_action)
 		if (result) return true;
 	}
 
+	xrCriticalSectionGuard guard(csUi);
 	WINDOW_LIST::reverse_iterator it = m_ChildWndList.rbegin();
 
 	for (; it != m_ChildWndList.rend(); ++it)
@@ -511,6 +655,7 @@ bool CUIWindow::OnKeyboardHold(int dik)
 		if (result) return true;
 	}
 
+	xrCriticalSectionGuard guard(csUi);
 	WINDOW_LIST::reverse_iterator it = m_ChildWndList.rbegin();
 
 	for (; it != m_ChildWndList.rend(); ++it)
@@ -540,13 +685,14 @@ void CUIWindow::SetKeyboardCapture(CUIWindow* pChildWindow, bool capture_status)
 		m_pKeyboardCapturer = pChildWindow;
 	}
 	else
-		m_pKeyboardCapturer = nullptr;
+		m_pKeyboardCapturer = NULL;
 }
 
 
 //обработка сообщений 
 void CUIWindow::SendMessage(CUIWindow* pWnd, s16 msg, void* pData)
 {
+	xrCriticalSectionGuard guard(csUi);
 	//оповестить дочерние окна
 	for (WINDOW_LIST_it it = m_ChildWndList.begin(); m_ChildWndList.end() != it; ++it)
 	{
@@ -562,6 +708,7 @@ CUIWindow* CUIWindow::GetCurrentMouseHandler()
 
 CUIWindow* CUIWindow::GetChildMouseHandler()
 {
+	xrCriticalSectionGuard guard(csUi);
 	CUIWindow* pWndResult;
 	WINDOW_LIST::reverse_iterator it = m_ChildWndList.rbegin();
 
@@ -589,11 +736,11 @@ CUIWindow* CUIWindow::GetChildMouseHandler()
 //для перевода окна и потомков в исходное состояние
 void CUIWindow::Reset()
 {
-	m_pMouseCapturer = nullptr;
 }
 
 void CUIWindow::ResetAll()
 {
+	xrCriticalSectionGuard guard(csUi);
 	for (WINDOW_LIST_it it = m_ChildWndList.begin(); m_ChildWndList.end() != it; ++it)
 	{
 		(*it)->Reset();
@@ -607,25 +754,27 @@ CUIWindow* CUIWindow::GetMessageTarget()
 
 bool CUIWindow::IsChild(CUIWindow* pPossibleChild) const
 {
+	xrCriticalSectionGuard guard(const_cast<xrCriticalSection&>(csUi));
 	WINDOW_LIST::const_iterator it = std::find(m_ChildWndList.begin(), m_ChildWndList.end(), pPossibleChild);
 	return it != m_ChildWndList.end();
 }
 
 
-CUIWindow* CUIWindow::FindChild(const shared_str name)
+CUIWindow* CUIWindow::FindChild(const LPCSTR name)
 {
 	if (WindowName() == name)
 		return this;
 
+	xrCriticalSectionGuard guard(csUi);
 	WINDOW_LIST::const_iterator it = m_ChildWndList.begin();
 	WINDOW_LIST::const_iterator it_e = m_ChildWndList.end();
 	for (; it != it_e; ++it)
 	{
 		CUIWindow* pRes = (*it)->FindChild(name);
-		if (pRes != nullptr)
+		if (pRes != NULL)
 			return pRes;
 	}
-	return nullptr;
+	return NULL;
 }
 
 void CUIWindow::SetParent(CUIWindow* pNewParent)
@@ -641,6 +790,7 @@ void CUIWindow::SetParent(CUIWindow* pNewParent)
 
 void CUIWindow::ShowChildren(bool show)
 {
+	xrCriticalSectionGuard guard(csUi);
 	for (WINDOW_LIST_it it = m_ChildWndList.begin(); m_ChildWndList.end() != it; ++it)
 		(*it)->Show(show);
 }
@@ -783,7 +933,7 @@ void CUIWindow::RemoveHint()
 {
 	if (m_pHint)
 		xr_delete(m_pHint);
-	m_pHint = nullptr;
+	m_pHint = NULL;
 }
 
 void CUIWindow::SetHintText(LPCSTR text)	

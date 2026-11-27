@@ -21,8 +21,8 @@ u32 C_CROSS D3DCOLOR_RGBA(0xff, 0xff, 0xff, 0xff);
 
 CHUDCrosshair::CHUDCrosshair()
 {
-	crosshairShader = nullptr;
-	crosshairTexture = nullptr;
+	crosshairShader = NULL;
+	crosshairTexture = NULL;
 	strcpy(lastCrosshairShader, "");
 	strcpy(lastCrosshairTexture, "");
 	transform = Fmatrix().identity();
@@ -63,7 +63,7 @@ void CHUDCrosshair::SetDispersion(float d)
 	dispersionRadius = d;
 }
 
-extern ENGINE_API BOOL g_bRendering;
+extern ENGINE_API xr_atomic_bool g_bRendering;
 
 static float lerp(float a, float b, float t)
 {
@@ -201,7 +201,7 @@ void CHUDCrosshair::RenderWireCrosshair()
 
 	// Project vertices for accurate scaling
 	UIRender->StartPrimitive(8, IUIRender::ptLineList, UI().m_currentPointType);
-	PushVerts(verts, nullptr, 8, mat, pos);
+	PushVerts(verts, NULL, 8, mat, pos);
 
 	// Render a 1px wide line  for the center dot
 	UIRender->PushPoint(pos.x - 0.5f, pos.y, 0, crossColor, 0, 0);

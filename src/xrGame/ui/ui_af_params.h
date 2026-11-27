@@ -17,6 +17,8 @@ public:
 	bool Check(const shared_str& af_section);
 	void SetInfo(CInventoryItem& pInvItem);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	UIArtefactParamItem* m_immunity_item[9];
 	UIArtefactParamItem* m_restore_item[ALife::eRestoreTypeMax];
@@ -37,6 +39,8 @@ public:
 	void Init(CUIXml& xml, LPCSTR section);
 	void SetCaption(LPCSTR name);
 	void SetValue(float value);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 private:
 	CUIStatic* m_caption;

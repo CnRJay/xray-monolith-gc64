@@ -4,243 +4,11 @@
 #include "../../xrEngine/customhud.h"
 #include "../../xrEngine/xr_object.h"
 #include "../xrRender/SkeletonCustom.h"
-#include <tbb/parallel_for.h>
-#include <tbb/parallel_reduce.h>
-#include <tbb/blocked_range.h>
-#include <tbb/parallel_sort.h>
+#include "../../xrParticles/ParticlesAsyncManager.h"
 
 #include "../xrRender/QueryHelper.h"
 
-IC bool pred_sp_sort(ISpatial* _1, ISpatial* _2)
-{
-	float d1 = _1->spatial.sphere.P.distance_to_sqr(Device.vCameraPosition);
-	float d2 = _2->spatial.sphere.P.distance_to_sqr(Device.vCameraPosition);
-	return d1 < d2;
-}
 
-void CRender::render_main(Fmatrix& m_ViewProjection, bool _fportals)
-{
-	PIX_EVENT(render_main);
-	//	Msg						("---begin");
-	marker ++;
-
-	// Calculate sector(s) and their objects
-	if (pLastSector)
-	{
-		//!!!
-		//!!! BECAUSE OF PARALLEL HOM RENDERING TRY TO DELAY ACCESS TO HOM AS MUCH AS POSSIBLE
-		//!!!
-		{
-			// Traverse object database
-			g_SpatialSpace->q_frustum
-			(
-				lstRenderables,
-				ISpatial_DB::O_ORDERED,
-				STYPE_RENDERABLE + STYPE_LIGHTSOURCE,
-				ViewBase
-			);
-
-			// (almost) Exact sorting order (front-to-back)
-			tbb::parallel_sort(lstRenderables.begin(), lstRenderables.end(), pred_sp_sort);
-
-			// Determine visibility for dynamic part of scene
-			set_Object(0);
-			u32 uID_LTRACK = 0xffffffff;
-			if (phase == PHASE_NORMAL)
-			{
-				uLastLTRACK ++;
-				if (lstRenderables.size()) uID_LTRACK = uLastLTRACK % lstRenderables.size();
-
-				// update light-vis for current entity / actor
-				CObject* O = g_pGameLevel->CurrentViewEntity();
-				if (O)
-				{
-					CROS_impl* R = (CROS_impl*)O->ROS();
-					if (R) R->update(O);
-				}
-
-				// update light-vis for selected entity
-				// track lighting environment
-				if (lstRenderables.size())
-				{
-					IRenderable* renderable = lstRenderables[uID_LTRACK]->dcast_Renderable();
-					if (renderable)
-					{
-						CROS_impl* T = (CROS_impl*)renderable->renderable_ROS();
-						if (T) T->update(renderable);
-					}
-				}
-			}
-		}
-
-		// Traverse sector/portal structure
-		PortalTraverser.traverse
-		(
-			pLastSector,
-			ViewBase,
-			Device.vCameraPosition,
-			m_ViewProjection,
-			CPortalTraverser::VQ_HOM + CPortalTraverser::VQ_SSA + CPortalTraverser::VQ_FADE
-			//. disabled scissoring (HW.Caps.bScissor?CPortalTraverser::VQ_SCISSOR:0)	// generate scissoring info
-		);
-
-		// Determine visibility for static geometry hierrarhy
-		for (u32 s_it = 0; s_it < PortalTraverser.r_sectors.size(); s_it++)
-		{
-			CSector* sector = (CSector*)PortalTraverser.r_sectors[s_it];
-			dxRender_Visual* root = sector->root();
-			for (u32 v_it = 0; v_it < sector->r_frustums.size(); v_it++)
-			{
-				set_Frustum(&(sector->r_frustums[v_it]));
-				add_Geometry(root);
-			}
-		}
-
-		// skeleton pre calc before frustum
-		{
-			xr_vector<CKinematics*> skeletons_to_update;
-			skeletons_to_update.reserve(lstRenderables.size());
-
-			skeletons_to_update = tbb::parallel_reduce(
-				tbb::blocked_range<size_t>(0, lstRenderables.size()),
-				xr_vector<CKinematics*>(),
-				[&](const tbb::blocked_range<size_t>& range, xr_vector<CKinematics*> local_list) -> xr_vector<CKinematics*> {
-					local_list.reserve(local_list.size() + range.size());
-					for (size_t o_it = range.begin(); o_it != range.end(); ++o_it)
-					{
-						ISpatial* spatial = lstRenderables[o_it];
-						spatial->spatial_updatesector();
-						CSector* sector = (CSector*)spatial->spatial.sector;
-						if (!sector) continue;
-
-						if (PortalTraverser.i_marker != sector->r_marker) continue;
-
-						if (!(spatial->spatial.type & STYPE_RENDERABLE)) continue;
-
-						// Check if it is a skeleton
-						IRenderable* renderable = spatial->dcast_Renderable();
-						if (!renderable) continue;
-
-						dxRender_Visual* V = (dxRender_Visual*)renderable->renderable.visual;
-						if (V->Type != MT_SKELETON_ANIM && V->Type != MT_SKELETON_RIGID) continue;
-
-						// Check frustums
-						bool visible_in_frustum = false;
-						for (u32 v_it = 0; v_it < sector->r_frustums.size(); v_it++)
-						{
-							CFrustum& view = sector->r_frustums[v_it];
-							if (view.testSphere_dirty(spatial->spatial.sphere.P, spatial->spatial.sphere.R)) {
-								visible_in_frustum = true;
-								break;
-							}
-						}
-						if (!visible_in_frustum) continue;
-
-						// Check HOM
-						vis_data& v_orig = V->vis;
-						if (Device.dwFrame < v_orig.hom_frame) {
-							local_list.push_back((CKinematics*)V);
-						}
-						else {
-							vis_data v_copy = v_orig;
-							v_copy.box.xform(renderable->renderable.xform);
-							if (HOM.visible(v_copy.box)) {
-								local_list.push_back((CKinematics*)V);
-							}
-						}
-					}
-					return local_list;
-				},
-				[](xr_vector<CKinematics*> a, const xr_vector<CKinematics*>& b) -> xr_vector<CKinematics*> {
-					a.insert(a.end(), b.begin(), b.end());
-					return a;
-				}
-			);
-
-			tbb::parallel_for(tbb::blocked_range<size_t>(0, skeletons_to_update.size()),
-				[&](const tbb::blocked_range<size_t>& range) {
-					for (size_t i = range.begin(); i != range.end(); ++i) {
-						skeletons_to_update[i]->CalculateBones(TRUE);
-					}
-				});
-		}
-
-		// Traverse frustums
-		for (u32 o_it = 0; o_it < lstRenderables.size(); o_it++)
-		{
-			ISpatial* spatial = lstRenderables[o_it];
-			spatial->spatial_updatesector();
-			CSector* sector = (CSector*)spatial->spatial.sector;
-			if (0 == sector) continue; // disassociated from S/P structure
-
-			if (spatial->spatial.type & STYPE_LIGHTSOURCE)
-			{
-				// lightsource
-				light* L = (light*)(spatial->dcast_Light());
-				VERIFY(L);
-				float lod = L->get_LOD();
-				if (lod > EPS_L)
-				{
-					vis_data& vis = L->get_homdata();
-					if (HOM.visible(vis)) Lights.add_light(L);
-				}
-				continue ;
-			}
-
-			if (PortalTraverser.i_marker != sector->r_marker) continue; // inactive (untouched) sector
-			for (u32 v_it = 0; v_it < sector->r_frustums.size(); v_it++)
-			{
-				CFrustum& view = sector->r_frustums[v_it];
-				if (!view.testSphere_dirty(spatial->spatial.sphere.P, spatial->spatial.sphere.R)) continue;
-
-				if (spatial->spatial.type & STYPE_RENDERABLE)
-				{
-					// renderable
-					IRenderable* renderable = spatial->dcast_Renderable();
-					VERIFY(renderable);
-
-					// Occlusion
-					//	casting is faster then using getVis method
-					vis_data& v_orig = ((dxRender_Visual*)renderable->renderable.visual)->vis;
-					vis_data v_copy = v_orig;
-					v_copy.box.xform(renderable->renderable.xform);
-					BOOL bVisible = HOM.visible(v_copy);
-					v_orig.marker = v_copy.marker;
-					v_orig.accept_frame = v_copy.accept_frame;
-					v_orig.hom_frame = v_copy.hom_frame;
-					v_orig.hom_tested = v_copy.hom_tested;
-					if (!bVisible) break; // exit loop on frustums
-
-					// Rendering
-					set_Object(renderable);
-					renderable->renderable_Render();
-					set_Object(0);
-				}
-				break; // exit loop on frustums
-			}
-		}
-		if (g_pGameLevel && (phase == PHASE_NORMAL))
-		{
-			g_hud->Render_Last(); // HUD
-			if (g_hud->RenderActiveItemUIQuery())
-				r_dsgraph_render_hud_ui();
-			if (g_hud->RenderCamAttachedUIQuery())
-				r_dsgraph_render_cam_ui();
-		}
-	}
-	else
-	{
-		set_Object(0);
-		if (g_pGameLevel && (phase == PHASE_NORMAL))
-		{
-			g_hud->Render_Last(); // HUD
-			if (g_hud->RenderActiveItemUIQuery())
-				r_dsgraph_render_hud_ui();
-			if (g_hud->RenderCamAttachedUIQuery())
-				r_dsgraph_render_cam_ui();
-		}
-	}
-}
 
 void CRender::render_menu()
 {
@@ -271,7 +39,7 @@ void CRender::render_menu()
 
 	Fvector2 p0, p1;
 	u32 Offset;
-	u32 C = color_rgba(255, 255, 255, 255);
+	auto C = color_rgba(255, 255, 255, 255);
 	float _w = float(Device.dwWidth);
 	float _h = float(Device.dwHeight);
 	float d_Z = EPS_S;
@@ -298,8 +66,6 @@ void CRender::Render()
 {
 	PIX_EVENT(CRender_Render);
 
-	VERIFY(0==mapDistort.size());
-
 	rmNormal();
 
 	bool _menu_pp = g_pGamePersistent ? g_pGamePersistent->OnRenderPPUI_query() : false;
@@ -321,6 +87,9 @@ void CRender::Render()
 
 	if (m_bFirstFrameAfterReset)
 	{
+		for (light* L : v_all_lights)//critical!!!
+			L->m_moving_frames = 0;
+
 		m_bFirstFrameAfterReset = false;
 		return;
 	}
@@ -336,190 +105,53 @@ void CRender::Render()
 
 	// HOM
 	ViewBase.CreateFromMatrix(Device.mFullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
-	View = 0;
-	if (!ps_r2_ls_flags.test(R2FLAG_EXP_MT_CALC))
-	{
-		HOM.Enable();
-		HOM.Render(ViewBase);
-	}
+    HOM.MT_RENDER();
 
-	//******* Z-prefill calc - DEFERRER RENDERER
-	if (ps_r2_ls_flags.test(R2FLAG_ZFILL))
-	{
-		PIX_EVENT(DEFER_Z_FILL);
-		Device.Statistic->RenderCALC.Begin();
-		float z_distance = ps_r2_zfill;
-		Fmatrix m_zfill, m_project;
-		m_project.build_projection(
-			deg2rad(Device.fFOV/* *Device.fASPECT*/),
-			Device.fASPECT, VIEWPORT_NEAR,
-			z_distance * g_pGamePersistent->Environment().CurrentEnv->far_plane);
-		m_zfill.mul(m_project, Device.mView);
-		r_pmask(true, false); // enable priority "0"
-		set_Recorder(nullptr);
-		phase = PHASE_SMAP;
-		render_main(m_zfill, false);
-		r_pmask(true, false); // disable priority "1"
-		Device.Statistic->RenderCALC.End();
+	Target->phase_scene_prepare();
 
-		// flush
-		Target->phase_scene_prepare();
-		RCache.set_ColorWriteEnable(FALSE);
-		r_dsgraph_render_graph(0);
-		RCache.set_ColorWriteEnable();
-	}
-	else
-	{
-		Target->phase_scene_prepare();
-	}
-
-	//*******
-	// Sync point
-	Device.Statistic->RenderDUMP_Wait_S.Begin();
-	if (ps_r2_qsync)
-	{
-		CTimer T;
-		T.Start();
-		BOOL result = FALSE;
-		HRESULT hr = S_FALSE;
-		//while	((hr=q_sync_point[q_sync_count]->GetData	(&result,sizeof(result),D3DGETDATA_FLUSH))==S_FALSE) {
-		while ((hr = GetData(q_sync_point[q_sync_count], &result, sizeof(result))) == S_FALSE)
-		{
-			if (!SwitchToThread()) Sleep(ps_r2_wait_sleep);
-			if (T.GetElapsed_ms() > 500)
-			{
-				result = FALSE;
-				break;
-			}
-		}
-	}
-	Device.Statistic->RenderDUMP_Wait_S.End();
-	q_sync_count = (q_sync_count + 1) % HW.Caps.iGPUNum;
-	//CHK_DX										(q_sync_point[q_sync_count]->Issue(D3DISSUE_END));
-	CHK_DX(EndQuery(q_sync_point[q_sync_count]));
 
 	//******* Main calc - DEFERRER RENDERER
-	// Main calc
-	Device.Statistic->RenderCALC.Begin();
-	r_pmask(true, false, true); // enable priority "0",+ capture wmarks
-	if (bSUN) set_Recorder(&main_coarse_structure);
-	else set_Recorder(nullptr);
 	phase = PHASE_NORMAL;
-	render_main(Device.mFullTransform, true);
-	set_Recorder(nullptr);
-	r_pmask(true, false); // disable priority "1"
-	Device.Statistic->RenderCALC.End();
 
 	if (ps_r2_ls_flags.test(R2FLAG_TERRAIN_PREPASS))
 	{
-		Target->u_setrt(Device.dwWidth, Device.dwHeight, nullptr, NULL, nullptr, !RImplementation.o.dx10_msaa ? HW.pBaseZB : Target->rt_MSAADepth->pZRT);
-		r_dsgraph_render_landscape(0, false);
+		Target->u_setrt(Device.dwWidth, Device.dwHeight, NULL, NULL, NULL, !RImplementation.o.dx10_msaa ? HW.pBaseZB : Target->rt_MSAADepth->pZRT);
 	}
-
-	BOOL split_the_scene_to_minimize_wait = FALSE;
-	if (ps_r2_ls_flags.test(R2FLAG_EXP_SPLIT_SCENE)) split_the_scene_to_minimize_wait = TRUE;
 
 	//******* Main render :: PART-0	-- first
-	if (!split_the_scene_to_minimize_wait)
-	{
-		PIX_EVENT(DEFER_PART0_NO_SPLIT);
-		// level, DO NOT SPLIT
-		Target->phase_scene_begin();
-		r_dsgraph_render_hud();
-		r_dsgraph_render_graph(0);
-		r_dsgraph_render_lods(true, true);
-		if (Details) Details->Render();
-		if (ps_r2_ls_flags.test(R2FLAG_TERRAIN_PREPASS)) r_dsgraph_render_landscape(1, true);
-		Target->phase_scene_end();
-	}
-	else
 	{
 		PIX_EVENT(DEFER_PART0_SPLIT);
 		// level, SPLIT
 		Target->phase_scene_begin();
-		r_dsgraph_render_graph(0);
+		GMBase.traverse(RImplementation.pLastSector, ViewBase, Device.vCameraPosition, Device.mFullTransform);
+		GMBase.r_dsgraph_capture_static();
+		GMBase.r_dsgraph_render_static(0);
+		GMBase.r_dsgraph_capture_dynamic();
+		GMBase.r_dsgraph_render_dynamic(0);
 		Target->disable_aniso();
 	}
 
-	//******* Occlusion testing of volume-limited light-sources
-	Target->phase_occq();
-	LP_normal.clear();
-	LP_pending.clear();
 	if (RImplementation.o.dx10_msaa)
 		RCache.set_ZB(RImplementation.Target->rt_MSAADepth->pZRT);
+
 	{
 		PIX_EVENT(DEFER_TEST_LIGHT_VIS);
-		// perform tests
-		u32 count = 0;
-		light_Package& LP = Lights.package;
-
-		// stats
-		stats.l_shadowed = LP.v_shadowed.size();
-		stats.l_unshadowed = LP.v_point.size() + LP.v_spot.size();
-		stats.l_total = stats.l_shadowed + stats.l_unshadowed;
-
-		// perform tests
-		count = _max(count, LP.v_point.size());
-		count = _max(count, LP.v_spot.size());
-		count = _max(count, LP.v_shadowed.size());
-		for (u32 it = 0; it < count; it++)
-		{
-			if (it < LP.v_point.size())
-			{
-				light* L = LP.v_point[it];
-				L->vis_prepare();
-				if (L->vis.pending) LP_pending.v_point.push_back(L);
-				else LP_normal.v_point.push_back(L);
-			}
-			if (it < LP.v_spot.size())
-			{
-				light* L = LP.v_spot[it];
-				L->vis_prepare();
-				if (L->vis.pending) LP_pending.v_spot.push_back(L);
-				else LP_normal.v_spot.push_back(L);
-			}
-			if (it < LP.v_shadowed.size())
-			{
-				light* L = LP.v_shadowed[it];
-				L->vis_prepare();
-				if (L->vis.pending) LP_pending.v_shadowed.push_back(L);
-				else LP_normal.v_shadowed.push_back(L);
-			}
-		}
+		//******* Occlusion testing of volume-limited light-sources
+		Target->phase_occq();
+		LP_normal.clear();
+		LP_pending.clear();
+		GMBase.r_dsgraph_capture_lights();
 	}
-	LP_normal.sort();
-	LP_pending.sort();
-
+	
 	//******* Main render :: PART-1 (second)
-	if (split_the_scene_to_minimize_wait)
 	{
 		PIX_EVENT(DEFER_PART1_SPLIT);
-		// skybox can be drawn here
-		if (0)
-		{
-			if (!RImplementation.o.dx10_msaa)
-				Target->u_setrt(Target->rt_Generic_0, Target->rt_Generic_1, 0, HW.pBaseZB);
-			else
-				Target->u_setrt(Target->rt_Generic_0_r, Target->rt_Generic_1, 0,
-				                RImplementation.Target->rt_MSAADepth->pZRT);
-			RCache.set_CullMode(CULL_NONE);
-			RCache.set_Stencil(FALSE);
-
-			// draw skybox
-			RCache.set_ColorWriteEnable();
-			//CHK_DX(HW.pDevice->SetRenderState			( D3DRS_ZENABLE,	FALSE				));
-			RCache.set_Z(FALSE);
-			g_pGamePersistent->Environment().RenderSky();
-			//CHK_DX(HW.pDevice->SetRenderState			( D3DRS_ZENABLE,	TRUE				));
-			RCache.set_Z(TRUE);
-		}
-
 		// level
 		Target->phase_scene_begin();
-		r_dsgraph_render_hud();
-		r_dsgraph_render_lods(true, true);
+		GMBase.r_dsgraph_capture_hud();
+		GMBase.r_dsgraph_render_hud();
+		GMBase.r_dsgraph_render_lods(true, true);
 		if (Details) Details->Render();
-		if (ps_r2_ls_flags.test(R2FLAG_TERRAIN_PREPASS)) r_dsgraph_render_landscape(1, true);
 		Target->phase_scene_end();
 	}
 
@@ -530,25 +162,6 @@ void CRender::Render()
 		Target->phase_wallmarks();
 
 		Wallmarks->Render(); // wallmarks has priority as normal geometry
-	}
-
-	// Update incremental shadowmap-visibility solver
-	{
-		PIX_EVENT(DEFER_FLUSH_OCCLUSION);
-		u32 it = 0;
-		for (it = 0; it < Lights_LastFrame.size(); it++)
-		{
-			if (0 == Lights_LastFrame[it]) continue ;
-			try
-			{
-				Lights_LastFrame[it]->svis.flushoccq();
-			}
-			catch (...)
-			{
-				Msg("! Failed to flush-OCCq on light [%d] %X", it, *(u32*)(&Lights_LastFrame[it]));
-			}
-		}
-		Lights_LastFrame.clear();
 	}
 
 	// full screen pass to mark msaa-edge pixels in highest stencil bit
@@ -570,16 +183,12 @@ void CRender::Render()
 	{
 		PIX_EVENT(DEFER_SUN);
 		RImplementation.stats.l_visible ++;
-		if (!ps_r2_ls_flags_ext.is(R2FLAGEXT_SUN_OLD))
-			render_sun_cascades();
-		else
-		{
-			render_sun_near();
-			render_sun();
-			render_sun_filtered();
-		}
+		render_sun_cascades();
+		Target->increment_light_marker();
 		Target->accum_direct_blend();
 	}
+
+	phase = PHASE_NORMAL;
 
 	{
 		PIX_EVENT(DEFER_SELF_ILLUM);
@@ -597,14 +206,13 @@ void CRender::Render()
 		//RCache.set_Stencil				(TRUE,D3DCMP_ALWAYS,0x00,0xff,0xff,D3DSTENCILOP_KEEP,D3DSTENCILOP_REPLACE,D3DSTENCILOP_KEEP);
 		RCache.set_CullMode(CULL_CCW);
 		RCache.set_ColorWriteEnable();
-		RImplementation.r_dsgraph_render_emissive();
+		GMBase.r_dsgraph_render_emissive();
 	}
 
 	// Lighting, non dependant on OCCQ
 	{
 		PIX_EVENT(DEFER_LIGHT_NO_OCCQ);
 		Target->phase_accumulator();
-		HOM.Disable();
 		render_lights(LP_normal);
 	}
 
@@ -614,33 +222,117 @@ void CRender::Render()
 		render_lights(LP_pending);
 	}
 
+	phase = PHASE_NORMAL;
+
 	// Postprocess
 	{
 		PIX_EVENT(DEFER_LIGHT_COMBINE);
 		Target->phase_combine();
 	}
 
-	VERIFY(0==mapDistort.size());
+	if (Details)
+		Details->details_clear();
+
+	if (g_hud)
+	{
+		if (g_hud->RenderActiveItemUIQuery())
+			GMBase.r_dsgraph_render_hud_ui();
+		if (g_hud->RenderCamAttachedUIQuery())
+			GMBase.r_dsgraph_render_cam_ui();
+	}
+
+}
+#include "../xrRender/CHudInitializer.h"
+
+void CRender::RenderUI3DDirect()
+{
+	// Keep scene depth intact even when icons are drawn before the world finishes rendering.
+	auto* saved_depth = RCache.get_ZB();
+	auto* color_target = RCache.get_RT();
+	ID3D10DepthStencilView* queried_depth = nullptr;
+	const bool queried_color_target = !color_target;
+	if (queried_color_target)
+	{
+		// A cache invalidation does not necessarily unbind the device's backbuffer.
+		HW.pDevice->OMGetRenderTargets(1, &color_target, &queried_depth);
+		if (!saved_depth) saved_depth = queried_depth;
+		R_ASSERT(color_target);
+		RCache.set_RT(color_target, 0);
+	}
+
+	ID3D10Resource* color_resource = nullptr;
+	ID3D10Texture2D* color_texture = nullptr;
+	color_target->GetResource(&color_resource);
+	R_CHK(color_resource->QueryInterface(__uuidof(ID3D10Texture2D), (void**)&color_texture));
+	_RELEASE(color_resource);
+	D3D10_TEXTURE2D_DESC color_desc;
+	color_texture->GetDesc(&color_desc);
+	_RELEASE(color_texture);
+
+	if (Target->ui_icons_depth_texture)
+	{
+		D3D10_TEXTURE2D_DESC desc;
+		Target->ui_icons_depth_texture->GetDesc(&desc);
+		if (desc.Width != color_desc.Width || desc.Height != color_desc.Height ||
+			desc.SampleDesc.Count != color_desc.SampleDesc.Count ||
+			desc.SampleDesc.Quality != color_desc.SampleDesc.Quality)
+		{
+			_RELEASE(Target->ui_icons_depth);
+			_RELEASE(Target->ui_icons_depth_texture);
+		}
+	}
+	if (!Target->ui_icons_depth_texture)
+	{
+		D3D10_TEXTURE2D_DESC desc = {};
+		desc.Width = color_desc.Width;
+		desc.Height = color_desc.Height;
+		desc.MipLevels = 1;
+		desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		desc.SampleDesc = color_desc.SampleDesc;
+		desc.Usage = D3D10_USAGE_DEFAULT;
+		desc.BindFlags = D3D10_BIND_DEPTH_STENCIL;
+		R_CHK(HW.pDevice->CreateTexture2D(&desc, nullptr, &Target->ui_icons_depth_texture));
+		R_CHK(HW.pDevice->CreateDepthStencilView(Target->ui_icons_depth_texture, nullptr, &Target->ui_icons_depth));
+	}
+
+	// Flush pending state before taking the snapshot; restore through the state manager.
+	StateManager.Apply();
+	ID3D10DepthStencilState* saved_state = nullptr;
+	UINT saved_stencil_ref;
+	HW.pDevice->OMGetDepthStencilState(&saved_state, &saved_stencil_ref);
+	RCache.set_ZB(Target->ui_icons_depth);
+	HW.pDevice->ClearDepthStencilView(Target->ui_icons_depth,
+		D3D10_CLEAR_DEPTH | D3D10_CLEAR_STENCIL, 1.f, 0);
+	RCache.set_Z(TRUE);
+	GMUI3D.r_dsgraph_render_ui_3d();
+	RCache.set_ZB(saved_depth);
+	StateManager.SetDepthStencilState(saved_state);
+	StateManager.SetStencilRef(saved_stencil_ref);
+	StateManager.Apply();
+	_RELEASE(saved_state);
+	_RELEASE(queried_depth);
+	if (queried_color_target) color_target->Release();
+
 }
 
 void CRender::render_forward()
 {
-	VERIFY(0==mapDistort.size());
 	RImplementation.o.distortion = RImplementation.o.distortion_enabled; // enable distorion
 
 	//******* Main render - second order geometry (the one, that doesn't support deffering)
 	//.todo: should be done inside "combine" with estimation of of luminance, tone-mapping, etc.
 	{
 		// level
-		r_pmask(false, true); // enable priority "1"
 		phase = PHASE_NORMAL;
-		render_main(Device.mFullTransform, false); //
 		//	Igor: we don't want to render old lods on next frame.
-		mapLOD.clear();
-		r_dsgraph_render_graph(1); // normal level, secondary priority
-		PortalTraverser.fade_render(); // faded-portals
-		r_dsgraph_render_sorted(); // strict-sorted geoms
+		GMBase.r_dsgraph_render_static(1); // normal level, secondary priority
+		CParticlesAsync::Wait();
+		GMBase.r_dsgraph_render_dynamic(1);
+		GMBase.fade_render(); // faded-portals
+		GMBase.r_dsgraph_render_sorted(false); // strict-sorted geoms
 		g_pGamePersistent->Environment().RenderLast(); // rain/thunder-bolts
+		GMBase.r_dsgraph_render_sorted_hud();
 	}
 
 	RImplementation.o.distortion = FALSE; // disable distorion
@@ -668,3 +360,4 @@ void CRender::RenderToTarget(RRT target)
 	HW.pDevice->CopyResource((*RT)->pSurface, pBuffer);
 	pBuffer->Release();
 }
+

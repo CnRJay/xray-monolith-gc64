@@ -9,9 +9,9 @@ _G.OnLoadingScreenKeyPrompt = function()
 end
 
 -- Callback for when player dismisses loading screen after "Press Any Key to Continue" pressed
-_G.OnLoadingScreenDismissed = function()
+_G.OnLoadingScreenDismissed = doOnce(function()
 	SendScriptCallback("on_loading_screen_dismissed")
-end
+end)
 
 -- Generic net spawn/net destroy callbacks
 AddScriptCallback("game_object_on_net_spawn")
@@ -144,6 +144,13 @@ _G.CWeapon_OnSwitchZoomType = function(obj, previous, current)
 	SendScriptCallback("actor_on_weapon_zoom_type_changed", obj, previous, current)
 end
 
+-- Called from CWeapon::net_Spawn after upgrades install and before the addons apply
+-- Only here can obj:cast_Weapon():SetSilencerName(section) change a suppressor that is already attached
+AddScriptCallback("weapon_on_net_spawn")
+_G.CWeapon_NetSpawn = function(obj)
+	SendScriptCallback("weapon_on_net_spawn", obj)
+end
+
 -- WIP DONT TOUCH
 -- AddScriptCallback("rocket_on_update")
 -- Called when rocket is flying
@@ -249,7 +256,50 @@ _G.CBeforeHitAfterCalcs = function(shit, target, boneId)
 	SendScriptCallback("on_before_hit_after_calcs", shit, target, boneId)
 end
 
---[[ 
+-- Monster combat action decision callback, fired at the head of every species state manager and
+-- the shared monster attack selectors (the poltergeist excepted, its live selector is
+-- hidden-attack/rest only). A subscriber sets flags.substate to a monster_state.* id: an
+-- eStateAttack_* substate steers the attack trees, a top-level id (monster_state.eStatePanic,
+-- eStateHitted, eStateThreaten, eStateAttack_Psy) steers the state manager. The engine selects it
+-- only where that species registers the state and its own start conditions pass, else the vanilla
+-- selection runs. Left at -1 = no proposal = exact vanilla.
+-- The result is memoized per monster per frame, so this relay fires at most once per monster per
+-- frame even where a state manager and an attack tree both consult it; it still crosses into Lua
+-- once per combat-active monster per frame with zero subscribers.
+AddScriptCallback("monster_on_combat_action")
+_G.CMonsterCombatAction = function(monster, enemy, dist, enemy_strength, can_jump)
+	local flags = { substate = -1 }
+	SendScriptCallback("monster_on_combat_action", monster, enemy, dist, enemy_strength, can_jump, flags)
+	return tonumber(flags.substate) or -1
+end
+
+-- Monster run-attack end: fired at the charge animation's end, and also when the charge fails to build
+-- its path at the start (control_run_attack.cpp:85,117), so a charge that never moved fires it too. A
+-- charge preempted mid-run by a higher-priority capture, a critical wound, death or a level change is
+-- released outside those sites and does not fire it. The charge is a control capture invisible to
+-- get_monster_state (a charging monster still reads eStateAttack). One argument: the monster.
+AddScriptCallback("monster_on_run_attack_end")
+_G.CMonsterOnRunAttackEnd = function(monster)
+	SendScriptCallback("monster_on_run_attack_end", monster)
+end
+
+-- Monster melee-jump end: fired when a monster's rear spin-strike (the melee-jump component) finishes.
+-- The strike is engine-fired and invisible to get_monster_state; this is its only Lua signal.
+-- One argument: the monster.
+AddScriptCallback("monster_on_melee_jump_end")
+_G.CMonsterOnMeleeJumpEnd = function(monster)
+	SendScriptCallback("monster_on_melee_jump_end", monster)
+end
+
+-- Burer gravi blast fired: fired when a burer launches a gravity attack (CBurer::on_gravi_fired, from
+-- the gravi state). The engine exposes no "gravi active" read, so this is the only Lua signal the blast
+-- happened, the forced request path included. One argument: the burer.
+AddScriptCallback("burer_on_gravi")
+_G.CBurerOnGravi = function(burer)
+	SendScriptCallback("burer_on_gravi", burer)
+end
+
+--[[
 
 On right click on PDA map callback
 Params are property_ui and map_table
@@ -306,6 +356,20 @@ function pda.map_spot_selected(id, level_name, spot_type)
 	SendScriptCallback("on_map_spot_selected", id, level_name, spot_type)
 end
 
+-- Map location callbacks
+-- fire when a map spot is added to or removed from the map manager, in single player only
+-- spot_type is the spot section, object_id the object the spot marks
+-- removals are queued on the map update thread and sent from the main thread on the next frame
+AddScriptCallback("on_map_location_added")
+_G.COnMapLocationAdded = function(spot_type, object_id)
+	SendScriptCallback("on_map_location_added", spot_type, object_id)
+end
+
+AddScriptCallback("on_map_location_removed")
+_G.COnMapLocationRemoved = function(spot_type, object_id)
+	SendScriptCallback("on_map_location_removed", spot_type, object_id)
+end
+
 -- On receive game news callback
 AddScriptCallback("on_news_received")
 _G.CUIMessagesWindow__AddIconedPdaMessage = function(UIMessageView, UITimeText, UICaptionText, UIMsgText, UIIconStatic, UIMessagesScrollView)
@@ -322,7 +386,7 @@ _G.CAI_Stalker__OnBeforeOwnershipTake = function(npc, item)
 end
 
 AddScriptCallback("npc_set_body_state")
-function _G.CAI_Stalker__SetBodyState(npc, state)
+_G.CAI_Stalker__SetBodyState = function(npc, state)
 	local flags = {ret_value = state}
 	SendScriptCallback("npc_set_body_state",npc, state, flags)
 	return flags.ret_value
@@ -350,7 +414,7 @@ body_state = {
 }
 --]]
 AddScriptCallback("npc_on_combat_set_body_state")
-function _G.CAI_Stalker__CombatSetBodyState(npc,world_operator,body_state)
+_G.CAI_Stalker__CombatSetBodyState = function(npc,world_operator,body_state)
 	local csbs_flags = {body_state = body_state}
 	SendScriptCallback("npc_on_combat_set_body_state",npc,world_operator,body_state,csbs_flags)
 	return csbs_flags.body_state
@@ -373,7 +437,6 @@ end
 -- is registered near the NPC. in_open=true when NPC has no cover point selected.
 -- cover_threatened=true when the danger overlaps the NPC's current cover position.
 -- Use npc:best_cover_invalidate() to force cover re-evaluation.
--- Use npc:rank_name() to scale reaction threshold by rank.
 AddScriptCallback("npc_on_danger_location_add")
 _G.CAI_Stalker__OnDangerLocationAdd = function(npc, pos, radius, in_open, cover_threatened)
 	SendScriptCallback("npc_on_danger_location_add", npc, pos, radius, in_open, cover_threatened)
@@ -391,7 +454,24 @@ _G.CAI_Stalker__OnWeaponShotStop = function(npc)
 	SendScriptCallback("npc_on_weapon_shot_stop", npc)
 end
 
--- NPC grenade throw gate. Return false to prevent the throw. Use npc:rank_name() to scale by rank
+-- NPC weapon reload start callback. Fires when a stalker's weapon enters the reload state, on every
+-- reload path (planner reload, scripted state, tri-state shotgun shell loading, misfire clear).
+-- The actor is excluded: actor reloads already fire actor_on_weapon_reload.
+AddScriptCallback("npc_on_weapon_reload_start")
+_G.CAI_Stalker__OnWeaponReloadStart = function(npc, weapon)
+	SendScriptCallback("npc_on_weapon_reload_start", npc, weapon)
+end
+
+-- NPC weapon reload stop callback. Fires when the weapon leaves the reload state for any reason
+-- (finished, interrupted by a weapon or state switch). Best-effort: a weapon detached mid-reload
+-- (owner died, weapon dropped) has no stalker parent and fires nothing - where the truth matters,
+-- poll wpn:get_state() == 7 (CWeapon::eReload; eFire=5, eFire2=6, eReload=7 from eLastBaseState=4).
+AddScriptCallback("npc_on_weapon_reload_stop")
+_G.CAI_Stalker__OnWeaponReloadStop = function(npc, weapon)
+	SendScriptCallback("npc_on_weapon_reload_stop", npc, weapon)
+end
+
+-- NPC grenade throw gate. Return false to prevent the throw.
 -- Note: only fires when throw trajectory is clear, after engine validity checks pass
 AddScriptCallback("npc_on_should_throw")
 _G.CAI_Stalker__ShouldThrow = function(npc)
@@ -401,13 +481,23 @@ _G.CAI_Stalker__ShouldThrow = function(npc)
 end
 
 -- NPC grenade throw force override. Return a float to override throw force.
--- Lower values = shorter throw range. Use npc:rank_name() to scale by rank
+-- Lower values = shorter throw range.
+AddScriptCallback("npc_on_missile_throw_force")
 _G.CAI_Stalker__GetMissileThrowForce = function(npc, base_force)
 	local flags = { ret_value = base_force }
 	SendScriptCallback("npc_on_missile_throw_force", npc, base_force, flags)
 	return flags.ret_value
 end
-AddScriptCallback("npc_on_missile_throw_force")
+
+-- Actor grenade throw force override. missile is the item being thrown, base_force the force the engine picked.
+-- Multiply flags.ret_value rather than assigning it, so that several addons can stack.
+-- The result must be > 0, otherwise it is ignored
+AddScriptCallback("actor_on_missile_throw_force")
+_G.CActor__GetMissileThrowForce = function(missile, base_force)
+	local flags = { ret_value = base_force }
+	SendScriptCallback("actor_on_missile_throw_force", missile, base_force, flags)
+	return flags.ret_value
+end
 
 -- NPC wounded/killed an enemy callback. victim is the enemy that was wounded or killed
 AddScriptCallback("npc_on_enemy_wounded_or_killed")
@@ -446,6 +536,20 @@ _G.CAI_Stalker__AllowCombatActionSwitch = function(npc, from_op, to_op)
 	return flags.allow ~= false
 end
 
+-- NPC best-cover re-pick veto. Fires BEFORE the NPC replaces its current best cover
+-- (on_best_cover_changed, which clears InCover/LookedOut/PositionHolded, runs after an
+-- allowed change). Set flags.allow = false to keep the current cover. Only fires when a
+-- cover is already held; a change to a different point and losing the cover entirely both count.
+-- Re-asked on the next invalidation while denied; two invalidators are standing state (enemy
+-- within 3m of the held cover, smart cover without a loophole) and re-ask every combat action
+-- update, so keep subscribers cheap and cap a continuous denial.
+AddScriptCallback("npc_on_best_cover_repick")
+_G.CAI_Stalker__AllowCoverRepick = function(npc)
+	local flags = { allow = true }
+	SendScriptCallback("npc_on_best_cover_repick", npc, flags)
+	return flags.allow ~= false
+end
+
 -- NPC TakeCover destination callback. Only fires when a real cover point is found, not on fallback paths
 AddScriptCallback("npc_on_take_cover_destination")
 _G.CAI_Stalker__OnTakeCoverDestination = function(npc, cover_pos, enemy)
@@ -466,22 +570,45 @@ end
 -- Returns the minimum distance from enemy at which this NPC will accept a cover point.
 -- Snipers use a high min (they need distance to fire effectively).
 -- Default is computed from ef_weapon_type and ai_cover_sniper_min_dist / MIN_SUITABLE_ENEMY_DISTANCE.
+AddScriptCallback("npc_on_get_min_combat_dist")
 _G.CAI_Stalker__GetMinCombatDist = function(npc, base_min)
 	local flags = { ret_value = base_min }
 	SendScriptCallback("npc_on_get_min_combat_dist", npc, base_min, flags)
 	return flags.ret_value
 end
-AddScriptCallback("npc_on_get_min_combat_dist")
 
 -- NPC maximum combat engagement distance override
 -- Returns the maximum distance from enemy at which this NPC will accept a cover point.
 -- Shotgunners use a low max (close cover only). Default computed from ef_weapon_type.
+AddScriptCallback("npc_on_get_max_combat_dist")
 _G.CAI_Stalker__GetMaxCombatDist = function(npc, base_max)
 	local flags = { ret_value = base_max }
 	SendScriptCallback("npc_on_get_max_combat_dist", npc, base_max, flags)
 	return flags.ret_value
 end
-AddScriptCallback("npc_on_get_max_combat_dist")
+
+-- Add on_item_take/drop callbacks for Sidorovich/Forester
+AddScriptCallback("sid_forester_on_item_take")
+AddScriptCallback("sid_forester_on_item_drop")
+function bind_trader.trader_object_binder:on_item_take(item)
+	SendScriptCallback("sid_forester_on_item_take", self.object, item)
+end
+function bind_trader.trader_object_binder:on_item_drop(item)
+	SendScriptCallback("sid_forester_on_item_drop", self.object, item)
+end
+
+bind_trader_trader_object_binder_reinit = bind_trader.trader_object_binder.reinit
+bind_trader.trader_object_binder.reinit = function(self)
+	bind_trader_trader_object_binder_reinit(self)
+	self.object:set_callback(callback.on_item_take, self.on_item_take, self)
+	self.object:set_callback(callback.on_item_drop, self.on_item_drop, self)
+end
+bind_trader_trader_object_binder_net_destroy = bind_trader.trader_object_binder.net_destroy
+bind_trader.trader_object_binder.net_destroy = function(self)
+	self.object:set_callback(callback.on_item_take, nil)
+	self.object:set_callback(callback.on_item_drop, nil)
+	bind_trader_trader_object_binder_net_destroy(self)
+end
 
 -- actor_on_task_callback
 AddScriptCallback("actor_on_task_callback")
@@ -527,9 +654,16 @@ _G.CPickupModeUpdate_COD = function(obj)
 end
 
 --[[
-on_before_play_hud_sound callback, possibility to override sound with another one, or changing the volume of existing sound or both
-Callback returns a table which must contain "section", "line" or "volume_mult" fields, which refer to section and line to load new sounds from, and the volume multiplier.
-Unforturnately, the engine have some limitation regarding its sound's volume, so it can't increase the volume too much.
+on_before_play_hud_sound callback, possibility to override sound with another one, or change the volume, the frequency or
+the delay of an existing sound, or any combination of those
+
+Callback returns a table which must contain "section", "line", "volume_mult", "frequency_mult" or "delay_mult" fields, which
+refer to the section and line to load the new sound from, the volume multiplier, the playback rate, and the delay scale.
+
+Unfortunately, the engine have some limitation regarding its sound's volume, so it can't increase the volume too much.
+
+Do not assign the multipliers directly, but multiply your value with it instead, so that several addons can stack.
+Assigning throws away what other addons before you asked for, and whichever callback happens to run last wins.
 
 Arguments
 	Alias: internal sound type in the engine
@@ -539,14 +673,24 @@ Example:
 	if alias == "sndShot" and parent and parent:id() == AC_ID then
 		result.section = "wpn_l96a1_sounds"
 		result.line = "snd_shoot"
-		result.volume_mult = 0.75 -- Multiply the fire sound's volume by 0.75
+		result.volume_mult = result.volume_mult * 0.75 -- 0.75x volume
 	end
 
 Or:
 	if alias == "sndShot" and parent and parent:id() == AC_ID then
-		result.volume_mult = 0.5 -- Multiply the fire sound's volume by 0.5
+		result.volume_mult = result.volume_mult * 0.5 -- 0.5x volume
 	end
-	
+
+Or:
+	if alias == "sndReload" and parent and parent:id() == AC_ID then
+		result.frequency_mult = result.frequency_mult * 1.25 -- 1.25x faster, and 1.25x higher pitched
+	end
+
+Or:
+	if alias == "sndReloadG" and parent and parent:id() == AC_ID then
+		result.frequency_mult = result.frequency_mult * 1.25 -- 1.25x faster
+		result.delay_mult = result.delay_mult / 1.25 -- ...and its lead-in forward to match
+	end
 
 Possible aliases:
 	"catch_snd"
@@ -610,12 +754,123 @@ _G.COnBeforePlayHudSound = function(alias, parent)
 	local result = {
 		section = nil,
 		line = nil,
-		volume_mult = nil
+		volume_mult = 1,
+		frequency_mult = 1,
+		delay_mult = 1
 	}
 
 	SendScriptCallback("on_before_play_hud_sound", alias, parent, result)
 
-	if (result.section and result.line) or result.volume_mult then
+	if (result.section and result.line) or result.volume_mult ~= 1 or result.frequency_mult ~= 1 or result.delay_mult ~= 1 then
+		return result
+	end
+end
+
+--[[
+on_before_play_script_sound callback, scale or veto any script sound_object play (CScriptSound).
+Return via result.volume_mult: 0 vetoes, <1 attenuates, 1 leaves vanilla. A later engine
+.volume write can override the attenuation.
+
+Arguments
+	file: resolved sound file name
+	pos: Fvector world position, nil when the play is 2D / positionless
+	obj: game_object that owns the sound, nil when absent
+--]]
+AddScriptCallback("on_before_play_script_sound")
+_G.COnBeforePlayScriptSound = function(file, pos, obj)
+	local result = { volume_mult = 1 }
+	SendScriptCallback("on_before_play_script_sound", file, pos, obj, result)
+  	if result.volume_mult ~= 1 then
+		return result
+	end
+end
+
+--[[
+on_before_play_ambient_bed callback, scale or veto the per-weather ambient background bed.
+Fired from CGamePersistent::WeathersUpdate (GamePersistent.cpp) at each bed play site.
+Return via result.volume_mult: 0 vetoes the play, <1 attenuates, 1 leaves vanilla.
+
+Arguments
+	section: weather ambient section the bed loads from
+	file: resolved sound file name, "" when the handle is not ready yet
+	pos: Fvector world position the bed plays at
+--]]
+AddScriptCallback("on_before_play_ambient_bed")
+_G.COnAmbientBed = function(section, file, pos)
+	local result = { volume_mult = 1 }
+	SendScriptCallback("on_before_play_ambient_bed", section, file, pos, result)
+	if result.volume_mult ~= 1 then
+		return result
+	end
+end
+
+--[[
+on_before_play_ambient_effect callback, scale or veto the weather-effect recording sound
+(CGamePersistent::WeathersUpdate). The particle burst and wind blast still play regardless.
+Return via result.volume_mult: 0 vetoes the sound, <1 attenuates, 1 leaves vanilla.
+
+Arguments
+	file: resolved effect sound file name
+	pos: Fvector world position the effect plays at
+--]]
+AddScriptCallback("on_before_play_ambient_effect")
+_G.COnAmbientEffectSound = function(file, pos)
+	local result = { volume_mult = 1 }
+	SendScriptCallback("on_before_play_ambient_effect", file, pos, result)
+	if result.volume_mult ~= 1 then
+		return result
+	end
+end
+
+--[[
+on_before_play_thunderbolt callback, scale or veto the lightning-strike clap. Fires on the
+last bolt of a burst only.
+Return via result.volume_mult: 0 vetoes the clap, <1 attenuates, 1 leaves vanilla.
+
+Arguments
+	file: resolved clap sound file name
+	distance: distance to the strike in metres
+--]]
+AddScriptCallback("on_before_play_thunderbolt")
+_G.COnThunderboltSound = function(file, distance)
+	local result = { volume_mult = 1 }
+	SendScriptCallback("on_before_play_thunderbolt", file, distance, result)
+	if result.volume_mult ~= 1 then
+		return result
+	end
+end
+
+--[[
+on_before_play_rain callback, scale or veto the looped rain ambient (CEffect_Rain). Sampled
+at rain onset, so a veto applies from the next time rain starts.
+Return via result.volume_mult: 0 vetoes the loop, <1 attenuates, 1 leaves vanilla.
+
+Arguments
+	file: resolved rain ambient file name
+--]]
+AddScriptCallback("on_before_play_rain")
+_G.COnRainSound = function(file)
+	local result = { volume_mult = 1 }
+	SendScriptCallback("on_before_play_rain", file, result)
+  	if result.volume_mult ~= 1 then
+		return result
+	end
+end
+
+--[[
+on_before_play_level_music callback, scale or silence the level music track.
+Fired from SMusicTrack::Play (level_sounds.cpp). Volume-only: a skip would make the
+manager re-select every frame, so 0 silences rather than stops the track.
+Return via result.volume_mult: 0 silences, <1 attenuates, 1 leaves vanilla.
+
+Arguments
+	file: resolved music track file name, "" when the handle is not ready yet
+--]]
+AddScriptCallback("on_before_play_level_music")
+_G.COnLevelMusic = function(file)
+	local result = { volume_mult = 1 }
+	SendScriptCallback("on_before_play_level_music", file, result)
+	if result.volume_mult ~= 1 then
 		return result
 	end
 end
@@ -634,6 +889,12 @@ function on_imgui_render(name)
 	SendScriptCallback("imgui_on_render", name)
 end
 
+AddScriptCallback("imgui_on_show")
+AddScriptCallback("imgui_on_hide")
+function on_imgui_show(show)
+	SendScriptCallback(show and "imgui_on_show" or "imgui_on_hide")
+end
+
 --on GAME path build fail callback (can be used when npc tries to get to currently unavailable smart), 
 --can be used to intercept and redirect squad to available smart, also can suppress error message with flags.ret_value = false
 AddScriptCallback("npc_on_game_path_build_fail")
@@ -647,6 +908,18 @@ end
 AddScriptCallback("actor_on_item_state_switch")
 _G.CHudItem__OnStateSwitch = function(obj, new_state, old_state)
 	SendScriptCallback("actor_on_item_state_switch", obj, new_state, old_state)
+end
+
+-- NLTP_ASHES: game.play_hud_motion item model created
+AddScriptCallback("actor_on_create_hud_motion_item")
+_G.player_hud__OnCreateHudMotionItem = function(section)
+	SendScriptCallback("actor_on_create_hud_motion_item", section)
+end
+
+-- NLTP_ASHES: first person legs model created
+AddScriptCallback("actor_on_create_legs")
+_G.player_legs_controller__OnCreateLegs = function(section)
+	SendScriptCallback("actor_on_create_legs", section)
 end
 
 -- NLTP_ASHES: Trigger actor_on_item_put_in_box callback when moving item to stash from slot

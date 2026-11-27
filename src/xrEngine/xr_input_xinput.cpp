@@ -13,11 +13,11 @@ typedef void (WINAPI* LPXINPUTENABLE)(BOOL bEnable);
 
 HRESULT DXUTGetGamepadState( DWORD dwPort, DXUT_GAMEPAD* pGamePad, bool bThumbstickDeadZone, bool bSnapThumbstickToCardinals )
 {
-if( dwPort >= DXUT_MAX_CONTROLLERS || pGamePad == nullptr )
+if( dwPort >= DXUT_MAX_CONTROLLERS || pGamePad == NULL )
 return E_FAIL;
 
-static LPXINPUTGETSTATE s_pXInputGetState = nullptr;
-static LPXINPUTGETCAPABILITIES s_pXInputGetCapabilities = nullptr;
+static LPXINPUTGETSTATE s_pXInputGetState = NULL;
+static LPXINPUTGETCAPABILITIES s_pXInputGetCapabilities = NULL;
 if( NULL == s_pXInputGetState || NULL == s_pXInputGetCapabilities )
 {
 HINSTANCE hInst = LoadLibrary( XINPUT_DLL );
@@ -27,7 +27,7 @@ s_pXInputGetState = (LPXINPUTGETSTATE)GetProcAddress( hInst, "XInputGetState" );
 s_pXInputGetCapabilities = (LPXINPUTGETCAPABILITIES)GetProcAddress( hInst, "XInputGetCapabilities" );
 }
 }
-if( s_pXInputGetState == nullptr )
+if( s_pXInputGetState == NULL )
 return E_FAIL;
 
 XINPUT_STATE InputState;
@@ -111,7 +111,7 @@ return S_OK;
 
 void set_vibration (u16 s1, u16 s2)
 {
-static LPXINPUTSETSTATE s_pXInputSetState = nullptr;
+static LPXINPUTSETSTATE s_pXInputSetState = NULL;
 if( NULL == s_pXInputSetState )
 {
 HINSTANCE hInst = LoadLibrary( XINPUT_DLL );

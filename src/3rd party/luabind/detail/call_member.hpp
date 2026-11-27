@@ -95,6 +95,7 @@ namespace luabind
 	
 						assert(0 && "the lua function threw an error and exceptions are disabled."
 								"If you want to handle this error use luabind::set_error_callback()");
+						
 #endif
 					}
 					// pops the return values from the function
@@ -125,6 +126,7 @@ namespace luabind
 	
 						assert(0 && "the lua function threw an error and exceptions are disabled."
 							"If you want to handle this error use luabind::set_error_callback()");
+						
 #endif
 					}
 
@@ -144,6 +146,7 @@ namespace luabind
 
 						assert(0 && "the lua function's return value could not be converted."
 							"If you want to handle this error use luabind::set_error_callback()");
+						
 #endif
 					}
 #endif
@@ -177,6 +180,7 @@ namespace luabind
 	
 						assert(0 && "the lua function threw an error and exceptions are disabled."
 							"If you want to handle this error use luabind::set_error_callback()");
+						
 #endif
 					}
 
@@ -196,6 +200,7 @@ namespace luabind
 
 						assert(0 && "the lua function's return value could not be converted."
 							"If you want to handle this error use luabind::set_error_callback()");
+						
 #endif
 					}
 #endif
@@ -273,6 +278,7 @@ namespace luabind
                         {
                             assert(0 && "the lua function threw an error and exceptions are disabled."
                                 "If you want to handle this error use luabind::set_error_callback()");
+                            
                         }
 #endif
 					}
@@ -304,6 +310,7 @@ namespace luabind
 	
 						assert(0 && "the lua function threw an error and exceptions are disabled."
 							"If you want to handle this error use luabind::set_error_callback()");
+						
 #endif
 					}
 					// pops the return values from the function

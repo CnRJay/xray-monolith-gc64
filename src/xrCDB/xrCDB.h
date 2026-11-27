@@ -21,6 +21,8 @@
 #define ALIGN(a)
 #endif
 
+#include "../xrCore/profiler.h"
+
 // forward declarations
 class CFrustum;
 
@@ -71,9 +73,8 @@ namespace CDB
 		};
 
 	private:
-		xrCriticalSection cs;
 		Opcode::OPCODE_Model* tree;
-		u32 status; // 0=ready, 1=init, 2=building
+		xr_atomic_u32 status; // 0=ready, 1=init, 2=building
 
 		// tris
 		TRI* tris;
@@ -90,20 +91,27 @@ namespace CDB
 		IC const TRI* get_tris() const { return tris; }
 		IC TRI* get_tris() { return tris; }
 		IC int get_tris_count() const { return tris_count; }
-		IC void syncronize() const
+		xr_task_group async_cform_load;
+		IC void syncronize()
 		{
 			if (S_READY != status)
 			{
 				Log ("! WARNING: syncronized CDB::query");
-				xrCriticalSection* C = (xrCriticalSection*)&cs;
-				C->Enter();
-				C->Leave();
+				PROF_EVENT("CDB::MODEL::syncronize", PROF_CAT(Wait));
+				async_cform_load.wait();
 			}
 		}
 
 		static void build_thread(void*);
-		void build_internal(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callback* bc = nullptr, void* bcp = nullptr);
-		void build(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callback* bc = nullptr, void* bcp = nullptr);
+		// Copies the geometry and runs the material remap callback. This is the cheap
+		// half, and it publishes verts/tris, so callers that only read the arrays
+		// need nothing else.
+		void build_arrays(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callback* bc = NULL, void* bcp = NULL);
+		// Builds the OPCODE tree over the arrays published by build_arrays. This is
+		// the expensive half and the only part worth moving to a background task.
+		void build_tree();
+		void build_internal(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callback* bc = NULL, void* bcp = NULL);
+		void build(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callback* bc = NULL, void* bcp = NULL);
 		u32 memory();
 	};
 
@@ -145,6 +153,7 @@ namespace CDB
 		u32 ray_mode;
 		u32 box_mode;
 		u32 frustum_mode;
+		u32 obb_mode;
 
 		// Result management
 		xr_vector<RESULT> rd;
@@ -161,6 +170,9 @@ namespace CDB
 		ICF void frustum_options(u32 f) { frustum_mode = f; }
 		void frustum_query(const MODEL* m_def, const CFrustum& F);
 
+		ICF void obb_options(u32 f) { obb_mode = f; }
+		void obb_query(const MODEL* m_def, const Fobb& _obb);
+
 		ICF RESULT* r_begin() { return &*rd.begin(); };
 		ICF RESULT* r_end() { return &*rd.end(); };
 		RESULT& r_add();
@@ -168,16 +180,29 @@ namespace CDB
 		ICF int r_count() { return rd.size(); };
 		ICF void r_clear() { rd.clear_not_free(); };
 		ICF void r_clear_compact() { rd.clear_and_free(); };
+		IC xr_vector<RESULT>& r_vec() { return rd; };
 	};
 
 	//
 	class XRCDB_API Collector
 	{
+	public:
+#pragma pack(push,1)
+		struct edge
+		{
+			u32 face_id;
+			u32 edge_id;
+			u32 vertex_id0;
+			u32 vertex_id1;
+		};
+#pragma pack(pop)
+
 		xr_vector<Fvector> verts;
 		xr_vector<TRI> faces;
+		xr_vector<edge>		edges;
 
 		u32 VPack(const Fvector& V, float eps);
-	public:
+
 		void add_face(const Fvector& v0, const Fvector& v1, const Fvector& v2, u16 material, u16 sector);
 		void add_face_D(const Fvector& v0, const Fvector& v1, const Fvector& v2, u32 dummy);
 		void add_face_packed(const Fvector& v0, const Fvector& v1, const Fvector& v2, u16 material, u16 sector,
@@ -190,6 +215,7 @@ namespace CDB
 		size_t getVS() { return verts.size(); }
 		TRI* getT() { return &*faces.begin(); }
 		size_t getTS() { return faces.size(); }
+		ICF void			reserve			(u32 tris_size){ faces.reserve(tris_size); verts.reserve(tris_size*3); }
 
 		void clear()
 		{

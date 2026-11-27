@@ -11,7 +11,7 @@ struct auth_options
 
 void auth_entry(void* p)
 {
-	PROF_EVENT();
+	PROF_EVENT(PROF_CAT(IO));
 
 	FS.auth_runtime(p);
 }
@@ -38,7 +38,7 @@ u64 CLocatorAPI::auth_get()
 
 void CLocatorAPI::auth_runtime(void* params)
 {
-	PROF_EVENT();
+	PROF_EVENT(PROF_CAT(IO));
 
 	m_auth_lock.Enter();
 	auth_options* _o = (auth_options*)params;
@@ -47,24 +47,11 @@ void CLocatorAPI::auth_runtime(void* params)
 	pSettingsAuth->save_as(writer);
 	m_auth_code = crc32(writer.pointer(), writer.size());
 
-#ifdef DEBUG
-    if (strstr(Core.Params, "auth_debug"))
-    {
-        string_path tmp_path;
-        update_path(tmp_path, "$app_data_root$", "auth_psettings.ltx");
-        IWriter* tmp_dst = w_open(tmp_path);
-        pSettingsAuth->save_as(*tmp_dst, false);
-        w_close(tmp_dst);
-    }
-#endif
-
-	bool do_break = false;
-
-#ifdef DEBUG
-    bool b_extern_auth = !!strstr(Core.Params, "asdf");
-    if (!b_extern_auth)
-#endif // DEBUG
+	// Snapshot the files to hash under the shared lock, then hash with it
+	// released: FS.r_open() takes m_files_lock itself and SRWLOCK isn't reentrant.
+	xr_vector<xr_string> to_hash;
 	{
+		xrSRWLockGuard guard(m_files_lock, true);
 		for (files_it it = m_files.begin(); it != m_files.end(); ++it)
 		{
 			const file& f = *it;
@@ -84,41 +71,23 @@ void CLocatorAPI::auth_runtime(void* params)
 			for (u32 s = 0; s < _o->important.size(); s++)
 			{
 				if ((f.size_real != 0) && strstr(f.name, _o->important[s].c_str()))
-				{
-					// crc for file
-					IReader* r = FS.r_open(f.name);
-					if (!r)
-					{
-						do_break = true;
-						break;
-					}
-					u32 crc = crc32(r->pointer(), r->length());
-
-#ifdef DEBUG
-                    if (strstr(Core.Params, "auth_debug"))
-                        Msg("auth %s = 0x%08x", f.name, crc);
-#endif // DEBUG
-
-					FS.r_close(r);
-					m_auth_code ^= u64(crc);
-				}
+					to_hash.push_back(f.name);
 			}
-
-			if (do_break)
-				break;
 		}
-#ifdef DEBUG
-        Msg("auth_code = %d", m_auth_code);
-#endif // DEBUG
 	}
-#ifdef DEBUG
-    else
-    {
-        string64 c_auth_code;
-        sscanf(strstr(Core.Params, "asdf ") + 5, "%[^ ] ", c_auth_code);
-        m_auth_code = _atoi64(c_auth_code);
-    }
-#endif // DEBUG
+
+	for (const xr_string& name : to_hash)
+	{
+		// crc for file
+		IReader* r = FS.r_open(name.c_str());
+		if (!r)
+			break;
+		u32 crc = crc32(r->pointer(), r->length());
+
+		FS.r_close(r);
+		m_auth_code ^= u64(crc);
+	}
+
 	xr_delete(_o);
 
 	m_auth_lock.Leave();

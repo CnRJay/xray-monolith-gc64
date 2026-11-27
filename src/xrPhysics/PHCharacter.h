@@ -23,7 +23,7 @@ namespace ALife
 	enum EHitType;
 };
 
-enum EEnvironment
+static enum EEnvironment
 {
 	peOnGround,
 	peAtWall,
@@ -85,8 +85,8 @@ protected:
 	float m_current_object_radius;
 public:
 	virtual ECastType CastType() { return CPHObject::tpCharacter; }
-	virtual CPHActorCharacter* CastActorCharacter() { return nullptr; }
-	virtual CPHAICharacter* CastAICharacter() { return nullptr; }
+	virtual CPHActorCharacter* CastActorCharacter() { return NULL; }
+	virtual CPHAICharacter* CastAICharacter() { return NULL; }
 	ERestrictionType RestrictionType() { return m_restriction_type; }
 	void SetNewRestrictionType(ERestrictionType rt) { m_new_restriction_type = rt; }
 	void SetRestrictionType(ERestrictionType rt) { m_new_restriction_type = m_restriction_type = rt; }
@@ -177,7 +177,7 @@ public:
 	virtual void SetObjectContactCallback(ObjectContactCallbackFun* callback) =0;
 	virtual void SetWheelContactCallback(ObjectContactCallbackFun* callback) =0;
 	virtual void SetStaticContactCallBack(ContactCallbackFun* calback) =0;
-	virtual ObjectContactCallbackFun* ObjectContactCallBack() { return nullptr; }
+	virtual ObjectContactCallbackFun* ObjectContactCallBack() { return NULL; }
 	virtual void GetVelocity(Fvector& vvel) const =0;
 	virtual void GetSavedVelocity(Fvector& vvel);
 	virtual void GetSmothedVelocity(Fvector& vvel) =0;

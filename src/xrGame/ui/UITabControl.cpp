@@ -1,18 +1,33 @@
 #include "StdAfx.h"
 #include "UITabControl.h"
 #include "UITabButton.h"
+#include "UITabScrollArrows.h"
+#include "UI3tButton.h"
+#include "UIStatic.h"
 
 CUITabControl::CUITabControl()
 	: m_cGlobalTextColor(0xFFFFFFFF),
 	  m_cActiveTextColor(0xFFFFFFFF),
 	  m_cActiveButtonColor(0xFFFFFFFF),
 	  m_cGlobalButtonColor(0xFFFFFFFF),
-	  m_bAcceleratorsEnable(true)
+	  m_bAcceleratorsEnable(true),
+	  m_content_w(0.0f),
+	  m_strip_w(0.0f),
+	  m_view_left(0.0f),
+	  m_view_right(0.0f),
+	  m_origin_x(0.0f),
+	  m_arrows(NULL)
 {
+	m_icon_pos.set(0.0f, 0.0f);
+	m_icon_box.set(0.0f, 0.0f);
+	m_icon_anchor.set(0.5f, 0.5f);
+	m_arrows = xr_new<CUITabScrollArrows>();
+	m_arrows->Init(this, this);
 }
 
 CUITabControl::~CUITabControl()
 {
+	xr_delete(m_arrows); // detaches the arrow widgets while this parent is still valid
 	RemoveAll();
 }
 
@@ -70,13 +85,51 @@ bool CUITabControl::AddItem(LPCSTR pItemName, LPCSTR pTexName, Fvector2 pos, Fve
 
 bool CUITabControl::AddItem(CUITabButton* pButton)
 {
+	return InsertItem(pButton, m_TabsArr.size());
+}
+
+void CUITabControl::SetScrollArrow(int side, CUIScrollArrowButton* arrow)
+{
+	m_arrows->Adopt(side, arrow);
+}
+
+bool CUITabControl::SetTabIcon(LPCSTR id, LPCSTR art)
+{
+	CUITabButton* b = GetButtonById(id);
+	if (!b)
+	{
+		Msg("! [CUITabControl] SetTabIcon: tab [%s] not found", id);
+		return false;
+	}
+	if (!b->SetIcon(art))
+		return false;
+	b->FitIcon(IconBox(b), m_icon_pos, m_icon_anchor);
+	return true;
+}
+
+Fvector2 CUITabControl::IconBox(const CUITabButton* b) const
+{
+	const Fvector2 tab = b->GetWndSize();
+
+	Fvector2 box = m_icon_box;
+	if (box.x <= 0.0f)
+		box.x = tab.y;
+	if (box.y <= 0.0f)
+		box.y = tab.y;
+	return box;
+}
+
+bool CUITabControl::InsertItem(CUITabButton* pButton, u32 at)
+{
 	pButton->SetAutoDelete(true);
 	pButton->Show(true);
 	pButton->Enable(true);
 	pButton->SetButtonAsSwitch(true);
 
 	AttachChild(pButton);
-	m_TabsArr.push_back(pButton);
+	m_TabsArr.insert(m_TabsArr.begin() + at, pButton);
+	if (!pButton->m_dynamic)
+		RebuildTabOverlaps();
 	R_ASSERT(pButton->m_btn_id.size());
 	return true;
 }
@@ -89,10 +142,30 @@ void CUITabControl::RemoveAll()
 		DetachChild(*it);
 	}
 	m_TabsArr.clear();
+	m_content_w = 0.0f;
+	m_origin_x = 0.0f;
+	if (m_arrows)
+		m_arrows->Show(false);
 }
 
 void CUITabControl::SendMessage(CUIWindow* pWnd, s16 msg, void* pData)
 {
+	// Scroll-arrow clicks (handled before the accelerator gate so they work regardless of mode)
+	if (BUTTON_CLICKED == msg)
+	{
+		const int side = m_arrows->SideOf(pWnd);
+		if (side == CUITabScrollArrows::eLeft)
+		{
+			ScrollBy(-ScrollStep());
+			return;
+		}
+		if (side == CUITabScrollArrows::eRight)
+		{
+			ScrollBy(ScrollStep());
+			return;
+		}
+	}
+
 	if (!GetAcceleratorsMode())
 		return;
 
@@ -148,12 +221,13 @@ void CUITabControl::OnTabChange(const shared_str& sCur, const shared_str& sPrev)
 	CUITabButton* tb_cur = GetButtonById(sCur);
 	CUITabButton* tb_prev = GetButtonById(sPrev);
 	if (tb_prev)
-		tb_prev->SendMessage(tb_cur, TAB_CHANGED, nullptr);
+		tb_prev->SendMessage(tb_cur, TAB_CHANGED, NULL);
 
-	tb_cur->SendMessage(tb_cur, TAB_CHANGED, nullptr);
+	if (tb_cur)
+		tb_cur->SendMessage(tb_cur, TAB_CHANGED, NULL);	
 
 	if (GetAcceleratorsMode())
-		GetMessageTarget()->SendMessage(this, TAB_CHANGED, nullptr);
+		GetMessageTarget()->SendMessage(this, TAB_CHANGED, NULL);
 }
 
 void CUITabControl::SetActiveTab(const shared_str& sNewTab)
@@ -165,6 +239,7 @@ void CUITabControl::SetActiveTab(const shared_str& sNewTab)
 	OnTabChange(m_sPushedId, m_sPrevPushedId);
 
 	m_sPrevPushedId = m_sPushedId;
+	EnsureVisible(m_sPushedId);
 }
 
 bool CUITabControl::OnKeyboardAction(int dik, EUIMessages keyboard_action)
@@ -194,7 +269,7 @@ CUITabButton* CUITabControl::GetButtonById(const shared_str& id)
 	if (it != m_TabsArr.end())
 		return *it;
 	else
-		return nullptr;
+		return NULL;
 }
 
 /*
@@ -212,7 +287,7 @@ CUIButton* CUITabControl::GetButtonByCommand(const shared_str& n)
 		if(m_TabsArr[i]->WindowName() == n)
 			return m_TabsArr[i];
 
-	return nullptr;
+	return NULL;
 }*/
 
 void CUITabControl::ResetTab()

@@ -123,17 +123,34 @@ void CPHSimpleCharacter::UpdateDynamicDamage(dContact* c, u16 obj_material_idx, 
 #endif
 	if (c_vel > m_collision_damage_info.m_contact_velocity)
 	{
-		IPhysicsShellHolder* obj = bo1 ? retrieveRefObject(c->geom.g2) : retrieveRefObject(c->geom.g1);
-		VERIFY(obj);
-		if (obj && !obj->ObjectGetDestroy())
-		{
-			m_collision_damage_info.m_contact_velocity = c_vel;
-			m_collision_damage_info.m_dmc_signum = bo1 ? 1.f : -1.f;
-			m_collision_damage_info.m_dmc_type = SCollisionDamageInfo::ctObject;
-			m_collision_damage_info.m_damege_contact = *c;
-			m_collision_damage_info.m_hit_callback = obj->ObjectGetCollisionHitCallback();
-			m_collision_damage_info.m_obj_id = obj->ObjectID();
-		}
+        IPhysicsShellHolder* obj = nullptr;
+        if (bo1)
+        {
+            if (c->geom.g2)
+                obj = retrieveRefObject(c->geom.g2);
+        }
+        else if (c->geom.g1)
+            obj = retrieveRefObject(c->geom.g1);
+
+#ifdef _MSC_VER
+        __try
+        {
+#endif
+            if (obj && !obj->ObjectGetDestroy())
+            {
+                m_collision_damage_info.m_contact_velocity = c_vel;
+                m_collision_damage_info.m_dmc_signum = bo1 ? 1.f : -1.f;
+                m_collision_damage_info.m_dmc_type = SCollisionDamageInfo::ctObject;
+                m_collision_damage_info.m_damege_contact = *c;
+                m_collision_damage_info.m_obj_id = obj->ObjectID();
+            }
+#ifdef _MSC_VER
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            // Stale geometry owner pointer. Ignore this collision source safely.
+        }
+#endif
 	}
 }
 

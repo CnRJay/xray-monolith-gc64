@@ -54,7 +54,7 @@ void CUsableScriptObject::set_tip_text(LPCSTR new_text)
 
 void CUsableScriptObject::set_tip_text_default()
 {
-	m_sTipText = nullptr;
+	m_sTipText = NULL;
 }
 
 bool CUsableScriptObject::nonscript_usable()

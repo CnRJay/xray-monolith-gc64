@@ -92,7 +92,6 @@ private:
 
 public:
 	CTextureDescrMngr m_textures_description;
-	//.	CInifile*											m_textures_description;
 	xr_vector<std::pair<shared_str, R_constant_setup*>> v_constant_setup;
 	lua_State* LSVM;
 	BOOL bDeferredLoad;
@@ -116,14 +115,13 @@ public:
 
 	// Editor cooperation
 	void ED_UpdateBlender(LPCSTR Name, IBlender* data);
-	void ED_UpdateMatrix(LPCSTR Name, CMatrix* data);
-	void ED_UpdateConstant(LPCSTR Name, CConstant* data);
 #ifdef _EDITOR
 	void							ED_UpdateTextures	(AStringVec* names);
 #endif
 
 	// Low level resource creation
 	CTexture* _CreateTexture(LPCSTR Name);
+	CTexture* _FindTexture(LPCSTR Name);
 	void _DeleteTexture(const CTexture* T);
 
 	CMatrix* _CreateMatrix(LPCSTR Name);
@@ -190,6 +188,8 @@ public:
 	SMatrixList* _CreateMatrixList(SMatrixList& L);
 	void _DeleteMatrixList(const SMatrixList* L);
 
+	Shader* _CreateShader(Shader* InShader);
+
 	SConstantList* _CreateConstantList(SConstantList& L);
 	void _DeleteConstantList(const SConstantList* L);
 
@@ -232,7 +232,9 @@ public:
 	void DeferredLoad(BOOL E) { bDeferredLoad = E; }
 	void DeferredUpload();
 	void DeferredUnload();
+	void UnloadAllTexturesOnLevelUnload();
 	void Evict();
+    void EvictStalledTextures();
 	void StoreNecessaryTextures();
 	void DestroyNecessaryTextures();
 	void Dump(bool bBrief);

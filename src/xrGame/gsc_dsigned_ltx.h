@@ -1,7 +1,7 @@
 #ifndef GSC_DSINGNED_LTX_INCLUDED
 #define GSC_DSINGNED_LTX_INCLUDED
 
-#include <fastdelegate/fastdelegate.h>
+#include "../xrCore/xr_delegate.h"
 #include "xr_dsa_signer.h"
 #include "xr_dsa_verifyer.h"
 

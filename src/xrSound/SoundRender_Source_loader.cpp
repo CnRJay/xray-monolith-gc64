@@ -63,6 +63,7 @@ void CSoundRender_Source::decompress(u32 line, OggVorbis_File* ovf)
 
 bool CSoundRender_Source::LoadWave(LPCSTR pName)
 {
+	PROF_EVENT("Sound: Load ogg", PROF_CAT(Streaming));
 	pname = pName;
 
 	// Load file into memory and parse WAV-format
@@ -75,6 +76,7 @@ bool CSoundRender_Source::LoadWave(LPCSTR pName)
 	vorbis_info* ovi = ov_info(&ovf, -1);
 	// verify
 	R_ASSERT3(ovi, "Invalid source info:", pname.c_str());
+	//R_ASSERT3(ovi->rate == 44100, "Invalid source rate:", pname.c_str());
 
 	if (ovi->rate != 44100)
 	{
@@ -136,7 +138,7 @@ bool CSoundRender_Source::LoadWave(LPCSTR pName)
 		} 
 		else
 		{
-			if (strstr(Core.Params, "-dbg"))
+			if (Core.isDebug())
 			{
 				Log("! Invalid ogg-comment version, file: ", pname.c_str());
 			}
@@ -144,7 +146,7 @@ bool CSoundRender_Source::LoadWave(LPCSTR pName)
 	}
 	else
 	{
-		if (strstr(Core.Params, "-dbg"))
+		if (Core.isDebug())
 		{
 			Log("! Missing ogg-comment, file: ", pname.c_str());
 		}

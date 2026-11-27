@@ -33,6 +33,7 @@
 #define ENGINE_API
 
 #include "../xrCore/xr_resource.h"
+
 #include "../xrCore/profiler.h"
 
 #ifdef _EDITOR

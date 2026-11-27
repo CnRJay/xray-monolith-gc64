@@ -21,6 +21,9 @@
 #include "phdebug.h"
 #endif
 BOOL disableActorBodyRotationDelay = TRUE;
+
+// verdatim: flag to allow 'running' speed during left or right lookouts
+BOOL AllowAccelDuringLookOut = FALSE; 
 static const float s_fLandingTime1 = 0.1f; // через сколько снять флаг Landing1 (т.е. включить следующую анимацию)
 static const float s_fLandingTime2 = 0.3f; // через сколько снять флаг Landing2 (т.е. включить следующую анимацию)
 static const float s_fJumpTime = 0.3f;
@@ -317,7 +320,7 @@ void CActor::g_cl_CheckControls(u32 mstate_wf, Fvector& vControlAccel, float& Ju
 
 	if (IsGameTypeSingle() && cam_eff_factor > EPS)
 	{
-		LPCSTR state_anm = nullptr;
+		LPCSTR state_anm = NULL;
 
 		if (mstate_real & mcSprint && !(mstate_old & mcSprint))
 			state_anm = "sprint";
@@ -524,7 +527,7 @@ void CActor::g_cl_Orientate(u32 mstate_rl, float dt)
 
 	CWeaponMagazined* pWM = smart_cast<CWeaponMagazined*>(inventory().GetActiveSlot() != NO_ACTIVE_SLOT
 		                                                      ? inventory().ItemFromSlot(inventory().GetActiveSlot())
-		                                                      : nullptr);
+		                                                      : NULL);
 	if (pWM && pWM->GetCurrentFireMode() == 1 && eacFirstEye != cam_active)
 	{
 		Fvector dangle = weapon_recoil_last_delta();
@@ -578,7 +581,7 @@ void CActor::g_sv_Orientate(u32 /**mstate_rl/**/, float /**dt/**/)
 
 	CWeaponMagazined* pWM = smart_cast<CWeaponMagazined*>(inventory().GetActiveSlot() != NO_ACTIVE_SLOT
 		                                                      ? inventory().ItemFromSlot(inventory().GetActiveSlot())
-		                                                      : nullptr);
+		                                                      : NULL);
 	if (pWM && pWM->GetCurrentFireMode() == 1/* && eacFirstEye != cam_active*/)
 	{
 		Fvector dangle = weapon_recoil_last_delta();
@@ -598,7 +601,7 @@ bool isActorAccelerated(u32 mstate, bool ZoomMode)
 
 	if (mstate & (mcCrouch | mcClimb | mcJump | mcLanding | mcLanding2))
 		return res;
-	if (mstate & mcLookout || ZoomMode)
+	if ((mstate & mcLookout && !AllowAccelDuringLookOut) || ZoomMode)
 		return false;
 	return res;
 }

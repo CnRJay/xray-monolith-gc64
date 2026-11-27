@@ -303,15 +303,12 @@ public:
 
 	virtual BOOL net_SaveRelevant()
 	{
-		return (inherited::net_SaveRelevant() && BOOL(PPhysicsShell() != nullptr)) || m_exploded;
+		return (inherited::net_SaveRelevant() && BOOL(PPhysicsShell() != NULL)) || m_exploded;
 	};
 
-	virtual void renderable_Render() { inherited::renderable_Render(); };
+	virtual void renderable_Render(IDSGraphManager* DM) { inherited::renderable_Render(DM); };
 	virtual BOOL renderable_ShadowGenerate() { return FALSE; }
 	virtual BOOL renderable_ShadowReceive() { return TRUE; }
-
-	// demonized: check if object is eligible for bone calc optimization
-	bool canOptimizeCalculateBones() override { return false; };
 
 	virtual void OnEvent(NET_Packet& P, u16 type);
 	virtual void UpdateCL();
@@ -329,6 +326,7 @@ public:
 
 	virtual CGameObject* cast_game_object() { return this; }
 	virtual CExplosive* cast_explosive() { return this; }
+	virtual CHelicopter* cast_helicopter() { return this; }
 	virtual CPHSkeleton* PHSkeleton() { return this; }
 
 public:

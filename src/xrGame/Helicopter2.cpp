@@ -23,7 +23,7 @@ bool CHelicopter::isObjectVisible(CObject* O)
 	dir_to_object.sub(to_point, from_point).normalize_safe();
 	float ray_length = from_point.distance_to(to_point);
 
-	BOOL res = Level().ObjectSpace.RayTest(from_point, dir_to_object, ray_length, collide::rqtStatic, nullptr, nullptr);
+	BOOL res = Level().ObjectSpace.RayTest(from_point, dir_to_object, ray_length, collide::rqtStatic, NULL, NULL);
 
 	return !res;
 }
@@ -50,7 +50,7 @@ void CHelicopter::TurnEngineSound(bool bOn)
 void CHelicopter::StartFlame()
 {
 	if (m_pParticle)return;
-	m_pParticle = CParticlesObject::Create(*m_smoke_particle,FALSE);
+	m_pParticle = Particles::Details::Create(*m_smoke_particle,FALSE).get();
 
 	Fvector zero_vector;
 	zero_vector.set(0.f, 0.f, 0.f);
@@ -105,7 +105,7 @@ void CHelicopter::ExplodeHelicopter()
 	if (m_pParticle)
 	{
 		m_pParticle->Stop();
-		CParticlesObject::Destroy(m_pParticle);
+		Particles::Details::Destroy(m_pParticle);
 	}
 	if (CPHDestroyable::CanDestroy())
 		CPHDestroyable::Destroy(ID(), "physic_destroyable_object");
@@ -207,7 +207,7 @@ float CHelicopter::GetRealAltitude()
 	down_dir.set(0.0f, -1.0f, 0.0f);
 
 
-	Level().ObjectSpace.RayPick(XFORM().c, down_dir, 1000.0f, collide::rqtStatic, cR, nullptr);
+	Level().ObjectSpace.RayPick(XFORM().c, down_dir, 1000.0f, collide::rqtStatic, cR, NULL);
 
 	return cR.range;
 }
@@ -287,7 +287,7 @@ void CHelicopter::DieHelicopter()
 {
 	if (state() == CHelicopter::eDead)
 		return;
-	CEntity::Die(nullptr);
+	CEntity::Die(NULL);
 
 	m_engineSound.stop();
 

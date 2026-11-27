@@ -1,13 +1,9 @@
-//---------------------------------------------------------------------------
-#ifndef particle_coreH
-#define particle_coreH
-
+#pragma once
 #define SQRT2PI 2.506628274631000502415765284811045253006f
 #define ONEOVERSQRT2PI (1.f/SQRT2PI)
 
 namespace PAPI
 {
-#pragma pack (push,4)
 	struct PARTICLES_API pDomain
 	{
 		PDomainEnum type; // PABoxDomain, PASphereDomain, PAConeDomain...
@@ -35,10 +31,8 @@ namespace PAPI
 		        float a3 = 0.0f, float a4 = 0.0f, float a5 = 0.0f,
 		        float a6 = 0.0f, float a7 = 0.0f, float a8 = 0.0f);
 	};
-#pragma pack (pop)
 	// misc    
 	float NRand(float sigma = 1.0f);
 };
 
 //---------------------------------------------------------------------------
-#endif

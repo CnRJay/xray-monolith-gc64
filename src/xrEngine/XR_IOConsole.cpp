@@ -7,6 +7,7 @@
 
 #include "igame_level.h"
 #include "igame_persistent.h"
+#include "Render.h"
 
 #include "x_ray.h"
 #include "xr_input.h"
@@ -37,11 +38,13 @@ static u32 const tips_scroll_back_color = color_rgba(15, 15, 15, 230);
 static u32 const tips_scroll_pos_color = color_rgba(70, 70, 70, 240);
 
 
-ENGINE_API CConsole* Console = nullptr;
+ENGINE_API CConsole* Console = NULL;
+
+static thread_local string256 s_script_caller;
 
 static void DumpConsoleVariablesOnCrash()
 {
-	if (Console)
+	if (Console && Console->GetBool("dump_cvar_enable"))
 		Console->Execute("dump_cvar");
 }
 
@@ -138,26 +141,84 @@ bool CConsole::is_mark(Console_mark type)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Log callback for console
+void ConsoleLogCallback(LPCSTR line) {
+	Console->AddLogEntry(line);
+}
+
 CConsole::CConsole()
-	: m_hShader_back(nullptr)
+	: m_hShader_back(NULL)
 {
+	m_log_line_counter = 0;
+
+	m_bHistoryLoaded = false;
+
+	m_cur_cmd.reserve(64);
+	m_last_cmd.reserve(64);
+	for (u32 i = 0; i < m_log_history.GetSize(); ++i)
+	{
+		m_log_history.Get(i).reserve(256);
+	}
+
 	m_editor = xr_new<text_editor::line_editor>((u32)CONSOLE_BUF_SIZE);
 	m_cmd_history_max = cmd_history_max;
 	m_disable_tips = false;
 	Register_callbacks();
 	Device.seqResolutionChanged.Add(this);
+
+	xrLogger::AddLogCallback(ConsoleLogCallback);
+
+}
+
+void CConsole::SaveHistory()
+{
+	// Открываем файл на запись в папке app_data (где логи и настройки)
+	IWriter* W = FS.w_open("$app_data_root$", "console_history.txt");
+	if (W)
+	{
+		// Проходим по вектору истории и записываем каждую команду новой строкой
+		for (const auto& cmd : m_cmd_history)
+		{
+			if (cmd.size() > 0)
+			{
+				W->w_string(cmd.c_str());
+			}
+		}
+		FS.w_close(W);
+	}
+}
+
+void CConsole::LoadHistory()
+{
+	if (m_bHistoryLoaded) return;
+
+	IReader* R = FS.r_open("$app_data_root$", "console_history.txt");
+	if (R)
+	{
+		string1024 line;
+		while (!R->eof() && m_cmd_history.size() < m_cmd_history_max)
+		{
+			R->r_string(line, sizeof(line));
+			if (xr_strlen(line) > 0)
+			{
+				m_cmd_history.push_back(line);
+			}
+		}
+		FS.r_close(R);
+		reset_cmd_history_idx();
+	}
+	m_bHistoryLoaded = true;
 }
 
 void CConsole::Initialize()
 {
 	scroll_delta = 0;
 	bVisible = false;
-	pFont = nullptr;
-	pFont2 = nullptr;
+	pFont = NULL;
+	pFont2 = NULL;
 
 	m_mouse_pos.x = 0;
 	m_mouse_pos.y = 0;
-	m_last_cmd = nullptr;
 
 	m_cmd_history.reserve(m_cmd_history_max + 2);
 	m_cmd_history.clear_not_free();
@@ -170,7 +231,6 @@ void CConsole::Initialize()
 
 	m_tips_mode = 0;
 	m_prev_length_str = 0;
-	m_cur_cmd = nullptr;
 	reset_selected_tip();
 
 	// Commands
@@ -181,6 +241,8 @@ void CConsole::Initialize()
 
 CConsole::~CConsole()
 {
+	SaveHistory();
+	xrLogger::RemoveLogCallback(ConsoleLogCallback);
 	xr_delete(m_hShader_back);
 	xr_delete(m_editor);
 	Destroy();
@@ -195,6 +257,24 @@ void CConsole::Destroy()
 	xr_delete(pFont);
 	xr_delete(pFont2);
 	Commands.clear();
+}
+
+void CConsole::AddLogEntry(LPCSTR line)
+{
+	xrCriticalSectionGuard guard(&m_log_history_guard);
+	m_log_history.Get(m_log_history.GetHead()) = line;
+	m_log_history.MoveHead(1);
+	m_log_line_counter++;
+}
+
+void CConsole::ClearLog()
+{
+	xrCriticalSectionGuard guard(&m_log_history_guard);
+	for (u32 i = 0; i < m_log_history.GetSize(); ++i)
+	{
+		m_log_history.Get(i).clear();
+	}
+	m_log_line_counter = 0;
 }
 
 void CConsole::AddCommand(IConsole_Command* cc)
@@ -231,7 +311,7 @@ void CConsole::OutFont(LPCSTR text, float& pos_y)
 		int sz = 0;
 		int ln = 0;
 		PSTR one_line = (PSTR)_alloca((CONSOLE_BUF_SIZE + 1) * sizeof(char));
-
+		
 		while (text[sz] && (ln + sz < CONSOLE_BUF_SIZE - 5)) // перенос строк
 		{
 			one_line[ln + sz] = text[sz];
@@ -272,9 +352,13 @@ void CConsole::OnRender()
 	{
 		return;
 	}
+	RENDER_SCOPE(console);
 
 	if (psDeviceFlags.test(rsCameraPos) || psDeviceFlags.test(rsStatistic) || Device.Statistic->errors.size())
+	{
+		RENDER_SCOPE(console_stats);
 		Device.Statistic->Show();
+	}
 
 	if (!m_hShader_back)
 	{
@@ -397,33 +481,48 @@ void CConsole::OnRender()
 	}
 
 	// ---------------------
-	u32 log_line = LogFile.size() - 1;
-	ypos -= LDIST;
-	for (int i = log_line - scroll_delta; i >= 0; --i)
-	{
-		ypos -= LDIST;
-		if (ypos < -1.0f)
-		{
-			break;
-		}
-		LPCSTR ls = LogFile[i].c_str();
+	m_log_history_guard.Enter();
+	u32 log_size = m_log_history.GetSize();
+	u32 total_filled = std::min(m_log_line_counter, log_size);
 
-		if (!ls)
+	u32 newest_idx = m_log_history.GetHead();
+
+	float temp_y = ypos;
+
+	if (total_filled > 0)
+	{
+		if (scroll_delta > (int)total_filled - 1)
+			scroll_delta = std::max(0, (int)total_filled - 1);
+		if (scroll_delta < 0) scroll_delta = 0;
+
+		for (u32 i = (u32)scroll_delta; i < total_filled; ++i)
 		{
-			continue;
+			const xr_string& logLine = m_log_history.GetLooped(newest_idx - 1 - i);
+
+			if (logLine.empty()) continue;
+
+			temp_y -= LDIST;
+
+			if (temp_y < -1.0f) 
+				break;
+
+			LPCSTR ls = logLine.c_str();
+			Console_mark cm = (Console_mark)ls[0];
+			pFont->SetColor(get_mark_color(cm));
+
+			float line_y = temp_y;
+			OutFont(ls, line_y);
+
+			temp_y = line_y;
 		}
-		Console_mark cm = (Console_mark)ls[0];
-		pFont->SetColor(get_mark_color(cm));
-		//u8 b = (is_mark( cm ))? 2 : 0;
-		//OutFont( ls + b, ypos );
-		OutFont(ls, ypos);
 	}
+	m_log_history_guard.Leave();
 
 	string16 q;
-	itoa(log_line, q, 10);
+	itoa(m_log_line_counter, q, 10);
 	u32 qn = xr_strlen(q);
 	pFont->SetColor(total_font_color);
-	pFont->OutI(0.95f - 0.03f * qn, fMaxY - 2.0f * LDIST, "[%d]", log_line);
+	pFont->OutI(0.95f - 0.03f * qn, fMaxY - 2.0f * LDIST, "[%d]", m_log_line_counter);
 
 	pFont->OnRender();
 	pFont2->OnRender();
@@ -587,12 +686,9 @@ void CConsole::DrawRect(Frect const& r, u32 color)
 void CConsole::ExecuteCommand(LPCSTR cmd_str, bool record_cmd)
 {
 	u32 str_size = xr_strlen(cmd_str);
-	xr_vector<char> edt_buf(str_size + 1);
-	xr_vector<char> first_buf(str_size + 1);
-	xr_vector<char> last_buf(str_size + 1);
-	PSTR edt = edt_buf.data();
-	PSTR first = first_buf.data();
-	PSTR last = last_buf.data();
+	PSTR edt = (PSTR)_alloca((str_size + 1) * sizeof(char));
+	PSTR first = (PSTR)_alloca((str_size + 1) * sizeof(char));
+	PSTR last = (PSTR)_alloca((str_size + 1) * sizeof(char));
 
 	xr_strcpy(edt, str_size + 1, cmd_str);
 	edt[str_size] = 0;
@@ -612,11 +708,12 @@ void CConsole::ExecuteCommand(LPCSTR cmd_str, bool record_cmd)
 		c[0] = mark2;
 		c[1] = 0;
 
-		if (m_last_cmd.c_str() == 0 || xr_strcmp(m_last_cmd, edt) != 0)
+		if (m_last_cmd.c_str() == 0 || xr_strcmp(m_last_cmd.c_str(), edt) != 0)
 		{
-			Log(c, edt);
+			Msg("%s %s", c, edt);
 			add_cmd_history(edt);
 			m_last_cmd = edt;
+			SaveHistory();
 		}
 	}
 	text_editor::split_cmd(first, last, edt);
@@ -656,12 +753,12 @@ void CConsole::ExecuteCommand(LPCSTR cmd_str, bool record_cmd)
 		}
 		else
 		{
-			Log("! Command disabled.");
+			Msg("! Command disabled.");
 		}
 	}
 	else
 	{
-		Log("! Unknown command: ", first);
+		Msg("! Unknown command: %s", first);
 	}
 
 	if (record_cmd)
@@ -674,10 +771,14 @@ void CConsole::Show()
 {
 	//SECUROM_MARKER_HIGH_SECURITY_ON(11)
 
-	if (bVisible)
+	if (bVisible) return;
+
+	if (!m_bHistoryLoaded)
 	{
-		return;
+		LoadHistory();
+		//m_bHistoryLoaded = true;
 	}
+
 	bVisible = true;
 
 	GetCursorPos(&m_mouse_pos);
@@ -688,7 +789,7 @@ void CConsole::Show()
 	reset_selected_tip();
 	update_tips();
 
-	m_editor->IR_Capture();
+	this->IR_Capture();
 	Device.seqRender.Add(this, 1);
 	Device.seqFrame.Add(this);
 
@@ -721,7 +822,22 @@ void CConsole::Hide()
 
 	Device.seqFrame.Remove(this);
 	Device.seqRender.Remove(this);
-	m_editor->IR_Release();
+	this->IR_Release();
+}
+
+void CConsole::IR_OnKeyboardPress(int dik)
+{
+	static_cast<IInputReceiver*>(m_editor)->IR_OnKeyboardPress(dik);
+}
+
+void CConsole::IR_OnKeyboardRelease(int dik)
+{
+	static_cast<IInputReceiver*>(m_editor)->IR_OnKeyboardRelease(dik);
+}
+
+void CConsole::IR_OnKeyboardHold(int dik)
+{
+	static_cast<IInputReceiver*>(m_editor)->IR_OnKeyboardHold(dik);
 }
 
 void CConsole::SelectCommand()
@@ -740,6 +856,26 @@ void CConsole::SelectCommand()
 void CConsole::Execute(LPCSTR cmd)
 {
 	ExecuteCommand(cmd, false);
+}
+
+LPCSTR CConsole::ScriptCaller() const
+{
+	return s_script_caller;
+}
+
+CConsole::ScriptCallerScope::ScriptCallerScope(LPCSTR src)
+{
+	xr_strcpy(prev, s_script_caller);
+
+	if (src && src[0])
+		strncpy_s(s_script_caller, sizeof(s_script_caller), src, _TRUNCATE);
+	else
+		s_script_caller[0] = 0;
+}
+
+CConsole::ScriptCallerScope::~ScriptCallerScope()
+{
+	xr_strcpy(s_script_caller, prev);
 }
 
 void CConsole::ExecuteScript(LPCSTR str)
@@ -776,7 +912,7 @@ IConsole_Command* CConsole::find_next_cmd(LPCSTR in_str, shared_str& out_str)
 		out_str._set((LPCSTR)new_str);
 		return cc;
 	}
-	return nullptr;
+	return NULL;
 }
 
 bool CConsole::add_next_cmds(LPCSTR in_str, vecTipsEx& out_v)
@@ -897,7 +1033,7 @@ void CConsole::update_tips()
 	m_temp_tips.clear_not_free();
 	m_tips.clear_not_free();
 
-	m_cur_cmd = nullptr;
+	m_cur_cmd.clear();
 	if (!bVisible)
 	{
 		return;
@@ -947,7 +1083,7 @@ void CConsole::update_tips()
 
 				cc->fill_tips(m_temp_tips, mode);
 				m_tips_mode = 2;
-				m_cur_cmd._set(first);
+				m_cur_cmd = first;
 				select_for_filter(last, m_temp_tips, m_tips);
 
 				if (m_tips.size() == 0)
@@ -979,6 +1115,20 @@ void CConsole::update_tips()
 	{
 		reset_selected_tip();
 	}
+}
+
+void CConsole::DumpHistoryToLog()
+{
+	if (m_cmd_history.empty()) return;
+
+	Msg("~ [x-ray]: console history start");
+
+	for (const auto& cmd : m_cmd_history)
+	{
+		Msg("- [history]: %s", cmd.c_str());
+	}
+
+	Msg("~ [x-ray]: console history end");
 }
 
 void CConsole::select_for_filter(LPCSTR filter_str, vecTips& in_v, vecTipsEx& out_v)

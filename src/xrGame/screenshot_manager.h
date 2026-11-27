@@ -13,7 +13,7 @@ public:
 		drawing_download_states = 0x02
 	};
 
-	typedef fastdelegate::FastDelegate3<u8 const*, u32, u32, void> complete_callback_t;
+	typedef xr_delegate<void(u8 const*, u32, u32)> complete_callback_t;
 
 	screenshot_manager();
 	virtual ~screenshot_manager();

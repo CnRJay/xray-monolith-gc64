@@ -20,7 +20,7 @@ public:
 	//структура с внутренней информацией о партикле
 	struct SParticlesInfo
 	{
-		CParticlesObject* ps;
+		intrusive_ptr<CParticlesObject> ps;
 		Fvector angles;
 		u16 sender_id; //id - объекта, который запустил партиклы
 		u32 life_time; //время жизни партикла (-1) - бесконечно

@@ -25,6 +25,8 @@ public:
 	virtual void Draw();
 	virtual void Update();
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 public:
 	CUIStatic* UIStaticDiskIO;
 	CUITextWnd* UIStaticQuickHelp;
@@ -67,7 +69,6 @@ public:
 	CUITextWnd* m_QuickSlotText2;
 	CUITextWnd* m_QuickSlotText3;
 	CUITextWnd* m_QuickSlotText4;
-
 protected:
 	// 5 статиков для отображения иконок:
 	// - сломанного оружия(only mp)

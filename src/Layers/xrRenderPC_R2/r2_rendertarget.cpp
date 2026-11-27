@@ -299,15 +299,15 @@ CRenderTarget::CRenderTarget()
 		// RT Blur
 		rt_blur_h_2.create(r2_RT_blur_h_2, u32(w/2), u32(h/2), D3DFMT_A8R8G8B8);
 		rt_blur_2.create(r2_RT_blur_2, u32(w/2), u32(h/2), D3DFMT_A8R8G8B8);
-		R_CHK(HW.pDevice->CreateDepthStencilSurface(u32(w/2), u32(h/2), D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, TRUE, &rt_blur_2_zb, nullptr));
+		R_CHK(HW.pDevice->CreateDepthStencilSurface(u32(w/2), u32(h/2), D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, TRUE, &rt_blur_2_zb, NULL));
 
 		rt_blur_h_4.create(r2_RT_blur_h_4, u32(w/4), u32(h/4), D3DFMT_A8R8G8B8);
 		rt_blur_4.create(r2_RT_blur_4, u32(w/4), u32(h/4), D3DFMT_A8R8G8B8);
-		R_CHK(HW.pDevice->CreateDepthStencilSurface(u32(w/4), u32(h/4), D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, TRUE, &rt_blur_4_zb, nullptr));
+		R_CHK(HW.pDevice->CreateDepthStencilSurface(u32(w/4), u32(h/4), D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, TRUE, &rt_blur_4_zb, NULL));
 
 		rt_blur_h_8.create(r2_RT_blur_h_8, u32(w/8), u32(h/8), D3DFMT_A8R8G8B8);
 		rt_blur_8.create(r2_RT_blur_8, u32(w/8), u32(h/8), D3DFMT_A8R8G8B8);
-		R_CHK(HW.pDevice->CreateDepthStencilSurface(u32(w/8), u32(h/8), D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, TRUE, &rt_blur_8_zb, nullptr));
+		R_CHK(HW.pDevice->CreateDepthStencilSurface(u32(w/8), u32(h/8), D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, TRUE, &rt_blur_8_zb, NULL));
 
 		rt_dof.create(r2_RT_dof, w, h, D3DFMT_A8R8G8B8);
 
@@ -351,7 +351,7 @@ CRenderTarget::CRenderTarget()
 		u32 size = RImplementation.o.smapsize;
 		rt_smap_depth.create(r2_RT_smap_depth, size, size, depth_format);
 		rt_smap_surf.create(r2_RT_smap_surf, size, size, nullrt);
-		rt_smap_ZB = nullptr;
+		rt_smap_ZB = NULL;
 		s_accum_mask.create(b_accum_mask, "r2\\accum_mask");
 		s_accum_direct.create(b_accum_direct, "r2\\accum_direct");
 		s_accum_direct_cascade.create(b_accum_direct_cascade, "r2\\accum_direct_cascade");
@@ -365,7 +365,7 @@ CRenderTarget::CRenderTarget()
 	{
 		u32 size = RImplementation.o.smapsize;
 		rt_smap_surf.create(r2_RT_smap_surf, size, size, D3DFMT_R32F);
-		rt_smap_depth = nullptr;
+		rt_smap_depth = NULL;
 		R_CHK(HW.pDevice->CreateDepthStencilSurface (size,size,D3DFMT_D24X8,D3DMULTISAMPLE_NONE,0,TRUE,&rt_smap_ZB,NULL
 		));
 		s_accum_mask.create(b_accum_mask, "r2\\accum_mask");
@@ -476,15 +476,14 @@ CRenderTarget::CRenderTarget()
 		t_LUM_dest.create(r2_RT_luminance_cur);
 
 		// create pool
-		for (u32 it = 0; it < HW.Caps.iGPUNum * 2; it++)
+		for (u32 it = 0; it < 2; it++)
 		{
-			string256 name;
-			xr_sprintf(name, "%s_%d", r2_RT_luminance_pool, it);
-			rt_LUM_pool[it].create(name, 1, 1, D3DFMT_R32F);
+			shared_str name; name.printf("%s_%d", r2_RT_luminance_pool, it);
+			rt_LUM_pool[it].create(name.c_str(), 1, 1, D3DFMT_R32F);
 			u_setrt(rt_LUM_pool[it], 0, 0, 0);
-			CHK_DX(HW.pDevice->Clear( 0L, nullptr, D3DCLEAR_TARGET, 0x7f7f7f7f, 1.0f, 0L));
+			CHK_DX(HW.pDevice->Clear(0L, nullptr, D3DCLEAR_TARGET, 0x7f7f7f7f, 1.0f, 0L));
 		}
-		u_setrt(Device.dwWidth, Device.dwHeight, HW.pBaseRT,NULL,NULL, HW.pBaseZB);
+		u_setrt(Device.dwWidth, Device.dwHeight, HW.pBaseRT, nullptr, nullptr, HW.pBaseZB);
 	}
 
 	// COMBINE
@@ -686,16 +685,25 @@ CRenderTarget::CRenderTarget()
 
 	// Menu
 	s_menu.create("distort");
+
+	const s32 saved_skinning = Engine.External.GetSkinningMode();
+	for (s32 skinning = -1; skinning <= 4; ++skinning)
+	{
+		Engine.External.SetSkinningMode(skinning);
+		s_ui_icons[skinning + 1].create("ui_icons");
+	}
+	Engine.External.SetSkinningMode(saved_skinning);
+
 	g_menu.create(FVF::F_TL, RCache.Vertex.Buffer(), RCache.QuadIB);
 
 	//	Igor: TMP
 	//	Create an RT for online screenshot makining
 	//u32		w = Device.dwWidth, h = Device.dwHeight;
-	//HW.pDevice->CreateOffscreenPlainSurface(Device.dwWidth,Device.dwHeight,D3DFMT_A8R8G8B8,D3DPOOL_SYSTEMMEM,&pFB,nullptr);
-	//HW.pDevice->CreateOffscreenPlainSurface(Device.dwWidth,Device.dwHeight,rt_Color->fmt,D3DPOOL_SYSTEMMEM,&pFB,nullptr);
+	//HW.pDevice->CreateOffscreenPlainSurface(Device.dwWidth,Device.dwHeight,D3DFMT_A8R8G8B8,D3DPOOL_SYSTEMMEM,&pFB,NULL);
+	//HW.pDevice->CreateOffscreenPlainSurface(Device.dwWidth,Device.dwHeight,rt_Color->fmt,D3DPOOL_SYSTEMMEM,&pFB,NULL);
 	D3DSURFACE_DESC desc;
 	HW.pBaseRT->GetDesc(&desc);
-	HW.pDevice->CreateOffscreenPlainSurface(Device.dwWidth, Device.dwHeight, desc.Format, D3DPOOL_SYSTEMMEM, &pFB,nullptr);
+	HW.pDevice->CreateOffscreenPlainSurface(Device.dwWidth, Device.dwHeight, desc.Format, D3DPOOL_SYSTEMMEM, &pFB,NULL);
 
 	//
 	dwWidth = Device.dwWidth;
@@ -704,18 +712,19 @@ CRenderTarget::CRenderTarget()
 
 CRenderTarget::~CRenderTarget()
 {
+	_RELEASE(ui_icons_depth);
 	_RELEASE(pFB);
 
 	// Textures
-	t_material->surface_set(nullptr);
+	t_material->surface_set(NULL);
 
 #ifdef DEBUG
 	_SHOW_REF					("t_material_surf",t_material_surf);
 #endif // DEBUG
 	_RELEASE(t_material_surf);
 
-	t_LUM_src->surface_set(nullptr);
-	t_LUM_dest->surface_set(nullptr);
+	t_LUM_src->surface_set(NULL);
+	t_LUM_dest->surface_set(NULL);
 
 #ifdef DEBUG
 	ID3DBaseTexture*	pSurf = 0;
@@ -730,8 +739,8 @@ CRenderTarget::~CRenderTarget()
 	//_SHOW_REF("t_envmap_0 - #small",t_envmap_0->pSurface);
 	//_SHOW_REF("t_envmap_1 - #small",t_envmap_1->pSurface);
 #endif // DEBUG
-	t_envmap_0->surface_set(nullptr);
-	t_envmap_1->surface_set(nullptr);
+	t_envmap_0->surface_set(NULL);
+	t_envmap_1->surface_set(NULL);
 	t_envmap_0.destroy();
 	t_envmap_1.destroy();
 
@@ -744,7 +753,7 @@ CRenderTarget::~CRenderTarget()
 	// Jitter
 	for (int it = 0; it < TEX_jitter_count; it++)
 	{
-		t_noise[it]->surface_set(nullptr);
+		t_noise[it]->surface_set(NULL);
 #ifdef DEBUG
 		_SHOW_REF("t_noise_surf[it]",t_noise_surf[it]);
 #endif // DEBUG

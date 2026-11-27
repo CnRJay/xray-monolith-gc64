@@ -92,6 +92,8 @@ CBaseMonster::CBaseMonster() : m_psy_aura(this, "psy"),
 
 	m_com_manager.add_ability(ControlCom::eControlSequencer);
 	m_com_manager.add_ability(ControlCom::eControlTripleAnimation);
+	// inert until a script supplies strike motions (check_melee_jump refuses empty data)
+	m_com_manager.add_ability(ControlCom::eControlMeleeJump);
 
 
 	m_anomaly_detector = xr_new<CAnomalyDetector>(this);
@@ -101,16 +103,16 @@ CBaseMonster::CBaseMonster() : m_psy_aura(this, "psy"),
 
 	com_man().add_ability(ControlCom::eComCriticalWound);
 
-	EatedCorpse = nullptr;
+	EatedCorpse = NULL;
 
-	m_steer_manager = nullptr;
-	m_grouping_behaviour = nullptr;
+	m_steer_manager = NULL;
+	m_grouping_behaviour = NULL;
 
 	m_last_grouping_behaviour_update_tick = 0;
 	m_feel_enemy_who_just_hit_max_distance = 0;
 	m_feel_enemy_max_distance = 0;
 
-	m_anti_aim = nullptr;
+	m_anti_aim = NULL;
 	m_head_bone_name = "bip01_head";
 
 	m_first_tick_enemy_inaccessible = 0;
@@ -326,6 +328,7 @@ void CBaseMonster::update_enemy_accessible_and_at_home_info()
 
 void CBaseMonster::UpdateCL()
 {
+	PROF_EVENT("CBaseMonster::UpdateCL", PROF_CAT(AI));
 #ifdef DEBUG
 	if ( Level().CurrentEntity() == this )
 	{
@@ -340,7 +343,7 @@ void CBaseMonster::UpdateCL()
 
 	if (EatedCorpse && !CorpseMemory.is_valid_corpse(EatedCorpse))
 	{
-		EatedCorpse = nullptr;
+		EatedCorpse = NULL;
 	}
 
 	inherited::UpdateCL();
@@ -360,6 +363,7 @@ void CBaseMonster::UpdateCL()
 
 void CBaseMonster::shedule_Update(u32 dt)
 {
+	PROF_EVENT("CBaseMonster::shedule_Update", PROF_CAT(AI));
 #ifdef DEBUG
 	if ( is_paused () )
 	{
@@ -426,7 +430,7 @@ void CBaseMonster::Die(CObject* who)
 
 	if (m_grouping_behaviour)
 	{
-		m_grouping_behaviour->set_squad(nullptr);
+		m_grouping_behaviour->set_squad(NULL);
 	}
 
 
@@ -833,7 +837,7 @@ void CBaseMonster::set_action(EAction action)
 CParticlesObject* CBaseMonster::PlayParticles(const shared_str& name, const Fvector& position, const Fvector& dir,
                                               BOOL auto_remove, BOOL xformed)
 {
-	CParticlesObject* ps = CParticlesObject::Create(name.c_str(), auto_remove);
+	CParticlesObject* ps = Particles::Details::Create(name.c_str(),auto_remove).get();
 
 	// вычислить позицию и направленность партикла
 	Fmatrix matrix;
@@ -906,11 +910,24 @@ bool CBaseMonster::check_start_conditions(ControlCom::EControlType type)
 	{
 		EMonsterState state = StateMan->get_state_type();
 
-		if (!is_state(state, eStateAttack_Run) &&
-			!is_state(state, eStateAttack_Melee) &&
-			!is_state(state, eStateAttack_RunAttack))
+		if (m_com_manager.has_melee_strike())
 		{
-			return false;
+			// armed by a script: accept the whole attack family, so a flat-ladder species
+			// (chimera) that reports only the top-level eStateAttack can spin-strike
+			if (!is_state(state, eStateAttack))
+			{
+				return false;
+			}
+		}
+		else
+		{
+			// default: GSC's exact gate, so an unarmed monster stays byte-identical to vanilla
+			if (!is_state(state, eStateAttack_Run) &&
+				!is_state(state, eStateAttack_Melee) &&
+				!is_state(state, eStateAttack_RunAttack))
+			{
+				return false;
+			}
 		}
 	}
 
@@ -1019,6 +1036,21 @@ float CBaseMonster::get_fire_influence()
 	return m_fire_aura.calculate();
 }
 
+bool CBaseMonster::set_aura_params(LPCSTR aura_name, float linear, float quadratic, float max_power,
+                                   float max_distance)
+{
+	monster_aura* aura = 0;
+	if (!xr_strcmp(aura_name, "psy")) aura = &m_psy_aura;
+	else if (!xr_strcmp(aura_name, "radiation")) aura = &m_radiation_aura;
+	else if (!xr_strcmp(aura_name, "fire")) aura = &m_fire_aura;
+	else if (!xr_strcmp(aura_name, "base")) aura = &m_base_aura;
+
+	if (!aura) return false;
+
+	aura->set_params(linear, quadratic, max_power, max_distance);
+	return true;
+}
+
 void CBaseMonster::play_detector_sound()
 {
 	m_psy_aura.play_detector_sound();
@@ -1029,6 +1061,31 @@ void CBaseMonster::play_detector_sound()
 bool CBaseMonster::is_jumping()
 {
 	return m_com_manager.is_jumping();
+}
+
+u32 CBaseMonster::script_combat_substate()
+{
+	CEntityAlive* enemy = const_cast<CEntityAlive*>(EnemyMan.get_enemy());
+	if (!enemy) return u32(-1);
+
+	// one Lua call per monster per frame; the state manager head and the attack tree head share the result
+	if (m_script_substate_frame == Device.dwFrame)
+		return m_script_substate_cache;
+
+	m_script_substate_frame = Device.dwFrame;
+	m_script_substate_cache = u32(-1);
+
+	::luabind::functor<int> funct;
+	if (!ai().script_engine().functor("_G.CMonsterCombatAction", funct))
+		return u32(-1);
+
+	float dist = enemy->Position().distance_to(Position());
+	int enemy_strength = get_enemy_strength();
+	bool can_jump = ability_can_jump();
+
+	int proposed = funct(lua_game_object(), enemy->lua_game_object(), dist, enemy_strength, can_jump);
+	m_script_substate_cache = (proposed < 0) ? u32(-1) : (u32)proposed;
+	return m_script_substate_cache;
 }
 
 void CBaseMonster::update_eyes_visibility()

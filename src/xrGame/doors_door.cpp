@@ -44,12 +44,12 @@ door::door(CPhysicObject* object) :
 	m_open_vector.mul(length);
 	m_closed_vector.mul(length);
 
-	m_object.spatial.type |= STYPE_VISIBLEFORAI;
+	m_object.SpatialComponent->spatial.type |= STYPE_VISIBLEFORAI;
 }
 
 door::~door()
 {
-	m_object.spatial.type &= ~STYPE_VISIBLEFORAI;
+	m_object.SpatialComponent->spatial.type &= ~STYPE_VISIBLEFORAI;
 
 	if (m_initiators.empty())
 		return;
@@ -221,7 +221,7 @@ void door::change_state(actor* const initiator, door_state const start_state, do
 		//		if ( !xr_strcmp( "sim_default_duty_28212", initiator->get_name()) ) {
 		//			int i=0; (void)i;
 		//		}
-		m_initiators.erase(found);
+		m_initiators.erase_fast(found);
 	}
 
 	if (!m_initiators.empty())

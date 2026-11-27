@@ -41,8 +41,8 @@ struct physicsBone
 
 	physicsBone()
 	{
-		joint = nullptr;
-		element = nullptr;
+		joint = NULL;
+		element = NULL;
 	}
 };
 
@@ -145,7 +145,8 @@ class XRPHYSICS_API CPhysicsElement :
 {
 public:
 	u16 m_SelfID;
-    float m_fScale;
+    Fvector m_fScale;
+    virtual void SetScale(Fvector scale) = 0;
     virtual void SetScale(float scale) = 0;
 	virtual CPhysicsShell* PhysicsShell() = 0;
 	virtual void set_ContactCallback(ContactCallbackFun* callback) = 0;
@@ -165,7 +166,7 @@ public:
 #endif
 	virtual bool has_geoms() = 0;
 	virtual void add_Mass(const SBoneShape& shape, const Fmatrix& offset, const Fvector& mass_center, float mass,
-	                      CPHFracture* fracture = nullptr) = 0;
+	                      CPHFracture* fracture = NULL) = 0;
 	virtual void set_ParentElement(CPhysicsElement* p) = 0;
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	virtual void set_BoxMass(const Fobb& box, float mass) = 0;
@@ -353,7 +354,7 @@ public:
 	virtual void CreateShellAnimator(CInifile const* ini, LPCSTR section) = 0;
 	virtual void SetIgnoreAnimated() = 0;
 	//	virtual			bool						Animated									()																							= 0;
-	virtual void AnimatorOnFrame() = 0;
+	virtual void AnimatorOnFrame(bool calculate_bones = true) = 0;
 	virtual void SetSmall() = 0;
 	virtual void SetIgnoreSmall() = 0;
 	virtual bool isFractured() = 0;
@@ -403,12 +404,15 @@ public:
 	virtual void DisableCollision() = 0;
 	virtual void EnableCollision() = 0;
 	virtual void SetDeadBody() = 0;
+	virtual void SetScale(Fvector scale) = 0;
+	virtual void SetScale(float scale) = 0;
+	virtual Fvector GetScale() = 0;
 	virtual void PureStep(float step = fixed_step) = 0;
 	virtual void SetGlTransformDynamic(const Fmatrix& form) = 0;
 	virtual void CollideAll() = 0;
 	virtual CPhysicsElement* NearestToPoint(const Fvector& point, NearestToPointCallback* cb = 0) = 0;
-	virtual void build_FromKinematics(IKinematics* K, BONE_P_MAP* p_geting_map = nullptr) = 0;
-	virtual void preBuild_FromKinematics(IKinematics* K, BONE_P_MAP* p_geting_map = nullptr) = 0;
+	virtual void build_FromKinematics(IKinematics* K, BONE_P_MAP* p_geting_map = NULL) = 0;
+	virtual void preBuild_FromKinematics(IKinematics* K, BONE_P_MAP* p_geting_map = NULL) = 0;
 	virtual void Build(bool disable = false) = 0;
 	virtual void _BCL ActivatingBonePoses(IKinematics& K) = 0;
 

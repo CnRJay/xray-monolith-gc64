@@ -21,17 +21,17 @@ enum EItemType
 	TYPE_OBJECT = 1
 };
 
-typedef fastdelegate::FastDelegate1<ListItemsVec&> TOnILItemsFocused;
-typedef fastdelegate::FastDelegate0<> TOnILCloseEvent;
-typedef fastdelegate::FastDelegate3<LPCSTR, LPCSTR, EItemType> TOnItemRename;
-typedef fastdelegate::FastDelegate3<LPCSTR, EItemType, bool&> TOnItemRemove;
-typedef fastdelegate::FastDelegate0<> TOnItemAfterRemove;
-typedef fastdelegate::FastDelegate0<> TOnCloseEvent;
-typedef fastdelegate::FastDelegate0<> TOnModifiedEvent;
+typedef xr_delegate<void(ListItemsVec&)> TOnILItemsFocused;
+typedef xr_delegate<void()> TOnILCloseEvent;
+typedef xr_delegate<void(LPCSTR, LPCSTR, EItemType)> TOnItemRename;
+typedef xr_delegate<void(LPCSTR, EItemType, bool&)> TOnItemRemove;
+typedef xr_delegate<void()> TOnItemAfterRemove;
+typedef xr_delegate<void()> TOnCloseEvent;
+typedef xr_delegate<void()> TOnModifiedEvent;
 
 #ifdef __BORLANDC__
 #	include "mxPlacemnt.hpp"
-    typedef fastdelegate::FastDelegate1<TElTreeItem*>			TOnILItemFocused;
+    typedef xr_delegate<void(TElTreeItem*)>			TOnILItemFocused;
 	//---------------------------------------------------------------------------
 	void XR_EPROPS_API CheckWindowPos(TForm* form);
 	//---------------------------------------------------------------------------

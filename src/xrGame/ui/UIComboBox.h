@@ -48,6 +48,9 @@ public:
 	int CurrentID() { return m_itoken_id; }
 	void disable_id(int id);
 	void enable_id(int id);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	virtual bool OnMouseAction(float x, float y, EUIMessages mouse_action);
 	virtual void OnBtnClicked();

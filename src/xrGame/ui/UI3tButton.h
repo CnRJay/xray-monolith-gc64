@@ -39,14 +39,35 @@ public:
 		m_bUseTextColor[state] = true;
 	}
 
+	IBState CurrentIBState() const
+	{
+		if (!m_bIsEnabled) return S_Disabled;
+		if (BUTTON_PUSHED == GetButtonState()) return S_Touched;
+		if (m_bCursorOverWindow) return S_Highlighted;
+		return S_Enabled;
+	}
+
+	u32 StateTextColor(IBState state) const
+	{
+		return (state != S_Enabled && m_bUseTextColor[state]) ? m_dwTextColor[state] : m_dwTextColor[S_Enabled];
+	}
+
 	u32 m_dwTextColor[4];
 	bool m_bUseTextColor[4]; // note: 0 index will be ignored
 
+	virtual CUIWindow* ui_cast_window() { return this; }
 
-	bool m_frameline_mode;
+	enum EFrameMode
+	{
+		Framemode_None,
+		Framemode_Line,
+		Framemode_Window
+	};
+	EFrameMode m_frameline_mode;
 	bool vertical;
 	CUI_IB_Static* m_background;
 	CUI_IB_FrameLineWnd* m_back_frameline;
+	CUI_IB_FrameWindow* m_back_framewindow;
 private:
 	void PlaySoundH();
 	void PlaySoundT();

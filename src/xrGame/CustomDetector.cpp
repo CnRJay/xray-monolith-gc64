@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "customdetector.h"
 #include "ui/ArtefactDetectorUI.h"
 #include "hudmanager.h"
@@ -15,14 +15,14 @@ ITEM_INFO::ITEM_INFO()
 {
 	snd_time = 0.0f;
 	cur_period = 0.0f;
-	pParticle = nullptr;
-	curr_ref = nullptr;
+	pParticle = NULL;
+	curr_ref = NULL;
 }
 
 ITEM_INFO::~ITEM_INFO()
 {
 	if (pParticle)
-		CParticlesObject::Destroy(pParticle);
+		Particles::Details::Destroy(pParticle);
 }
 
 CCustomDetector::CCustomDetector(){}
@@ -43,6 +43,7 @@ void CCustomDetector::Load(LPCSTR section)
 
 void CCustomDetector::shedule_Update(u32 dt)
 {
+	PROF_EVENT("CCustomDetector::shedule_Update", PROF_CAT(GameLogic));
 	inherited::shedule_Update(dt);
 
 	if (!IsWorking())

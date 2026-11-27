@@ -279,7 +279,7 @@ void CAI_Stalker::Hit(SHit* pHDS)
 
 	float hit_power = HDS.power * m_fRankImmunity;
 
-	if (strstr(Core.Params, "-dbgbullet"))
+	if (Core.ParamsData.test(ECoreParams::dbgbullet))
 		Msg("CAI_Stalker::Hit hit_type=%d | hit_power(%f)*m_fRankImmunity(%f) = %f", (u32)HDS.hit_type, HDS.power,
 		    m_fRankImmunity, hit_power);
 
@@ -297,7 +297,7 @@ void CAI_Stalker::Hit(SHit* pHDS)
 				hit_power *= d_hit_power;
 				VERIFY(hit_power>=0.0f);
 
-				if (strstr(Core.Params, "-dbgbullet"))
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
 					Msg("CAI_Stalker::Hit AP(%f) > BoneArmor(%f) [HitFracNpc=%f] modified hit_power=%f", ap, BoneArmor,
 					    m_boneHitProtection->m_fHitFracNpc, hit_power);
 			}
@@ -306,7 +306,7 @@ void CAI_Stalker::Hit(SHit* pHDS)
 				hit_power *= m_boneHitProtection->m_fHitFracNpc;
 				//HDS.add_wound = false;
 
-				if (strstr(Core.Params, "-dbgbullet"))
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
 					Msg("CAI_Stalker::Hit AP(%f) > BoneArmor(%f) [HitFracNpc=%f] modified hit_power=%f", ap, BoneArmor,
 					    m_boneHitProtection->m_fHitFracNpc, hit_power);
 			}
@@ -322,6 +322,25 @@ void CAI_Stalker::Hit(SHit* pHDS)
 
 	if (g_Alive())
 	{
+
+		{
+			const CEntityAlive *entity_alive = smart_cast<const CEntityAlive*>(pHDS->initiator());
+			if(entity_alive && entity_alive->g_Alive() && tfGetRelationType(entity_alive) == ALife::eRelationTypeEnemy)
+			{
+				movement().set_mental_state(eMentalStateDanger);
+				if (!memory().visual().visible_now(entity_alive))
+				{
+					CNotYetVisibleObject		new_object;
+					new_object.m_object			= smart_cast<const CGameObject*>(pHDS->initiator());
+					new_object.m_value			= 1.0f;
+					new_object.m_prev_time		= Device.dwTimeGlobal-1;
+					new_object.m_update_time	= Device.dwTimeGlobal;
+					memory().visual().add_not_yet_visible_object(new_object);
+					memory().visual().add_visible_object(pHDS->initiator(), Device.fTimeDelta);
+				}
+			}
+		}
+
 		bool already_critically_wounded = critically_wounded();
 
 		if (!already_critically_wounded)
@@ -473,7 +492,7 @@ void CAI_Stalker::update_best_item_info_impl()
 	if (ai().script_engine().functor("_g.update_best_weapon", funct))
 	{
 		CGameObject* cur_itm = smart_cast<CGameObject*>(m_best_item_to_kill);
-		CScriptGameObject* GO = funct(this->lua_game_object(), cur_itm ? cur_itm->lua_game_object() : nullptr);
+		CScriptGameObject* GO = funct(this->lua_game_object(), cur_itm ? cur_itm->lua_game_object() : NULL);
 		CInventoryItem* bw = GO ? smart_cast<CInventoryItem*>(&GO->object()) : NULL;
 		if (bw)
 		{
@@ -794,7 +813,7 @@ IC float CAI_Stalker::start_pick_distance() const
 	return (
 		_max(
 			result,
-			memory().enemy().selected()->Position().distance_to(Position()) + 1.f
+			known_enemy_position(memory().enemy().selected()).distance_to(Position()) + 1.f
 		)
 	);
 }
@@ -813,12 +832,16 @@ void CAI_Stalker::update_can_kill_info()
 	if (m_pick_frame_id == Device.dwFrame)
 		return;
 
+	if (!inventory().ActiveItem())
+		return;
+
+	PROF_EVENT("update_can_kill_info", PROF_CAT(AI));
+
 	m_pick_frame_id = Device.dwFrame;
 	m_can_kill_member = false;
 	m_can_kill_enemy = false;
 
 	Fvector position, direction;
-	VERIFY(inventory().ActiveItem());
 	g_fireParams(0, position, direction);
 	can_kill_entity_from(position, direction, start_pick_distance());
 }
@@ -891,6 +914,23 @@ void CAI_Stalker::update_range_fov(float& new_range, float& new_fov, float start
 	return (inherited::update_range_fov(new_range, new_fov, range, fov));
 }
 
+Fvector CAI_Stalker::known_enemy_position(const CEntityAlive* enemy) const
+{
+	if (memory().visual().visible_now(enemy))
+		return (enemy->Position());
+
+	MemorySpace::CMemoryInfo const info = memory().memory(enemy);
+	if (!info.m_object)
+		return (enemy->Position());
+
+	Fvector center;
+	enemy->Center(center);
+	Fvector result = info.m_object_params.m_position;
+	result.y -= center.y - enemy->Position().y;
+
+	return (result);
+}
+
 bool CAI_Stalker::fire_make_sense()
 {
 	// if we do not have an enemy
@@ -898,10 +938,11 @@ bool CAI_Stalker::fire_make_sense()
 	if (!enemy)
 		return (false);
 
-	if ((pick_distance() + g_ai_fire_range_extension) < Position().distance_to(enemy->Position()))
+	Fvector const target = known_enemy_position(enemy);
+	if ((pick_distance() + g_ai_fire_range_extension) < Position().distance_to(target))
 		return (false);
 
-	if (_abs(Position().y - enemy->Position().y) > g_ai_fire_max_height_diff)
+	if (_abs(Position().y - target.y) > g_ai_fire_max_height_diff)
 		return (false);
 
 	if (pick_distance() < g_ai_fire_min_dist)
@@ -1137,8 +1178,8 @@ void CAI_Stalker::check_throw_trajectory(const float& throw_time)
 {
 	m_throw_enabled = false;
 
-	xr_vector<trajectory_pick>* trajectory_picks = nullptr;
-	xr_vector<Fvector>* collide_tris = nullptr;
+	xr_vector<trajectory_pick>* trajectory_picks = NULL;
+	xr_vector<Fvector>* collide_tris = NULL;
 #ifdef DEBUG
 	trajectory_picks				=	& m_throw_picks;
 	collide_tris					=	& m_throw_collide_tris;

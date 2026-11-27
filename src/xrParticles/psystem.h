@@ -109,6 +109,13 @@ namespace PAPI
 	struct Rotation
 	{
 		float x;
+		ICF void set(float _x) { x = _x; }
+		ICF void set(const Rotation& rot_) { x = rot_.x; }
+		ICF void inertion(const Rotation& p, float v)
+		{
+			float inv = 1.f - v;
+			x = v * x + inv * p.x;
+		}
 	};
 
 	struct Particle
@@ -119,10 +126,14 @@ namespace PAPI
 		};
 
 		Rotation rot; // 4
+		Rotation rotI; // 4
 		pVector pos; // 12
+		pVector posI; // 12
 		pVector posB; // 12
 		pVector vel; // 12  	
+		pVector velI; // 12
 		pVector size; // 12
+		pVector sizeI; // 12
 		float colorR; // 4
 		float colorG; // 4
 		float colorB; // 4
@@ -130,7 +141,7 @@ namespace PAPI
 		float age; // 4       
 		u16 frame; // 2
 		Flags16 flags; // 2
-	}; // = 76
+	}; // = 116
 
 	typedef void (* OnBirthParticleCB)(void* owner, u32 param, PAPI::Particle& P, u32 idx);
 	typedef void (* OnDeadParticleCB)(void* owner, u32 param, PAPI::Particle& P, u32 idx);
@@ -260,7 +271,6 @@ namespace PAPI
 
 		// update&render
 		virtual void Update(int effect_id, int alist_id, float dt) =0;
-		virtual void Render(int effect_id) =0;
 		virtual void Transform(int alist_id, const Fmatrix& m, const Fvector& velocity) =0;
 
 		// effect

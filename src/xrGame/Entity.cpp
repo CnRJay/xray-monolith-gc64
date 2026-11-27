@@ -82,6 +82,8 @@ void CEntity::Die(CObject* who)
 	{
 		VERIFY(m_registered_member);
 	}
+	if (!m_registered_member)
+		return;
 	m_registered_member = false;
 	if (IsGameTypeSingle())
 		Level().seniority_holder().team(g_Team()).squad(g_Squad()).group(g_Group()).unregister_member(this);
@@ -233,7 +235,7 @@ BOOL CEntity::net_Spawn(CSE_Abstract* DC)
 
 	//	SetfHealth			(E->fHealth);
 	IKinematics* pKinematics = smart_cast<IKinematics*>(Visual());
-	CInifile* ini = nullptr;
+	CInifile* ini = NULL;
 
 	if (pKinematics) ini = pKinematics->LL_UserData();
 	if (ini)
@@ -353,7 +355,7 @@ DLL_Pure* CEntity::_construct()
 {
 	inherited::_construct();
 	CDamageManager::_construct();
-	m_entity_condition = create_entity_condition(nullptr);
+	m_entity_condition = create_entity_condition(NULL);
 	return (this);
 }
 
@@ -361,6 +363,7 @@ const u32 FORGET_KILLER_TIME = 180000;
 
 void CEntity::shedule_Update(u32 dt)
 {
+	PROF_EVENT(PROF_CAT(GameLogic));
 	inherited::shedule_Update(dt);
 	if (!getDestroy() && !g_Alive() && (m_killer_id != u16(-1)))
 	{
@@ -392,6 +395,14 @@ void CEntity::ChangeTeam(int team, int squad, int group)
 	if (IsGameTypeSingle())
 	{
 		VERIFY(m_registered_member);
+	}
+	// dead or never registered: not in any group, so only the ids change
+	if (!m_registered_member)
+	{
+		id_Team = team;
+		id_Squad = squad;
+		id_Group = group;
+		return;
 	}
 	// remove from current team
 	on_before_change_team();

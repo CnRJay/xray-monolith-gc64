@@ -61,7 +61,7 @@ void CPHSkeleton::Init()
 {
 	m_remove_time = u32(-1);
 	b_removing = false;
-	m_startup_anim = nullptr;
+	m_startup_anim = NULL;
 }
 
 bool CPHSkeleton::Spawn(CSE_Abstract* D)
@@ -91,7 +91,7 @@ bool CPHSkeleton::Spawn(CSE_Abstract* D)
 	else
 	{
 		CPhysicsShellHolder* obj = PPhysicsShellHolder();
-		IKinematics* K = nullptr;
+		IKinematics* K = NULL;
 		if (obj->Visual())
 		{
 			K = smart_cast<IKinematics*>(obj->Visual());

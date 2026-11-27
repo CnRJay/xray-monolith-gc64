@@ -2,6 +2,7 @@
 #define _RENDER_H_
 
 #include "../xrCDB/frustum.h"
+#include "../xrCDB/ISpatial.h"
 #include "vis_common.h"
 //#include "IRenderDetailModel.h"
 
@@ -27,6 +28,7 @@ struct ENGINE_API FSlideWindowItem;
 class IRenderVisual;
 class IKinematics;
 class CGameFont;
+class CObject;
 //class IRenderDetailModel;
 
 #ifndef _EDITOR
@@ -36,7 +38,9 @@ const float fLightSmoothFactor = 4.f;
 #endif
 //////////////////////////////////////////////////////////////////////////
 // definition (Dynamic Light)
-class ENGINE_API IRender_Light : public xr_resource
+class ENGINE_API IRender_Light:
+	public xr_resource,
+	public ISpatialOwner
 {
 public:
 	enum LT
@@ -50,6 +54,7 @@ public:
 
 public:
 	virtual void set_type(LT type) = 0;
+	virtual LT get_type() = 0;
 	virtual void set_active(bool) = 0;
 	virtual bool get_active() = 0;
 	virtual void set_shadow(bool) = 0;
@@ -62,8 +67,12 @@ public:
 	{
 	};
 	virtual void set_position(const Fvector& P, const float eps = EPS) = 0;
+	virtual const Fvector& get_position() const = 0;
 	virtual void set_rotation(const Fvector& D, const Fvector& R, const float eps = EPS) = 0;
+	virtual const Fvector& get_rotation() const = 0;
+	virtual const Fvector& get_right() const = 0;
 	virtual void set_cone(float angle) = 0;
+	virtual const float& get_cone() const = 0;
 	virtual void set_range(float R) = 0;
 	virtual void set_virtual_size(float R) = 0;
 	virtual void set_texture(LPCSTR name) = 0;
@@ -71,13 +80,28 @@ public:
 	virtual void set_color(float r, float g, float b) = 0;
 	virtual void set_hud_mode(bool b) = 0;
 	virtual bool get_hud_mode() = 0;
+	virtual void set_ortho(bool b) = 0;
+	virtual bool get_ortho() = 0;
 	virtual void set_is_playerlight(bool b) = 0;
+	virtual vis_data& get_homdata() = 0;
+
+	virtual void	set_occq_mode						(bool b)							= 0;
+	virtual bool	get_occq_mode						()									= 0;
+
+	virtual void	set_ignore_object					(CObject* O)						= 0;
+	virtual CObject* get_ignore_object					()									= 0;
+	
+	virtual void	set_decor_object					(CObject* O, int index = 0)			= 0;
+	virtual CObject* get_decor_object					(int index = 0)						= 0;
+
+	virtual bool get_is_playerlight() = 0;
 	virtual ~IRender_Light();
+	virtual void destroy(bool deffered = true) = 0;
 };
 
 struct ENGINE_API resptrcode_light : public resptr_base<IRender_Light>
 {
-	void destroy() { _set(nullptr); }
+	void destroy() { if(p_){p_->destroy(); p_ = NULL;} }
 };
 
 typedef resptr_core<IRender_Light, resptrcode_light> ref_light;
@@ -100,7 +124,7 @@ public:
 
 struct ENGINE_API resptrcode_glow : public resptr_base<IRender_Glow>
 {
-	void destroy() { _set(nullptr); }
+	void destroy() { _set(NULL); }
 };
 
 typedef resptr_core<IRender_Glow, resptrcode_glow> ref_glow;
@@ -178,9 +202,72 @@ public:
 
 //////////////////////////////////////////////////////////////////////////
 // definition (Renderer)
+class ENGINE_API IDSGraphManager
+{
+public:
+	enum
+	{
+		fl_deffered,
+		fl_forward,
+		fl_wmarks,
+		fl_normal,
+		fl_shmap,
+		fl_invisible,
+		fl_hud,
+		fl_cam,
+		fl_max,
+	};
+	IRenderable* val_pObject = nullptr;
+	bool val_bUI3D = false;
+	float val_fCustomFOV = 0.f;
+
+	void set_UI3D(bool value) { val_bUI3D = value; }
+	bool get_UI3D() const { return val_bUI3D; }
+	void set_CustomFOV(float value) { val_fCustomFOV = value; }
+	float get_CustomFOV() const { return val_fCustomFOV; }
+	bool i_mask[fl_max]{};//deffered,forward,wmarks,normal,shmap,val_invisible,val_hud,val_cam_attached
+
+	virtual void add_Static(IRenderVisual* pVisual, CFrustum& frustum, u32 planes) = 0;
+	virtual void add_Dynamic(IRenderVisual* piVisual, Fmatrix* xform) = 0;
+	virtual void add_RenderableUI(IRenderable* object) = 0;
+
+	virtual void set_Object(IRenderable* O = nullptr) = 0;
+	IRenderable* get_Object() { return val_pObject; }
+
+	virtual void set_HUD(bool V = false) { i_mask[fl_hud]=V; }
+	virtual bool get_HUD() { return i_mask[fl_hud]; }
+
+	// Anomaly
+	virtual void set_CamAttached(bool V) { i_mask[fl_cam] = V; }
+	virtual bool get_CamAttached() { return i_mask[fl_cam]; }
+
+	virtual void set_Invisible(bool V = false) { i_mask[fl_invisible] = V; }
+
+	virtual IDSGraphManager* dcast_IPortalTraverser() { return this; }
+};
+
 class ENGINE_API IRender_interface
 {
 public:
+	enum
+	{
+		PHASE_NORMAL = 0,	// E[0]
+		PHASE_SMAP = 1,	// E[1]
+		PHASE_REFLECT = 2,
+		//r1
+		PHASE_POINT = 3,
+		PHASE_SPOT = 4,
+	};
+	enum
+	{
+		MMSM_OFF = 0,
+		MMSM_ON,
+		MMSM_AUTO,
+		MMSM_AUTODETECT
+	};
+	u32 phase = PHASE_NORMAL;
+	BOOL b_loaded = FALSE;
+
 	enum GenerationLevel
 	{
 		GENERATION_R1 = 81,
@@ -223,7 +310,6 @@ public:
 public:
 	// options
 	bool hud_loading;
-	s32 m_skinning;
 	s32 m_MSAASample;
 
 	BENCH_SEC_SCRAMBLEMEMBER1
@@ -232,7 +318,6 @@ public:
 
 	// data
 	CFrustum ViewBase;
-	CFrustum* View;
 public:
 	// feature level
 	virtual GenerationLevel get_generation() = 0;
@@ -252,8 +337,9 @@ public:
 	virtual void level_Load(IReader*) = 0;
 	virtual void level_Unload() = 0;
 
+	virtual size_t SectorsCount() { return size_t(0); }
+
 	//virtual IDirect3DBaseTexture9* texture_load (LPCSTR fname, u32& msize) = 0;
-	void shader_option_skinning(s32 mode) { m_skinning = mode; }
 	virtual HRESULT shader_compile(
 		LPCSTR name,
 		DWORD const* pSrcData,
@@ -277,23 +363,9 @@ public:
 	virtual IRender_Target* getTarget() = 0;
 
 	// Main
-	IC void set_Frustum(CFrustum* O)
-	{
-		VERIFY(O);
-		View = O;
-	}
-
-	virtual void set_Transform(Fmatrix* M) = 0;
-	virtual void set_HUD(BOOL V) = 0;
-	virtual BOOL get_HUD() = 0;
-	virtual void set_CamAttached(BOOL V) = 0;
-	virtual BOOL get_CamAttached() = 0;
-	virtual void set_Invisible(BOOL V) = 0;
+	virtual IDSGraphManager* GetUI3DGraph() = 0;
 	virtual void flush() = 0;
-	virtual void set_Object(IRenderable* O) = 0;
 	virtual void add_Occluder(Fbox2& bb_screenspace) = 0; // mask screen region as oclluded (-1..1, -1..1)
-	virtual void add_Visual(IRenderVisual* V) = 0; // add visual leaf (no culling performed at all)
-	virtual void add_Geometry(IRenderVisual* V) = 0; // add visual(s) (all culling performed)
 	// virtual void add_StaticWallmark (ref_shader& S, const Fvector& P, float s, CDB::TRI* T, Fvector* V)=0;
 	virtual void add_StaticWallmark(const wm_shader& S, const Fvector& P, float s, CDB::TRI* T, Fvector* V) = 0;
 	// Prefer this function when possible
@@ -302,13 +374,14 @@ public:
 	// demonized: add user defined rotation to wallmark
 	virtual void add_StaticWallmark(IWallMarkArray* pArray, const Fvector& P, float s, CDB::TRI* T, Fvector* V, float ttl, bool ignore_opt, float rotation) = 0;
 	virtual void clear_static_wallmarks() = 0;
-	virtual void remove_SkeletonWallmarksFromObject(IKinematics* obj) = 0;
-	virtual void update_Wallmarks() = 0;
 	//virtual void add_SkeletonWallmark (intrusive_ptr<CSkeletonWallmark> wm) = 0;
 	//virtual void add_SkeletonWallmark (const Fmatrix* xf, CKinematics* obj, ref_shader& sh, const Fvector& start, const Fvector& dir, float size)=0;
 	// Prefer this function when possible
 	virtual void add_SkeletonWallmark(const Fmatrix* xf, IKinematics* obj, IWallMarkArray* pArray, const Fvector& start,
 	                                  const Fvector& dir, float size, float ttl = 0.f, bool ignore_opt = false) = 0;
+
+    virtual void remove_SkeletonWallmarksFromObject(IKinematics* obj) = 0;
+    virtual void update_Wallmarks() = 0;
 
 	//virtual IBlender* blender_create (CLASS_ID cls) = 0;
 	//virtual void blender_destroy (IBlender* &) = 0;
@@ -344,7 +417,7 @@ public:
 	virtual void models_Prefetch() = 0;
 	virtual void models_PrefetchOne(LPCSTR name, bool assert = true) = 0;
 	virtual void models_Clear(BOOL b_complete) = 0; 
-	virtual bool models_Exists(LPCSTR name) = 0;
+	virtual bool models_Exists(LPCSTR name, bool no_prefetch = false) = 0;
 	
 	//  antglobes: Sun Values
 	virtual Fvector GetSunPosition() { static Fvector default_pos; return default_pos; };
@@ -363,6 +436,13 @@ public:
 	// Main
 	virtual void Calculate() = 0;
 	virtual void Render() = 0;
+	virtual void RenderUI3DDirect() = 0;
+	// Renderers without an atlas use RenderUI3DDirect for each icon.
+	// Return allocated dimensions, not pending console settings; resolution is the live icon scale.
+	virtual bool GetUI3DIconAtlasInfo(u32& width, u32& height, float& resolution) { return false; }
+	virtual bool BeginUI3DIconAtlas() { return false; }
+	virtual void BeginUI3DIconAtlasItem() {}
+	virtual void EndUI3DIconAtlas() {}
 
 	virtual void Screenshot(ScreenshotMode mode = SM_NORMAL, LPCSTR name = 0) = 0;
 	virtual void Screenshot(ScreenshotMode mode, CMemoryWriter& memory_writer) = 0;
@@ -382,9 +462,14 @@ public:
 	virtual void rmNear() = 0;
 	virtual void rmFar() = 0;
 	virtual void rmNormal() = 0;
-	virtual u32 memory_usage() = 0;
+	virtual u32 memory_usage() { return 0; }
 	virtual u32 active_phase() = 0; //Swartz: actor shadow
 	virtual void RenderToTarget(RRT target) = 0;
+
+	// GPU timeline scope around a pass drawn from outside the renderer
+	virtual u32 ScopeBegin(LPCWSTR name) { return u32(-1); }
+	virtual void ScopeEnd(u32 scope) {}
+
 	// Constructor/destructor
 	virtual ~IRender_interface();
 protected:
@@ -392,5 +477,15 @@ protected:
 };
 
 //extern ENGINE_API IRender_interface* Render;
+
+// Times a pass drawn from xrGame or xrEngine on the GPU timeline, with a profiler zone of the same name
+struct render_scope
+{
+	u32 scope;
+	render_scope(LPCWSTR name) : scope(::Render->ScopeBegin(name)) {}
+	~render_scope() { ::Render->ScopeEnd(scope); }
+};
+
+#define RENDER_SCOPE(Name) PROF_EVENT(#Name, PROF_CAT(Rendering)); render_scope renderScope##Name(L#Name)
 
 #endif

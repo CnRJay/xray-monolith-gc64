@@ -56,6 +56,10 @@ public:
 	bool IsAccelerator(int iAccel) const;
 
 	shared_str m_hint_text;
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIStatic* ui_cast_static() { return this; }
+
 protected:
 
 	E_BUTTON_STATE m_eButtonState;

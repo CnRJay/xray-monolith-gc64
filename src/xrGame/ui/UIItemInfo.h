@@ -38,8 +38,8 @@ public:
 	CInventoryItem* CurrentItem() const { return m_pInvItem; }
 	void InitItemInfo(Fvector2 pos, Fvector2 size, LPCSTR xml_name);
 	void InitItemInfo(LPCSTR xml_name);
-	void InitItem(CUICellItem* pCellItem, CInventoryItem* pCompareItem = nullptr, u32 item_price = u32(-1),
-	              LPCSTR trade_tip = nullptr);
+	void InitItem(CUICellItem* pCellItem, CInventoryItem* pCompareItem = NULL, u32 item_price = u32(-1),
+	              LPCSTR trade_tip = NULL);
 
 
 	void TryAddConditionInfo(CInventoryItem& pInvItem, CInventoryItem* pCompareItem);
@@ -48,6 +48,8 @@ public:
 	void TryAddOutfitInfo(CInventoryItem& pInvItem, CInventoryItem* pCompareItem);
 	void TryAddUpgradeInfo(CInventoryItem& pInvItem);
 	void TryAddBoosterInfo(CInventoryItem& pInvItem);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 	virtual void Draw();
 	bool m_b_FitToHeight;

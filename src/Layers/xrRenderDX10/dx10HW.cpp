@@ -13,6 +13,7 @@
 #pragma warning(default:4995)
 #include "../xrRender/HW.h"
 #include "../../xrEngine/XR_IOConsole.h"
+#include "../../xrEngine/renderdoc_integration.h"
 #include "../../Include/xrAPI/xrAPI.h"
 #include "../xrRender/xrRender_console.h"
 
@@ -41,22 +42,20 @@ IDirect3DStateBlock9*	dwDebugSB = 0;
 #endif
 */
 
-LPCSTR dxgiOld = "--dxgi-old";
-
 CHW::CHW() :
-    //	hD3D(nullptr),
-	//pD3D(nullptr),
+    //	hD3D(NULL),
+	//pD3D(NULL),
 	m_pAdapter(0),
 	m_pOutput(nullptr),
-	pDevice(nullptr),
+	pDevice(NULL),
 #if defined(USE_DX11)
 	m_move_window(true),
 	pAnnotation(nullptr)
 #else
     m_move_window(true)
 #endif
-//SECRET_P_BASE_RT(nullptr),
-//SECRET_P_BASE_ZB(nullptr)
+//pBaseRT(NULL),
+//pBaseZB(NULL)
 {
     Device.seqAppActivate.Add(this);
     Device.seqAppDeactivate.Add(this);
@@ -436,7 +435,7 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
 
     if ((D3DFMT_UNKNOWN==fTarget) || (D3DFMT_UNKNOWN==fTarget))	{
 		Msg					("Failed to initialize graphics hardware.\nPlease try to restart the game.");
-		FlushLog			();
+		xrLogger::FlushLog();
 		MessageBox			(NULL,"Failed to initialize graphics hardware.\nPlease try to restart the game.","Error!",MB_OK|MB_ICONERROR);
 		TerminateProcess	(GetCurrentProcess(),0);
     }
@@ -542,7 +541,7 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
 #ifdef DEBUG
 	//createDeviceFlags |= D3Dxx_CREATE_DEVICE_DEBUG;
 #endif
-    HRESULT R;
+    HRESULT R = S_OK; // DX11: every creation failure is already R_CHK'd
     // Create the device
     //	DX10 don't need it?
 	//u32 GPU		= selectGPU();
@@ -555,7 +554,7 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
     };
 
     UINT create_device_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-    if (strstr(Core.Params, "--dxgi-dbg")) {
+    if (Core.ParamsData.test(ECoreParams::dxgi_dbg)) {
         // enables d3d11 debug layer validation and output
         // viewable in VS debugger `Output > Debug` view or using a tool like Sysinternals DebugView
         create_device_flags |= D3D11_CREATE_DEVICE_DEBUG;
@@ -564,7 +563,7 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
     // create device
     ID3D11Device* device;
     ID3D11DeviceContext* context;
-    R = D3D11CreateDevice(
+    R_CHK(D3D11CreateDevice(
         nullptr,
         D3D_DRIVER_TYPE_HARDWARE,
         nullptr,
@@ -574,8 +573,7 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
         D3D11_SDK_VERSION,
         &device,
         &FeatureLevel,
-        &context);
-    R_CHK(R);
+        &context));
 
     R_CHK(device->QueryInterface(&pDevice));
     R_CHK(context->QueryInterface(&pContext));
@@ -584,7 +582,7 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
     _RELEASE(context);
 
     // create swapchain
-    R_CHK(m_pFactory->CreateSwapChainForHwnd(pDevice, m_hWnd, &sd, &sd_fullscreen, nullptr, &m_pSwapChain));
+    R_CHK(m_pFactory->CreateSwapChainForHwnd(pDevice, m_hWnd, &sd, &sd_fullscreen, NULL, &m_pSwapChain));
 
     // setup colorspace
     // HDR10 (U10 output) -> DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
@@ -612,6 +610,8 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
     _RELEASE(swapchain3);
 
     R_CHK(pContext->QueryInterface(__uuidof(ID3DUserDefinedAnnotation), (void**)&pAnnotation));
+
+    renderdoc_set_active_window(pDevice, m_hWnd);
 
 #else
 	R = D3DX10CreateDeviceAndSwapChain(m_pAdapter,
@@ -650,7 +650,7 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
             "Please try to restart the game.\n"
 		    "CreateDevice returned 0x%08x", R
 		);
-        FlushLog();
+        xrLogger::FlushLog();
 		MessageBox(NULL, "Failed to initialize graphics hardware.\nPlease try to restart the game.", "Error!",
             MB_OK | MB_ICONERROR);
         TerminateProcess(GetCurrentProcess(), 0);
@@ -687,8 +687,8 @@ void CHW::CreateDevice(HWND hwnd, bool move_window)
     // probably the sequence ResizeTarget, ResizeBuffers, and UpdateViews is important
     
     // u32	memory									= pDevice->GetAvailableTextureMem	();
-    if (strstr(Core.Params, dxgiOld)) {
-        Msg("* %s enabled", dxgiOld);
+    if (Core.ParamsData.test(ECoreParams::dxgi_old)) {
+        Msg("* %s enabled", "dxgi-old");
         UpdateViews();
         size_t memory = Desc.DedicatedVideoMemory;
         Msg("*     Texture memory: %d M", memory / (1024 * 1024));
@@ -738,9 +738,9 @@ void CHW::DestroyDevice()
 #endif
 
     if (!is_windowed) {
-        m_pSwapChain->SetFullscreenState(FALSE, nullptr);
+        m_pSwapChain->SetFullscreenState(FALSE, NULL);
 
-        if (strstr(Core.Params, dxgiOld)) {
+        if (Core.ParamsData.test(ECoreParams::dxgi_old)) {
 #ifdef USE_DX11
             const auto& cd = m_ChainDesc;
             CHK_DX(m_pSwapChain->ResizeBuffers(
@@ -893,8 +893,8 @@ void CHW::Reset(HWND hwnd)
 			Msg		("! ERROR: [%dx%d]: %s",DevPP.BackBufferWidth,DevPP.BackBufferHeight,Debug.error2string(_hr));
 			Sleep	(100);
         }
-        R_CHK				(pDevice->GetRenderTarget			(0,&SECRET_P_BASE_RT));
-        R_CHK				(pDevice->GetDepthStencilSurface	(&SECRET_P_BASE_ZB));
+        R_CHK				(pDevice->GetRenderTarget			(0,&pBaseRT));
+        R_CHK				(pDevice->GetDepthStencilSurface	(&pBaseZB));
     */
 
 
@@ -909,8 +909,8 @@ void CHW::Reset(HWND hwnd)
 #ifdef DEBUG
 _RELEASE			(dwDebugSB);
 #endif
-_RELEASE			(SECRET_P_BASE_ZB);
-_RELEASE			(SECRET_P_BASE_RT);
+_RELEASE			(pBaseZB);
+_RELEASE			(pBaseRT);
 
 BOOL	bWindowed		= !psDeviceFlags.is	(rsFullscreen);
 #else
@@ -932,8 +932,8 @@ while	(TRUE)	{
 	Msg		("! ERROR: [%dx%d]: %s",DevPP.BackBufferWidth,DevPP.BackBufferHeight,Debug.error2string(_hr));
 	Sleep	(100);
 }
-R_CHK				(pDevice->GetRenderTarget			(0,&SECRET_P_BASE_RT));
-R_CHK				(pDevice->GetDepthStencilSurface	(&SECRET_P_BASE_ZB));
+R_CHK				(pDevice->GetRenderTarget			(0,&pBaseRT));
+R_CHK				(pDevice->GetDepthStencilSurface	(&pBaseZB));
 #ifdef DEBUG
 R_CHK				(pDevice->CreateStateBlock			(D3DSBT_ALL,&dwDebugSB));
 #endif
@@ -1033,7 +1033,7 @@ DXGI_RATIONAL CHW::selectRefresh(u32 dwWidth, u32 dwHeight, DXGI_FORMAT fmt)
 
     float CurrentFreq = 60.0f;
 
-	if (psDeviceFlags.is(rsRefresh60hz) || strstr(Core.Params, "-60hz"))
+	if (psDeviceFlags.is(rsRefresh60hz) || Core.ParamsData.test(ECoreParams::_60hz))
 	{
         refresh_rate = 1.f / 60.f;
         return res;
@@ -1091,15 +1091,11 @@ void CHW::OnAppActivate()
 
 	if (m_pSwapChain && !is_windowed)
 	{
-#if defined(USE_DX11)
         ShowWindow(m_hWnd, SW_RESTORE);
-#elif defined(USE_DX10)
-        ShowWindow(m_ChainDesc.OutputWindow, SW_RESTORE);
-#endif
         m_pSwapChain->SetFullscreenState(TRUE, m_pOutput);
 
 #ifdef USE_DX11
-        if (!strstr(Core.Params, dxgiOld)) {
+        if (!Core.ParamsData.test(ECoreParams::dxgi_old)) {
             _SHOW_REF("refCount:SECRET_P_BASE_ZB", SECRET_P_BASE_ZB);
             _RELEASE(SECRET_P_BASE_ZB);
 
@@ -1142,10 +1138,10 @@ void CHW::OnAppDeactivate()
 		if (use_reshade)
             unregister_reshade();
 		
-        m_pSwapChain->SetFullscreenState(FALSE, nullptr);
+        m_pSwapChain->SetFullscreenState(FALSE, NULL);
 
 #ifdef USE_DX11
-        if (!strstr(Core.Params, dxgiOld)) {
+        if (!Core.ParamsData.test(ECoreParams::dxgi_old)) {
             _SHOW_REF("refCount:SECRET_P_BASE_ZB", SECRET_P_BASE_ZB);
             _RELEASE(SECRET_P_BASE_ZB);
 
@@ -1189,7 +1185,6 @@ BOOL CHW::support(D3DFORMAT fmt, DWORD type, DWORD usage)
 
 void CHW::updateWindowProps(HWND m_hWnd)
 {
-	//	BOOL	bWindowed				= strstr(Core.Params,"-dedicated") ? TRUE : !psDeviceFlags.is	(rsFullscreen);
     BOOL bWindowed = (g_screenmode != 2);
 
     // Set window properties depending on what mode were in.
@@ -1205,7 +1200,7 @@ void CHW::updateWindowProps(HWND m_hWnd)
 		    else
 		    {
 		        dwWindowStyle |= WS_BORDER | WS_OVERLAPPEDWINDOW;
-		        if (!strstr(Core.Params, "-no_dialog_header"))
+		        if (!Core.ParamsData.test(ECoreParams::no_dialog_header))
 		            dwWindowStyle |= WS_DLGFRAME | WS_SYSMENU | WS_MINIMIZEBOX;
 		    }
 
@@ -1283,13 +1278,13 @@ for( int i=0; vid_quality_token[i].name; i++ )
 xr_free					(vid_quality_token[i].name);
 }
 xr_free						(vid_quality_token);
-vid_quality_token			= nullptr;
+vid_quality_token			= NULL;
 }
 */
 /*
 void	fill_render_mode_list()
 {
-if(vid_quality_token != nullptr)		return;
+if(vid_quality_token != NULL)		return;
 
 D3DCAPS9					caps;
 CHW							_HW;
@@ -1317,8 +1312,8 @@ default:	;
 
 if (bBreakLoop) break;
 
-_tmp.push_back				(nullptr);
-LPCSTR val					= nullptr;
+_tmp.push_back				(NULL);
+LPCSTR val					= NULL;
 switch (i)
 {
 case 0: val ="renderer_r1";			break;
@@ -1333,7 +1328,7 @@ u32 _cnt								= _tmp.size()+1;
 vid_quality_token						= xr_alloc<xr_token>(_cnt);
 
 vid_quality_token[_cnt-1].id			= -1;
-vid_quality_token[_cnt-1].name			= nullptr;
+vid_quality_token[_cnt-1].name			= NULL;
 
 #ifdef DEBUG
 Msg("Available render modes[%d]:",_tmp.size());
@@ -1355,12 +1350,12 @@ void free_vid_mode_list()
         xr_free(vid_mode_token[i].name);
     }
     xr_free(vid_mode_token);
-    vid_mode_token = nullptr;
+    vid_mode_token = NULL;
 }
 
 void fill_vid_mode_list(CHW* _hw)
 {
-	if (vid_mode_token != nullptr) return;
+	if (vid_mode_token != NULL) return;
 	xr_vector<LPCSTR> _tmp;
     xr_vector<DXGI_MODE_DESC> modes;
 
@@ -1390,12 +1385,12 @@ void fill_vid_mode_list(CHW* _hw)
         if (_tmp.end() != std::find_if(_tmp.begin(), _tmp.end(), _uniq_mode(str)))
             continue;
 
-        _tmp.push_back(nullptr);
+        _tmp.push_back(NULL);
         _tmp.back() = xr_strdup(str);
     }
 
 
-    //	_tmp.push_back				(nullptr);
+    //	_tmp.push_back				(NULL);
     //	_tmp.back()					= xr_strdup("1024x768");
 
     u32 _cnt = _tmp.size() + 1;
@@ -1403,7 +1398,7 @@ void fill_vid_mode_list(CHW* _hw)
     vid_mode_token = xr_alloc<xr_token>(_cnt);
 
 	vid_mode_token[_cnt - 1].id = -1;
-    vid_mode_token[_cnt - 1].name = nullptr;
+    vid_mode_token[_cnt - 1].name = NULL;
 
 #ifdef DEBUG
 	Msg("Available video modes[%d]:",_tmp.size());
@@ -1418,7 +1413,7 @@ void fill_vid_mode_list(CHW* _hw)
     }
 
     /*	Old code
-    if(vid_mode_token != nullptr)		return;
+    if(vid_mode_token != NULL)		return;
     xr_vector<LPCSTR>	_tmp;
     u32 cnt = _hw->pD3D->GetAdapterModeCount	(_hw->DevAdapter, _hw->Caps.fTarget);
 
@@ -1436,7 +1431,7 @@ void fill_vid_mode_list(CHW* _hw)
         if(_tmp.end() != std::find_if(_tmp.begin(), _tmp.end(), _uniq_mode(str)))
             continue;
 
-        _tmp.push_back				(nullptr);
+        _tmp.push_back				(NULL);
         _tmp.back()					= xr_strdup(str);
     }
 
@@ -1445,7 +1440,7 @@ void fill_vid_mode_list(CHW* _hw)
     vid_mode_token					= xr_alloc<xr_token>(_cnt);
 
     vid_mode_token[_cnt-1].id			= -1;
-    vid_mode_token[_cnt-1].name		= nullptr;
+    vid_mode_token[_cnt-1].name		= NULL;
 
 #ifdef DEBUG
     Msg("Available video modes[%d]:",_tmp.size());
@@ -1471,20 +1466,20 @@ void CHW::UpdateViews()
 	HRESULT R;
 
     // Create a render target view
-	//R_CHK	(pDevice->GetRenderTarget			(0,&SECRET_P_BASE_RT));
+	//R_CHK	(pDevice->GetRenderTarget			(0,&pBaseRT));
     ID3DTexture2D* pBuffer;
 	R = m_pSwapChain->GetBuffer(0, __uuidof( ID3DTexture2D), (LPVOID*)&pBuffer);
     R_CHK(R);
 
-    R = pDevice->CreateRenderTargetView(pBuffer, nullptr, &SECRET_P_BASE_RT);
+    R = pDevice->CreateRenderTargetView(pBuffer, NULL, &SECRET_P_BASE_RT);
     pBaseRT = SECRET_P_BASE_RT;
     pBuffer->Release();
     R_CHK(R);
 
     //	Create Depth/stencil buffer
     //	HACK: DX10: hard depth buffer format
-	//R_CHK	(pDevice->GetDepthStencilSurface	(&SECRET_P_BASE_ZB));
-	ID3DTexture2D* pDepthStencil = nullptr;
+	//R_CHK	(pDevice->GetDepthStencilSurface	(&pBaseZB));
+	ID3DTexture2D* pDepthStencil = NULL;
 
     D3D_TEXTURE2D_DESC descDepth;
 #if defined(USE_DX11)
@@ -1512,7 +1507,7 @@ void CHW::UpdateViews()
     R_CHK(R);
 
     //	Create Depth/stencil view
-    R = pDevice->CreateDepthStencilView(pDepthStencil, nullptr, &SECRET_P_BASE_ZB);
+    R = pDevice->CreateDepthStencilView(pDepthStencil, NULL, &SECRET_P_BASE_ZB);
     pBaseZB = SECRET_P_BASE_ZB;
     R_CHK(R);
 

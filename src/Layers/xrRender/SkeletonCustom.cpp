@@ -8,13 +8,8 @@
 #ifndef _EDITOR
 #include	"../../xrEngine/Render.h"
 #endif
-#include	"../../xrCore/profiler.h"
+
 int psSkeletonUpdate = 32;
-xrCriticalSection UCalc_Mutex
-#ifdef PROFILE_CRITICAL_SECTIONS
-	(MUTEX_PROFILE_ID(UCalc_Mutex))
-#endif // PROFILE_CRITICAL_SECTIONS
-;
 xrCriticalSection wallmarks_cs;
 
 #ifndef _EDITOR
@@ -142,7 +137,7 @@ void CKinematics::IBoneInstances_Destroy()
 	if (bone_instances)
 	{
 		xr_free(bone_instances);
-		bone_instances = nullptr;
+		bone_instances = NULL;
 	}
 }
 
@@ -168,8 +163,8 @@ void CKinematics::Load(const char* N, IReader* data, u32 dwFlags)
 	//Msg				("skeleton: %s",N);
 	inherited::Load(N, data, dwFlags);
 
-	pUserData = nullptr;
-	m_lod = nullptr;
+	pUserData = NULL;
+	m_lod = NULL;
 	// loading lods
 
 	IReader* LD = data->open_chunk(OGF_S_LODS);
@@ -184,7 +179,7 @@ void CKinematics::Load(const char* N, IReader* data, u32 dwFlags)
 			string_path lod_name;
 			LD->r_string(lod_name, sizeof(lod_name));
 			//.         strconcat		(sizeof(name_load),name_load, short_name, ":lod:", lod_name.c_str());
-			m_lod = (dxRender_Visual*)::Render->model_CreateChild(lod_name, nullptr);
+			m_lod = (dxRender_Visual*)::Render->model_CreateChild(lod_name, NULL);
 
 			if (CKinematics* lod_kinematics = fast_dynamic_cast<CKinematics*>(m_lod))
 			{
@@ -214,6 +209,7 @@ void CKinematics::Load(const char* N, IReader* data, u32 dwFlags)
 	bone_map_P = xr_new<accel>();
 	bones = xr_new<vecBones>();
 	bone_instances = nullptr;
+	bones_size = u16(0);
 
 	// Load bones
 #pragma todo("container is created in stack!")
@@ -329,25 +325,13 @@ void CKinematics::Load(const char* N, IReader* data, u32 dwFlags)
 	}
 
 	// reset update_callback
-	Update_Callback = nullptr;
+	Update_Callback = NULL;
 	// reset update frame
 	wm_frame = u32(-1);
 
-	BuildTopologicalOrder();
-
 	LL_Validate();
-}
 
-void CKinematics::BuildTopologicalOrder()
-{
-	m_bones_topo.clear();
-	m_bones_topo.reserve(bones->size());
-	m_bones_topo.push_back(iRoot);
-	for (u32 i = 0; i < m_bones_topo.size(); i++)
-	{
-		for (CBoneData* child : (*bones)[m_bones_topo[i]]->children)
-			m_bones_topo.push_back(child->GetSelfID());
-	}
+	bones_size = bones->size();
 }
 
 //--DSR-- SilencerOverheat_start
@@ -440,10 +424,11 @@ void CKinematics::Copy(dxRender_Visual* P)
 {
 	inherited::Copy(P);
 
-	CKinematics* pFrom = fast_dynamic_cast<CKinematics*>(P);
+	CKinematics* pFrom = (CKinematics*)P->dcast_PKinematics();
 	VERIFY(pFrom);
 	pUserData = pFrom->pUserData;
 	bones = pFrom->bones;
+	bones_size = pFrom->bones_size;
 	iRoot = pFrom->iRoot;
 	bone_map_N = pFrom->bone_map_N;
 	bone_map_P = pFrom->bone_map_P;
@@ -451,7 +436,6 @@ void CKinematics::Copy(dxRender_Visual* P)
 	hidden_bones = pFrom->hidden_bones;
 
 	IBoneInstances_Create();
-	BuildTopologicalOrder();
 
 	for (u32 i = 0; i < children.size(); i++)
 		LL_GetChild(i)->SetParent(this);
@@ -473,7 +457,7 @@ void CKinematics::Spawn()
 	// bones
 	for (u32 i = 0; i < bones->size(); i++)
 		bone_instances[i].construct();
-	Update_Callback = nullptr;
+	Update_Callback = NULL;
 	CalculateBones_Invalidate();
 	// wallmarks
 	ClearWallmarks();
@@ -484,13 +468,6 @@ void CKinematics::Spawn()
 void CKinematics::Depart()
 {
 	inherited::Depart();
-	
-	for (auto& wm : wallmarks)
-	{
-		if (wm)
-			wm->InvalidateParent();
-	}
-	
 	// wallmarks
 	ClearWallmarks();
 
@@ -589,13 +566,63 @@ void CKinematics::LL_SetBonesVisible(u64 mask)
 	Visibility_Invalidate();
 }
 
+bool CKinematics::CopyBonesFrom(IKinematics* _from)
+{
+	CKinematics* from = smart_cast<CKinematics*>(_from);
+	if (!from || from == this)
+		return false;
+
+	// Calculate now, so that the renderer doesn't recalculate the bones this frame and overwrite the copy
+	CalculateBones_Invalidate();
+	CalculateBones(TRUE);
+
+	CBoneInstance& root = bone_instances[iRoot];
+	root.mTransform.identity();
+	root.mRenderTransform.mul_43(root.mTransform, (*bones)[iRoot]->m2b_transform);
+
+	auto copy_bone = [&](u16 dst_id, u16 src_id)
+	{
+		CBoneInstance& dst = bone_instances[dst_id];
+		const Fmatrix& pose = from->LL_GetTransform(src_id);
+
+		// Hidden bones stay collapsed, but keep the pose for when they are shown again
+		dst.mTransformHidden = pose;
+		if (LL_GetBoneVisible(dst_id))
+		{
+			dst.mTransform = pose;
+			dst.mRenderTransform = from->bone_instances[src_id].mRenderTransform;
+		}
+	};
+
+	if (LL_BoneCount() == from->LL_BoneCount())
+	{
+		for (u16 i = 0; i < LL_BoneCount(); ++i)
+			copy_bone(i, i);
+	}
+	else
+	{
+		for (const auto& [name, id] : *bone_map_N)
+		{
+			u16 src_id = from->LL_BoneID(name);
+			if (src_id != BI_NONE)
+				copy_bone(id, src_id);
+		}
+	}
+
+	// Bounds of the copied pose
+	vis.box = from->vis.box;
+	vis.sphere = from->vis.sphere;
+
+	return true;
+}
+
 void CKinematics::Visibility_Update()
 {
 	Update_Visibility = FALSE;
 	// check visible
 	for (u32 c_it = 0; c_it < children.size(); c_it++)
 	{
-		CSkeletonX* _c = fast_dynamic_cast<CSkeletonX*>(children[c_it]);
+		CSkeletonX* _c = smart_cast<CSkeletonX*>(children[c_it]);
 		VERIFY(_c);
 		if (!_c->has_visible_bones())
 		{
@@ -610,7 +637,7 @@ void CKinematics::Visibility_Update()
 	// check invisible
 	for (u32 _it = 0; _it < children_invisible.size(); _it++)
 	{
-		CSkeletonX* _c = fast_dynamic_cast<CSkeletonX*>(children_invisible[_it]);
+		CSkeletonX* _c = smart_cast<CSkeletonX*>(children_invisible[_it]);
 		VERIFY(_c) ;
 		if (_c->has_visible_bones())
 		{
@@ -787,11 +814,15 @@ void CKinematics::AddWallmark(const Fmatrix* parent_xform, const Fvector3& start
 	wallmarks.push_back(wm);
 }
 
+struct zero_wm_pred
+{
+	bool operator()(const intrusive_ptr<CSkeletonWallmark> x) const { return x == 0; }
+};
+
 void CKinematics::CalculateWallmarks()
 {
-	PROF_EVENT("CKinematics::CalculateWallmarks");
+	PROF_EVENT("Calculate Wallmarks", PROF_CAT(VFX));
 	xrCriticalSectionGuard guard(wallmarks_cs);
-
 	if (!wallmarks.empty() && (wm_frame != RDEVICE.dwFrame))
 	{
 		wm_frame = RDEVICE.dwFrame;
@@ -799,7 +830,7 @@ void CKinematics::CalculateWallmarks()
 		{
 			intrusive_ptr<CSkeletonWallmark>& wm = *it;
 
-			if (!wm)
+			if (wm == 0)
 			{
 				it = wallmarks.erase(it);
 				continue;
@@ -808,7 +839,7 @@ void CKinematics::CalculateWallmarks()
 			float w = wm->TimeEnd() == -1.f ? 0.f : (RDEVICE.fTimeGlobal - wm->TimeStart()) / wm->TimeEnd();
 			if (w < 1.f)
 			{
-				// hand wm off to the WallmarksEngine render queue
+				// append wm to WallmarkEngine
 				if (::Render->ViewBase.testSphere_dirty(wm->m_Bounds.P, wm->m_Bounds.R))
 				{
 					::RImplementation.add_SkeletonWallmark(std::move(wm));
@@ -818,19 +849,21 @@ void CKinematics::CalculateWallmarks()
 				{
 					it++;
 				}
+				
 			}
 			else
 			{
-				// remove expired wallmark
+				// remove wallmark				
 				it = wallmarks.erase(it);
 			}
 		}
 	}
 }
 
-void CKinematics::RenderWallmark(intrusive_ptr<CSkeletonWallmark> wm, FVF::LIT* & V)
+// skins faces [first_face, first_face + faces) of the mark, three vertices each
+void CKinematics::RenderWallmark(intrusive_ptr<CSkeletonWallmark> wm, FVF::LIT* & V, u32 first_face, u32 faces)
 {
-	PROF_EVENT("CKinematics::RenderWallmark");
+	PROF_EVENT("CKinematics::RenderWallmark", PROF_CAT(VFX));
 	VERIFY(wm);
 	VERIFY(V);
 	VERIFY2(bones, "Invalid visual. Bones already released.");
@@ -839,7 +872,8 @@ void CKinematics::RenderWallmark(intrusive_ptr<CSkeletonWallmark> wm, FVF::LIT* 
 	if ((wm == 0) || (0 == bones) || (0 == bone_instances)) return;
 
 	// skin vertices
-	for (u32 f_idx = 0; f_idx < wm->m_Faces.size(); f_idx++)
+	const u32 last_face = _min(first_face + faces, u32(wm->m_Faces.size()));
+	for (u32 f_idx = first_face; f_idx < last_face; f_idx++)
 	{
 		CSkeletonWallmark::WMFace F = wm->m_Faces[f_idx];
 		float w = wm->TimeEnd() == -1.f ? 0.f : (RDEVICE.fTimeGlobal - wm->TimeStart()) / wm->TimeEnd();
@@ -938,3 +972,14 @@ int CKinematics::LL_GetBoneGroups(xr_vector<xr_vector<u16>>& groups)
 	}
 	return groups.size();
 }
+
+#ifdef DEBUG
+CSkeletonWallmark::~CSkeletonWallmark()
+{
+		if(used_in_render!=u32(-1))
+		{
+			Msg		("used_in_render=%d",used_in_render);
+			VERIFY	(used_in_render==u32(-1));
+		}
+}
+#endif

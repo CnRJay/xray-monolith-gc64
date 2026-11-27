@@ -2,10 +2,10 @@
 #define SERVER_INFO_UPLOADER
 
 
-#include <fastdelegate/fastdelegate.h>
+#include "../xrCore/xr_delegate.h"
 #include "file_transfer.h"
 
-typedef fastdelegate::FastDelegate<void (ClientID const&)> svinfo_upload_complete_cb;
+typedef xr_delegate<void (ClientID const&)> svinfo_upload_complete_cb;
 
 class server_info_uploader : xray::noncopyable
 {

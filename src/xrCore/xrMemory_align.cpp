@@ -89,7 +89,7 @@ void* __stdcall xr_aligned_offset_malloc(size_t size, size_t align, size_t offse
 	if (!IS_2_POW_N(align))
 	{
 		errno = EINVAL;
-		return nullptr;
+		return NULL;
 	}
 	if (offset >= size && offset != 0)
 		size = offset + 1;
@@ -99,8 +99,8 @@ void* __stdcall xr_aligned_offset_malloc(size_t size, size_t align, size_t offse
 	/* gap = number of bytes needed to round up offset to align with PTR_SZ*/
 	gap = (0 - offset) & (PTR_SZ - 1);
 
-	if ((ptr = (uintptr_t)malloc(PTR_SZ + gap + align + size)) == (uintptr_t)nullptr)
-		return nullptr;
+	if ((ptr = (uintptr_t)malloc(PTR_SZ + gap + align + size)) == (uintptr_t)NULL)
+		return NULL;
 
 	retptr = ((ptr + PTR_SZ + gap + align + offset) & ~align) - offset;
 	((uintptr_t*)(retptr - gap))[-1] = ptr;
@@ -171,19 +171,19 @@ void* __stdcall xr_aligned_offset_realloc(void* memblock, size_t size, size_t al
 	uintptr_t movsz, reqsz;
 	int bFree = 0;
 
-	if (memblock == nullptr)
+	if (memblock == NULL)
 	{
 		return xr_aligned_offset_malloc(size, align, offset);
 	}
 	if (size == 0)
 	{
 		xr_aligned_free(memblock);
-		return nullptr;
+		return NULL;
 	}
 	if (offset >= size && offset != 0)
 	{
 		errno = EINVAL;
-		return nullptr;
+		return NULL;
 	}
 
 	stptr = (uintptr_t)memblock;
@@ -197,7 +197,7 @@ void* __stdcall xr_aligned_offset_realloc(void* memblock, size_t size, size_t al
 	if (!IS_2_POW_N(align))
 	{
 		errno = EINVAL;
-		return nullptr;
+		return NULL;
 	}
 
 	align = (align > PTR_SZ ? align : PTR_SZ) - 1;
@@ -222,16 +222,16 @@ void* __stdcall xr_aligned_offset_realloc(void* memblock, size_t size, size_t al
 	*/
 	if ((stptr + align + PTR_SZ + gap) < (uintptr_t)memblock)
 	{
-		if ((ptr = (uintptr_t)malloc(reqsz)) == (uintptr_t)nullptr)
-			return nullptr;
+		if ((ptr = (uintptr_t)malloc(reqsz)) == (uintptr_t)NULL)
+			return NULL;
 		bFree = 1;
 	}
 	else
 	{
-		if ((ptr = (uintptr_t)_expand((void*)stptr, reqsz)) == (uintptr_t)nullptr)
+		if ((ptr = (uintptr_t)_expand((void*)stptr, reqsz)) == (uintptr_t)NULL)
 		{
-			if ((ptr = (uintptr_t)malloc(reqsz)) == (uintptr_t)nullptr)
-				return nullptr;
+			if ((ptr = (uintptr_t)malloc(reqsz)) == (uintptr_t)NULL)
+				return NULL;
 			bFree = 1;
 		}
 		else
@@ -274,7 +274,7 @@ void __stdcall xr_aligned_free(void* memblock)
 {
 	uintptr_t ptr;
 
-	if (memblock == nullptr)
+	if (memblock == NULL)
 		return;
 
 	ptr = (uintptr_t)memblock;
@@ -291,7 +291,7 @@ u32 __stdcall xr_aligned_msize(void* memblock)
 {
 	uintptr_t ptr;
 
-	if (memblock == nullptr)
+	if (memblock == NULL)
 		return 0;
 
 	ptr = (uintptr_t)memblock;

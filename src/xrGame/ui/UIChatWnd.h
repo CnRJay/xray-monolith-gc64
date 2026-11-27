@@ -20,8 +20,9 @@ public:
 	void ChatToAll(bool b) { sendNextMessageToAll = b; }
 	void PendingMode(bool const is_pending_mode);
 	virtual bool NeedCursor() const { return false; }
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 protected:
 	CUIEditBox* UIEditBox;

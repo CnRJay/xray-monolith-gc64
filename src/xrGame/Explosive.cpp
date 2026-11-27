@@ -74,7 +74,7 @@ CExplosive::CExplosive(void)
 	m_bHideInExplosion = TRUE;
 	m_fExplodeHideDurationMax = 0;
 	m_bDynamicParticles = FALSE;
-	m_pExpParticle = nullptr;
+	m_pExpParticle = NULL;
 
 #ifdef EXPLOSIVE_CHANGE
 	m_on_explode_callback._set("");
@@ -390,9 +390,8 @@ void CExplosive::Explode()
 	Fvector::generate_orthonormal_basis(explode_matrix.j, explode_matrix.i, explode_matrix.k);
 	explode_matrix.c.set(pos);
 
-	CParticlesObject* pStaticPG;
-	pStaticPG = CParticlesObject::Create(*m_sExplodeParticles, !m_bDynamicParticles);
-	if (m_bDynamicParticles) m_pExpParticle = pStaticPG;
+	intrusive_ptr<CParticlesObject> pStaticPG = Particles::Details::Create(*m_sExplodeParticles,!m_bDynamicParticles);
+	if (m_bDynamicParticles) m_pExpParticle = pStaticPG.get();
 	pStaticPG->UpdateParent(explode_matrix, vel);
 	pStaticPG->Play(false);
 
@@ -443,13 +442,13 @@ void CExplosive::Explode()
 	//взрывная волна
 	////////////////////////////////
 	//---------------------------------------------------------------------
-	xr_vector<ISpatial*> ISpatialResult;
+	xr_vector<ISpatialShared> ISpatialResult;
 	g_SpatialSpace->q_sphere(ISpatialResult, 0, STYPE_COLLIDEABLE, pos, m_fBlastRadius);
 
 	m_blasted_objects.clear();
 	for (u32 o_it = 0; o_it < ISpatialResult.size(); o_it++)
 	{
-		ISpatial* spatial = ISpatialResult[o_it];
+		ISpatialShared spatial = ISpatialResult[o_it];
 		//		feel_touch_new(spatial->dcast_CObject());
 
 		CPhysicsShellHolder* pGameObject = smart_cast<CPhysicsShellHolder*>(spatial->dcast_CObject());
@@ -458,7 +457,7 @@ void CExplosive::Explode()
 	}
 
 	GetExplosionBox(m_vExplodeSize);
-	START_PROFILE("explosive/activate explosion box")
+	START_PROFILE("explosive/activate explosion box", PROF_CAT(Physics))
 		ActivateExplosionBox(m_vExplodeSize, m_vExplodePos);
 	STOP_PROFILE
 	//---------------------------------------------------------------------
@@ -571,8 +570,8 @@ void CExplosive::OnAfterExplosion()
 	if (m_pExpParticle)
 	{
 		m_pExpParticle->Stop();
-		CParticlesObject::Destroy(m_pExpParticle);
-		m_pExpParticle = nullptr;
+		Particles::Details::Destroy(m_pExpParticle);
+		m_pExpParticle = NULL;
 	}
 	//ликвидировать сам объект 
 	if (cast_game_object()->Local()) cast_game_object()->DestroyObject();
@@ -624,6 +623,9 @@ void CExplosive::OnEvent(NET_Packet& P, u16 type)
 	{
 	case GE_GRENADE_EXPLODE:
 		{
+			if (m_explosion_flags.test(flExploding))
+				break;
+
 			Fvector pos, normal;
 			u16 parent_id;
 			P.r_u16(parent_id);
@@ -678,7 +680,7 @@ void CExplosive::FindNormal(Fvector& normal)
 	cast_game_object()->Center(pos);
 
 	BOOL result = Level().ObjectSpace.RayPick(pos, dir, cast_game_object()->Radius(),
-	                                          collide::rqtBoth, RQ, nullptr);
+	                                          collide::rqtBoth, RQ, NULL);
 	if (!result || RQ.O)
 	{
 		normal.set(0, 1, 0);
@@ -851,7 +853,7 @@ u16 CExplosive::Initiator()
 
 void CExplosive::UpdateExplosionParticles()
 {
-	if (!m_bDynamicParticles || m_pExpParticle == nullptr || !m_pExpParticle->IsPlaying()) return;
+	if (!m_bDynamicParticles || m_pExpParticle == NULL || !m_pExpParticle->IsPlaying()) return;
 	CGameObject* GO = cast_game_object();
 	if (!GO) return;
 

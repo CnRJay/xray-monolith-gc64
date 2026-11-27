@@ -1,0 +1,71 @@
+; Spawn overlays: edits applied on top of the loaded all.spawn on every spawn registry load (new game, save
+; load). Mods extend the sections below from configs\mod_spawn_overlays_<mod>.ltx with ![section] (DLTX).
+;
+; Full guide - level packs, spawns\<level>\*.spawn / *.game fragments, patrol_paths.ltx, application order, log:
+; docs/spawn_overlays.md.
+;
+; Graph endpoints are "level:x,y,z"; objects are named, plus x, y, z when the name is shared. Ids are never keys.
+; A line naming a level that is not installed is skipped ("-" log), not an error: lines for optional levels are fine.
+
+[settings]
+; Largest distance in metres from an endpoint to its graph vertex.
+link_tolerance = 2.0
+; Move levels to the offset of their game.ltx [levelNN] section, reweighting the edges into them.
+sync_level_offsets = true
+
+; Adds an edge in both directions:   level_a:x,y,z = level_b:x,y,z
+; [graph_links@<mod>] sections work the same.
+[graph_links]
+
+; Removes edges in both directions:  level_a = level_b               every edge between the two levels
+;                                    level_a:x,y,z = level_b:x,y,z   one edge
+; Keys are unique per section: put a repeated level on the value side, or use [graph_unlinks@<mod>].
+[graph_unlinks]
+
+; Removes spawn templates (new games only), after fragments and packs:
+;   <name>
+;   <name> = x, y, z                 when the name is shared (within 0.5 m)
+[spawn_remove]
+
+; Same syntax, before fragments and packs: their record of the same name and place is taken instead.
+[spawn_replace]
+
+; Removes patrol paths by name.
+[path_remove]
+
+; Takes levels out of play, one name per line. Edges, templates, changers into the level and its paths go; ids
+; stay. Anomaly's sr_teleport transitions are not changers: list them in [spawn_remove].
+[level_cut]
+
+; [spawn_patch@<object name>] edits one template. Keys, all optional:
+;   match_position = x, y, z         instance of a shared name (within 0.5 m)
+;   level = <level name>             needs position; a level not installed skips the whole section
+;   position = x, y, z               level-local; graph vertex and AI node re-resolved
+;   direction = x, y, z
+;   custom_data = <text>             \n = line break, \\ = backslash
+;   custom_data_cfg = <path>         custom_data = [logic]\ncfg = <path>
+;   story_id = <int>                 -1 = none
+;   spawn_story_id = <int>           -1 = none
+;   object_flags = 0x...
+;   dest_level = <level name>        level changers: needs dest_position
+;   dest_position = x, y, z          level changers: arrival point; graph vertex and AI node re-resolved
+;   dest_direction = x, y, z         level changers: facing on arrival
+; [spawn_patch@gar_physic_object_bandit_base_generator]
+; position = 63.9, 0.6, -23.1
+
+; [spawn_add@<object name>] adds one object (new games only), after fragments, packs and [spawn_remove]. Keys:
+;   section = <system.ltx section>   required
+;   level = <level name>             required; a level not installed skips the section
+;   position = x, y, z               required; level-local, the centre of the shape
+;   direction = x, y, z
+;   box = width, height, depth       shaped objects (restrictors, level changers): box or sphere, centred on position
+;   sphere = radius
+;   restrictor_type = <type>         default_none (if omitted), default_out, default_in, none, in, out
+;   custom_data, custom_data_cfg, story_id, spawn_story_id, object_flags   as in [spawn_patch@]
+;   dest_level = <level name>        level changers: required; not installed skips the section
+;   dest_position = x, y, z          level changers: required
+;   dest_direction = x, y, z         level changers
+;   silent_mode = true               level changers: change level on contact, no dialog
+;   hint = <string id>               level changers: the dialog text, default level_changer_invitation
+; An object of that name already within 1 m on that level is left as it is. [spawn_remove] of a name plus an add of
+; it redefines the object; to cancel another mod's add, delete its section with DLTX: !![spawn_add@<object name>]

@@ -33,6 +33,9 @@
     <ClInclude Include="particle_manager.h">
       <Filter>PAPI</Filter>
     </ClInclude>
+    <ClInclude Include="ParticlesAsyncManager.h">
+      <Filter>PAPI</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -57,6 +60,9 @@
       <Filter>PAPI</Filter>
     </ClCompile>
     <ClCompile Include="particle_manager.cpp">
+      <Filter>PAPI</Filter>
+    </ClCompile>
+    <ClCompile Include="ParticlesAsyncManager.cpp">
       <Filter>PAPI</Filter>
     </ClCompile>
   </ItemGroup>

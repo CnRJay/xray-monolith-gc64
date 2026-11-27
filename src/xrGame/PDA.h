@@ -70,6 +70,8 @@ public:
 	virtual void save(NET_Packet& output_packet);
 	virtual void load(IReader& input_packet);
 
+	virtual CPda* cast_pda() { return this; }
+
 protected:
 	void UpdateActiveContacts();
 

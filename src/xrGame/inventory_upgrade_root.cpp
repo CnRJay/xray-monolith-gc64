@@ -147,7 +147,7 @@ void Root::test_all_upgrades( CInventoryItem& item )
 					return (*ib);
 				}
 			}
-			return nullptr;
+			return NULL;
 		}
 
 		void Root::highlight_hierarchy(shared_str const& upgrade_id)

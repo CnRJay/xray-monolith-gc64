@@ -16,7 +16,7 @@
 void CPHStaticGeomShell::get_spatial_params()
 {
 	Fvector AABB;
-	spatialParsFromDGeom(dSpacedGeometry(), spatial.sphere.P, AABB, spatial.sphere.R);
+	spatialParsFromDGeom(dSpacedGeometry(), SpatialComponent->spatial.sphere.P, AABB, SpatialComponent->spatial.sphere.R);
 }
 
 void CPHStaticGeomShell::PhDataUpdate(dReal step)
@@ -44,7 +44,7 @@ void CPHStaticGeomShell::Deactivate()
 
 CPHStaticGeomShell::CPHStaticGeomShell()
 {
-	spatial.type |= STYPE_PHYSIC;
+	SpatialComponent->spatial.type |= STYPE_PHYSIC;
 }
 
 void _BCL cb(CBoneInstance* B)

@@ -11,12 +11,14 @@
 #endif
 extern CPHWorld* ph_world;
 
-CPHObject::CPHObject() : ISpatial(g_SpatialSpacePhysic)
+CPHObject::CPHObject()
 {
+	ISpatialOwner::spatial_create(g_SpatialSpacePhysic, this, STYPE_PHYSIC);
+
 	m_flags.flags = 0;
-	spatial.type |= STYPE_PHYSIC;
 	m_island.Init();
 	m_check_count = 0;
+	m_flags.set(fl_collision_disable, FALSE);
 	CPHCollideValidator::InitObject(*this);
 }
 
@@ -79,7 +81,7 @@ void CPHObject::check_recently_deactivated()
 void CPHObject::spatial_move()
 {
 	get_spatial_params();
-	ISpatial::spatial_move();
+	ISpatialOwner::spatial_move();
 	m_flags.set(st_dirty,TRUE);
 }
 
@@ -114,8 +116,8 @@ void CPHObject::Collide()
 			qResultIt i = result.begin(), e = result.end();
 			for (; i != e; ++i)
 			{
-				CPHObject* obj2 = static_cast<CPHObject*>(*i);
-				if (!obj2 || obj2 == this || !obj2->m_flags.test(st_dirty)) continue;
+				CPHObject* obj2 = (*i)->dcast_CPHObject();
+				if (obj2 == this || !obj2->m_flags.test(st_dirty)) continue;
 				dGeomID motion_ray = ph_world->GetMotionRayGeom();
 				dGeomRayMotionSetGeom(motion_ray, I.dGeom());
 				dGeomRayMotionsSet(motion_ray, (const dReal*)from, (const dReal*)&dir, magnitude);
@@ -125,7 +127,7 @@ void CPHObject::Collide()
 	}
 	CollideDynamics();
 	///////////////////////////////
-	if (CPHCollideValidator::DoCollideStatic(*this)) CollideStatic(dSpacedGeom(), this);
+	if (CPHCollideValidator::DoCollideStatic(*this) && !m_flags.test(fl_collision_disable)) CollideStatic(dSpacedGeom(), this);
 	m_flags.set(st_dirty,FALSE);
 }
 
@@ -134,14 +136,14 @@ extern u32 g_dead_body_collision;
 
 void CPHObject::CollideDynamics()
 {
-	g_SpatialSpacePhysic->q_box(ph_world->r_spatial, 0, STYPE_PHYSIC, spatial.sphere.P, AABB);
+	g_SpatialSpacePhysic->q_box(ph_world->r_spatial, 0, STYPE_PHYSIC, SpatialComponent->spatial.sphere.P, AABB);
 	qResultVec& result = ph_world->r_spatial;
 	qResultIt i = result.begin(), e = result.end();
 	for (; i != e; ++i)
 	{
-		CPHObject* obj2 = static_cast<CPHObject*>(*i);
+		CPHObject* obj2 = (*i)->dcast_CPHObject();
 
-		if (!obj2 || obj2 == this || !obj2->m_flags.test(st_dirty)) continue;
+		if (obj2 == this || !obj2->m_flags.test(st_dirty) || m_flags.test(fl_collision_disable) || obj2->m_flags.test(fl_collision_disable)) continue;
 
 		// Dead Body Collision
 		if (obj2->m_flags.test(is_deadbody))
@@ -171,7 +173,7 @@ void CPHObject::reinit_single()
 	qResultIt i = result.begin(), e = result.end();
 	for (; i != e; ++i)
 	{
-		CPHObject* obj = static_cast<CPHObject*>(*i);
+		CPHObject* obj = (*i)->dcast_CPHObject();
 		obj->IslandReinit();
 	}
 	result.clear_not_free();
@@ -242,18 +244,20 @@ void CPHObject::UnFreezeContent()
 void CPHObject::spatial_register()
 {
 	get_spatial_params();
-	ISpatial::spatial_register();
+	ISpatialOwner::spatial_register();
 	m_flags.set(st_dirty,TRUE);
 }
 
 void CPHObject::collision_disable()
 {
-	ISpatial::spatial_unregister();
+	spatial_unregister();
+	m_flags.set(fl_collision_disable, TRUE);
 }
 
 void CPHObject::collision_enable()
 {
-	ISpatial::spatial_register();
+	spatial_register();
+	m_flags.set(fl_collision_disable, FALSE);
 }
 
 void CPHObject::Freeze()

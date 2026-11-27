@@ -71,11 +71,11 @@ private:
 
 /*
 TEMPLATE_SPECIALIZATION
-typename CSIni_Table::ITEM_TABLE* CSIni_Table::m_pTable = nullptr;
+typename CSIni_Table::ITEM_TABLE* CSIni_Table::m_pTable = NULL;
 
 //имя секции таблицы
 TEMPLATE_SPECIALIZATION
-LPCSTR CSIni_Table::table_sect = nullptr;
+LPCSTR CSIni_Table::table_sect = NULL;
 TEMPLATE_SPECIALIZATION
 int CSIni_Table::table_width = -1;
 */
@@ -83,8 +83,8 @@ int CSIni_Table::table_width = -1;
 TEMPLATE_SPECIALIZATION
 CSIni_Table::CIni_Table()
 {
-	m_pTable = nullptr;
-	table_sect = nullptr;
+	m_pTable = NULL;
+	table_sect = NULL;
 	table_width = -1;
 }
 

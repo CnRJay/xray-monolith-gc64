@@ -26,9 +26,8 @@ private:
 	u32						tris_in_frame			;
 #endif
 
-	xrCriticalSection MT;
-	volatile u32 MT_frame_rendered;
-	BOOL m_bRendering;
+	xr_atomic_u32 MT_frame_rendered;
+	xrCriticalSection m_mt_render_guard;
 
 	void Render_DB(CFrustum& base);
 public:
@@ -46,16 +45,10 @@ public:
 	void Enable();
 
 	void __stdcall MT_RENDER();
-	ICF void MT_SYNC()
-	{
-		if (g_pGamePersistent->m_pMainMenu && g_pGamePersistent->m_pMainMenu->IsActive())
-			return;
-
-		MT_RENDER();
-	}
 
 	BOOL visible(vis_data& vis);
 	BOOL visible(Fbox3& B);
+	BOOL visible(Fsphere& S);
 	BOOL visible(sPoly& P);
 	BOOL visible(Fbox2& B, float depth); // viewport-space (0..1)
 

@@ -83,6 +83,10 @@ public:
 	bool m_bCyclic;
 
 	virtual void Update();
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIStatic* ui_cast_static() { return this; }
+
 };
 
 class CUISleepStatic : public CUIStatic
@@ -97,5 +101,8 @@ public:
 	virtual void Draw();
 	virtual void Update();
 	virtual void InitTextureEx(LPCSTR tex_name, LPCSTR sh_name = "hud\\default");
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIStatic* ui_cast_static() { return this; }
 };
 #endif	//UI_ANIMATED_STATIC_H_

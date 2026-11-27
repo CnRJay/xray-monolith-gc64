@@ -3,13 +3,19 @@
 -- Import smart constructors
 options_builder.import_into(this)
 
-PAGE = page {
+PAGE = filter_false(page {
 	{ id = "particles" },
 	track {
 		id = "particle_update_mod",
 		def = 1,
 		step = 0.01,
 	},
-	list_bool { id = "render_short_tracers" },
-	list_bool { id = "allow_silencer_hide_tracer" }
-}
+  track {
+		id = "step_particle_distance",
+		def = 50,
+		step = 1,
+	},
+	list_bool { id = "render_short_tracers", def = "1" },
+	list_bool { id = "allow_silencer_hide_tracer", def = "0" },
+	get_item_if_exists(list_bool { id = "r_particles_real_dt", def = "0" }),
+})

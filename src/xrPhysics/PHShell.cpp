@@ -13,7 +13,6 @@
 #include "../Include/xrRender/Kinematics.h"
 #include "PHCollideValidator.h"
 #include "../xrengine/bone.h"
-#include "../xrCore/profiler.h"
 //#include "game_object_space.h"
 //#pragma warning(disable:4995)
 //#pragma warning(disable:4267)
@@ -64,18 +63,16 @@ CPHShell::~CPHShell()
 
 CPHShell::CPHShell()
 {
-	//bActive=false;
-	//bActivating=false;
-    m_fScale = 1.f;
 	m_flags.assign(0);
 	m_flags.set(flActivating,FALSE);
 	m_flags.set(flActive,FALSE);
-	m_space = nullptr;
-	m_pKinematics = nullptr;
-	m_spliter_holder = nullptr;
+	m_space = NULL;
+	m_pKinematics = NULL;
+	m_spliter_holder = NULL;
 	m_object_in_root.identity();
 	m_active_count = 0;
-	m_pPhysicsShellAnimatorC = nullptr;
+	m_pPhysicsShellAnimatorC = NULL;
+	m_fScale.set(1, 1, 1);
 }
 
 void CPHShell::EnableObject(CPHObject* obj)
@@ -209,7 +206,7 @@ float CPHShell::getMass()
 
 void CPHShell::get_spatial_params()
 {
-	spatialParsFromDGeom((dGeomID)m_space, spatial.sphere.P, AABB, spatial.sphere.R);
+	spatialParsFromDGeom((dGeomID)m_space, SpatialComponent->spatial.sphere.P, AABB, SpatialComponent->spatial.sphere.R);
 }
 
 float CPHShell::getVolume()
@@ -268,7 +265,6 @@ void CPHShell::PhTune(dReal step)
 
 void CPHShell::Update()
 {
-	PROF_EVENT("Physics:Shell");
 	if (!isActive()) return;
 	if (m_flags.test(flActivating)) m_flags.set(flActivating,FALSE);
 	ELEMENT_I i;
@@ -452,6 +448,7 @@ CPHSynchronize* CPHShell::get_ElementSync(u16 element)
 CPhysicsElement* CPHShell::get_PhysicsParrentElement(u16 bone_id)
 {
 	VERIFY(PKinematics());
+	if (bone_id == 0 || bone_id == u16(-1)) return get_Element(u16(0));
 	CPhysicsElement* E = get_Element(bone_id);
 	u16 bid = bone_id;
 	while (!E && bid != PKinematics()->LL_GetBoneRoot())
@@ -478,7 +475,7 @@ CPhysicsElement* CPHShell::get_Element(u16 bone_id)
 	for (; e != i; ++i)
 		if ((*i)->m_SelfID == bone_id)
 			return (CPhysicsElement*)(*i);
-	return nullptr;
+	return NULL;
 }
 
 CPhysicsJoint* CPHShell::get_Joint(u16 bone_id)
@@ -487,7 +484,7 @@ CPhysicsJoint* CPHShell::get_Joint(u16 bone_id)
 	for (; e != i; i++)
 		if ((*i)->BoneID() == bone_id)
 			return (CPhysicsJoint*)(*i);
-	return nullptr;
+	return NULL;
 }
 
 CPhysicsJoint* CPHShell::get_Joint(const shared_str& bone_name)
@@ -539,6 +536,11 @@ void CPHShell::BonesCallback(CBoneInstance* B)
 
 	//}
 	E->BonesCallBack(B);
+
+	const Fvector& scale = E->PHShell()->m_fScale;
+	if (scale.x != 1.f || scale.y != 1.f || scale.z != 1.f)
+		B->mTransform.mulB_43(Fmatrix().scale(scale));
+
 	VERIFY2(_valid(B->mTransform), "CPHShell:: BonesCallback");
 }
 
@@ -738,7 +740,7 @@ void CPHShell::addEquelInertiaToEls(const dMass& M)
 	}
 }
 
-static BONE_P_MAP* spGetingMap = nullptr;
+static BONE_P_MAP* spGetingMap = NULL;
 
 void CPHShell::build_FromKinematics(IKinematics* K, BONE_P_MAP* p_geting_map)
 {
@@ -1317,7 +1319,7 @@ CPhysicsElement* CPHShell::NearestToPoint(const Fvector& point, NearestToPointCa
 	i = elements.begin();
 	e = elements.end();
 	float min_distance = dInfinity;
-	CPHElement* nearest_element = nullptr;
+	CPHElement* nearest_element = NULL;
 	for (; i != e; ++i)
 	{
 		Fvector tmp;
@@ -1351,7 +1353,7 @@ void CPHShell::PassEndElements(u16 from, u16 to, CPHShell* dest)
 	if (from != to)
 	{
 		if (!dest->elements.empty()) (*i_from)->set_ParentElement(dest->elements.back());
-		else (*i_from)->set_ParentElement(nullptr);
+		else (*i_from)->set_ParentElement(NULL);
 	}
 	for (ELEMENT_I i = i_from; i != e; ++i)
 	{
@@ -1651,7 +1653,7 @@ CODEGeom* CPHShell::get_GeomByID(u16 bone_id)
 		CODEGeom* ret = (*i)->GeomByBoneID(bone_id);
 		if (ret) return ret;
 	}
-	return nullptr;
+	return NULL;
 }
 
 void CPHShell::PureStep(float step)
@@ -1821,18 +1823,18 @@ void CPHShell::SetAnimated(bool v)
 }
 
 
-void CPHShell::AnimatorOnFrame()
+void CPHShell::AnimatorOnFrame(bool calculate_bones)
 {
 	VERIFY(PPhysicsShellAnimator());
-	PPhysicsShellAnimator()->OnFrame();
+	PPhysicsShellAnimator()->OnFrame(calculate_bones);
 }
 
-void CPHShell::SetScale(float scale)
+void CPHShell::SetScale(Fvector scale)
 {
-    if (m_fScale == scale) return;
+    if (m_fScale.x == scale.x && m_fScale.y == scale.y && m_fScale.z == scale.z) return;
     if (!m_pKinematics) return;
 
-    float prev_scale = m_fScale;
+    Fvector prev_scale = m_fScale;
     m_fScale = scale;
 
     for (CPHElement* elem : Elements())
@@ -1854,23 +1856,23 @@ void CPHShell::SetScale(float scale)
             {
                 Fvector half_size;
                 box->get_size(half_size);
-                half_size.div(prev_scale);
-                half_size.mul(scale);
+                half_size.div(prev_scale.x, prev_scale.z, prev_scale.y);
+                half_size.mul(scale.x, scale.z, scale.y);
                 box->set_size(half_size);
             }
 
             if (sphere)
             {
-                sphere->set_radius(sphere->radius() / prev_scale);
-                sphere->set_radius(sphere->radius() * scale);
+                sphere->set_radius(sphere->radius() / fmaxf(prev_scale.x, fmaxf(prev_scale.y, prev_scale.z)));
+                sphere->set_radius(sphere->radius() * fmaxf(scale.x, fmaxf(scale.y, scale.z)));
             }
 
             if (cylinder)
             {
-                cylinder->set_radius(cylinder->radius() / prev_scale);
-                cylinder->set_radius(cylinder->radius() * scale);
-                cylinder->set_height(cylinder->height() / prev_scale);
-                cylinder->set_height(cylinder->height() * scale);
+                cylinder->set_radius(cylinder->radius() / fmaxf(prev_scale.x, prev_scale.y));
+                cylinder->set_radius(cylinder->radius() * fmaxf(scale.x, scale.y));
+                cylinder->set_height(cylinder->height() / prev_scale.z);
+                cylinder->set_height(cylinder->height() * scale.z);
             }
 
             Fvector scaled_pos = geom->local_center();

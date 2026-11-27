@@ -22,9 +22,11 @@ public:
 	virtual void OnH_B_Independent(bool just_before_destroy);
 
 	virtual void UpdateCL();
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM);
 
 	float GetGrenadeVel() { return m_fGrenadeVel; }
+
+	virtual CGrenadeLauncher* cast_addon_grenade_launcher() {return this;}
 
 protected:
 	//стартовая скорость вылета подствольной гранаты

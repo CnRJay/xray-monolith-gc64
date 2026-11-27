@@ -1,5 +1,4 @@
 #include "pch_script.h"
-#include "../xrCore/profiler.h"
 #include "map_manager.h"
 #include "alife_registry_wrappers.h"
 #include "inventoryowner.h"
@@ -12,7 +11,8 @@
 #include "xrServer.h"
 #include "game_object_space.h"
 #include "script_callback_ex.h"
-#include "alife_object_registry.h" // Add this include at the top of the file
+#include "ai_space.h"
+#include "script_engine.h"
 
 struct FindLocationBySpotID
 {
@@ -109,39 +109,11 @@ void CMapLocationRegistry::save(IWriter& stream)
 }
 
 
-void CMapManager::AddToCache(u16 id)
-{
-	if (std::find(m_cached_spot_objects.begin(), m_cached_spot_objects.end(), id) == m_cached_spot_objects.end())
-		m_cached_spot_objects.push_back(id);
-}
-
-void CMapManager::RemoveFromCache(u16 id)
-{
-	bool bFound = false;
-	Locations_it it = Locations().begin();
-	Locations_it it_e = Locations().end();
-	for (; it != it_e; ++it)
-	{
-		if ((*it).actual && (*it).object_id == id)
-		{
-			bFound = true;
-			break;
-		}
-	}
-
-	if (!bFound)
-	{
-		xr_vector<u16>::iterator it_c = std::find(m_cached_spot_objects.begin(), m_cached_spot_objects.end(), id);
-		if (it_c != m_cached_spot_objects.end())
-			m_cached_spot_objects.erase(it_c);
-	}
-}
-
 CMapManager::CMapManager()
 {
 	m_locations_wrapper = xr_new<CMapLocationWrapper>();
 	m_locations_wrapper->registry().init(1);
-	m_locations = nullptr;
+	m_locations = NULL;
 }
 
 CMapManager::~CMapManager()
@@ -152,28 +124,24 @@ CMapManager::~CMapManager()
 
 CMapLocation* CMapManager::AddMapLocation(const shared_str& spot_type, u16 id)
 {
-	if (ai().get_alife() && !ai().alife().objects().object(id, true))
-	{
-		Msg("CMapManager::AddMapLocation: Blocked creation of spot [%s] for non-existent ID [%d]", spot_type.c_str(), id);
-		return nullptr;
-	}
-
 	CMapLocation* l = xr_new<CMapLocation>(spot_type.c_str(), id);
 	Locations().push_back(SLocationKey(spot_type, id));
 	Locations().back().location = l;
 	if (IsGameTypeSingle() && g_actor)
+	{
 		Actor()->callback(GameObject::eMapLocationAdded)(spot_type.c_str(), id);
 
-	AddToCache(id);
-	
-	std::sort(Locations().begin(), Locations().end());
+		::luabind::functor<void> on_added;
+		if (ai().script_engine().functor("_G.COnMapLocationAdded", on_added))
+			on_added(spot_type.c_str(), id);
+	}
 
 	return l;
 }
 
 CMapLocation* CMapManager::AddRelationLocation(CInventoryOwner* pInvOwner)
 {
-	if (!Level().CurrentViewEntity())return nullptr;
+	if (!Level().CurrentViewEntity())return NULL;
 
 	ALife::ERelationType relation = ALife::eRelationTypeFriend;
 	CInventoryOwner* pActor = smart_cast<CInventoryOwner*>(Level().CurrentViewEntity());
@@ -188,9 +156,26 @@ CMapLocation* CMapManager::AddRelationLocation(CInventoryOwner* pInvOwner)
 	CMapLocation* l = xr_new<CRelationMapLocation>(sname, pInvOwner->object_id(), pActor->object_id());
 	Locations().push_back(SLocationKey(sname, pInvOwner->object_id()));
 	Locations().back().location = l;
-	AddToCache(pInvOwner->object_id());
-	std::sort(Locations().begin(), Locations().end());
+	if (IsGameTypeSingle() && g_actor)
+	{
+		Actor()->callback(GameObject::eMapLocationAdded)(sname.c_str(), pInvOwner->object_id());
+
+		::luabind::functor<void> on_added;
+		if (ai().script_engine().functor("_G.COnMapLocationAdded", on_added))
+			on_added(sname.c_str(), pInvOwner->object_id());
+	}
+
 	return l;
+}
+
+void CMapManager::RemoveRelationLocation(CInventoryOwner* pInvOwner)
+{
+	for (int t = ALife::eRelationTypeFriend; t < ALife::eRelationTypeLast; ++t)
+	{
+		ALife::ERelationType tt = (ALife::ERelationType)t;
+		Level().MapManager().RemoveMapLocation(RELATION_REGISTRY().GetSpotName(tt), pInvOwner->object_id());
+	}
+	Level().MapManager().RemoveMapLocation("deadbody_location", pInvOwner->object_id());
 }
 
 void CMapManager::Destroy(CMapLocation* ml)
@@ -207,9 +192,9 @@ void CMapManager::RemoveMapLocation(const shared_str& spot_type, u16 id)
 		if (IsGameTypeSingle())
 			Level().GameTaskManager().MapLocationRelcase((*it).location);
 
+		QueueRemovedNotify((*it).spot_type, (*it).object_id);
 		Destroy((*it).location);
 		Locations().erase(it);
-		RemoveFromCache(key.object_id);
 	}
 }
 
@@ -220,13 +205,13 @@ void CMapManager::RemoveAllMapLocationsById(u16 id)
 		if (it->object_id == id) {
 			if (IsGameTypeSingle())
 				Level().GameTaskManager().MapLocationRelcase((*it).location);
+			QueueRemovedNotify((*it).spot_type, (*it).object_id);
 			Destroy((*it).location);
 			it = Locations().erase(it);
 		} else {
 			it++;
 		}
 	}
-	RemoveFromCache(id);
 }
 
 void CMapManager::RemoveMapLocationByObjectID(u16 id) //call on destroy object
@@ -238,12 +223,12 @@ void CMapManager::RemoveMapLocationByObjectID(u16 id) //call on destroy object
 		if (IsGameTypeSingle())
 			Level().GameTaskManager().MapLocationRelcase((*it).location);
 
+		QueueRemovedNotify((*it).spot_type, (*it).object_id);
 		Destroy((*it).location);
 		Locations().erase(it);
 
 		it = std::find_if(Locations().begin(), Locations().end(), key);
 	}
-	RemoveFromCache(id);
 }
 
 void CMapManager::RemoveMapLocation(CMapLocation* ml)
@@ -253,35 +238,25 @@ void CMapManager::RemoveMapLocation(CMapLocation* ml)
 	Locations_it it = std::find_if(Locations().begin(), Locations().end(), key);
 	if (it != Locations().end())
 	{
-		u16 id = (*it).object_id;
 		if (IsGameTypeSingle())
 			Level().GameTaskManager().MapLocationRelcase((*it).location);
 
+		QueueRemovedNotify((*it).spot_type, (*it).object_id);
 		Destroy((*it).location);
 		Locations().erase(it);
-		RemoveFromCache(id);
 	}
 }
 
 bool CMapManager::GetMapLocationsForObject(u16 id, xr_vector<CMapLocation*>& res)
 {
 	res.clear_not_free();
-	
-	SLocationKey key;
-	key.object_id = id;
-	key.actual = true;
-
-	Locations_it it = std::lower_bound(Locations().begin(), Locations().end(), key);
+	Locations_it it = Locations().begin();
 	Locations_it it_e = Locations().end();
-
 	for (; it != it_e; ++it)
 	{
-		if (!(*it).actual || (*it).object_id != id)
-			break;
-
-		res.push_back((*it).location);
+		if ((*it).actual && (*it).object_id == id)
+			res.push_back((*it).location);
 	}
-
 	return (res.size() != 0);
 }
 
@@ -289,7 +264,7 @@ bool CMapManager::HasMapLocation(const shared_str& spot_type, u16 id)
 {
 	CMapLocation* l = GetMapLocation(spot_type, id);
 
-	return (l != nullptr);
+	return (l != NULL);
 }
 
 CMapLocation* CMapManager::GetMapLocation(const shared_str& spot_type, u16 id)
@@ -328,7 +303,7 @@ void CMapManager::GetMapLocations(u16 id, xr_vector<CMapLocation*>& res)
 
 void CMapManager::Update()
 {
-	PROF_EVENT("CMapManager::Update");
+	PROF_EVENT("Map: Update", PROF_CAT(UI));
 	delete_data(m_deffered_destroy_queue); //from prev frame
 
 	Locations_it it = Locations().begin();
@@ -346,13 +321,12 @@ void CMapManager::Update()
 
 	while ((!Locations().empty()) && (!Locations().back().actual))
 	{
-		u16 id = Locations().back().object_id;
 		if (IsGameTypeSingle())
 			Level().GameTaskManager().MapLocationRelcase(Locations().back().location);
 
+		QueueRemovedNotify(Locations().back().spot_type, Locations().back().object_id);
 		Destroy(Locations().back().location);
 		Locations().pop_back();
-		RemoveFromCache(id);
 	}
 }
 
@@ -382,13 +356,6 @@ Locations& CMapManager::Locations()
 #ifdef DEBUG
 		Msg("m_locations size=%d",m_locations->size());
 #endif // #ifdef DEBUG
-		// Initial cache population from loaded data
-		for (Locations_it it = m_locations->begin(); it != m_locations->end(); ++it)
-		{
-			if ((*it).actual)
-				AddToCache((*it).object_id);
-		}
-		std::sort(m_locations->begin(), m_locations->end());
 	}
 	return *m_locations;
 }
@@ -396,6 +363,47 @@ Locations& CMapManager::Locations()
 void CMapManager::OnObjectDestroyNotify(u16 id)
 {
 	RemoveMapLocationByObjectID(id);
+}
+
+void CMapManager::QueueRemovedNotify(const shared_str& spot_type, u16 id)
+{
+	if (!IsGameTypeSingle())
+		return;
+
+	SRemovedSpot spot;
+	spot.spot_type = spot_type;
+	spot.object_id = id;
+	m_removed_spots.push_back(spot);
+}
+
+void CMapManager::FlushRemovedNotify()
+{
+	if (m_removed_spots.empty())
+		return;
+
+	if (!g_actor)
+	{
+		m_removed_spots.clear_not_free();
+		return;
+	}
+
+	::luabind::functor<void> on_removed;
+	if (!ai().script_engine().functor("_G.COnMapLocationRemoved", on_removed))
+	{
+		m_removed_spots.clear_not_free();
+		return;
+	}
+
+	// script may add spots from the callback, so walk a fixed count by index
+	u32 count = m_removed_spots.size();
+	for (u32 i = 0; i < count; ++i)
+	{
+		shared_str spot_type = m_removed_spots[i].spot_type;
+		u16 id = m_removed_spots[i].object_id;
+		on_removed(spot_type.c_str(), id);
+	}
+
+	m_removed_spots.erase(m_removed_spots.begin(), m_removed_spots.begin() + count);
 }
 
 #ifdef DEBUG

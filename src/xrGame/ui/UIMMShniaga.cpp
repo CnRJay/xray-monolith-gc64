@@ -2,6 +2,7 @@
 
 #include "UIMMShniaga.h"
 #include "UICursor.h"
+#include "UIDialogWnd.h"
 #include "UIStatic.h"
 #include "UIScrollView.h"
 #include "UIXmlInit.h"
@@ -30,7 +31,7 @@ CUIMMShniaga::CUIMMShniaga()
 	m_magnifier->SetPPMode();
 	m_mag_pos = 0;
 
-	m_selected = nullptr;
+	m_selected = NULL;
 
 	m_start_time = 0;
 	m_origin = 0;
@@ -156,7 +157,7 @@ void CUIMMShniaga::CreateList(xr_vector<CUITextWnd*>& lst, CUIXml& xml_doc, LPCS
 void CUIMMShniaga::SetPage(enum_page_id page_id, LPCSTR xml_file, LPCSTR xml_path)
 {
 	VERIFY(m_page != page_id);
-	xr_vector<CUITextWnd*>* lst = nullptr;
+	xr_vector<CUITextWnd*>* lst = NULL;
 	switch (page_id)
 	{
 	case epi_main:
@@ -256,6 +257,20 @@ bool CUIMMShniaga::IsButton(CUIWindow* st)
 	return false;
 }
 
+bool CUIMMShniaga::IsFrozenByModal()
+{
+	CUIDialogWnd* owner = smart_cast<CUIDialogWnd*>(GetTop());
+	if (!owner)
+		return false;
+
+	CDialogHolder* holder = owner->GetHolder();
+	if (!holder)
+		return false;
+
+	CUIDialogWnd* tir = holder->TopInputReceiver();
+	return tir && tir != owner;
+}
+
 void CUIMMShniaga::SendMessage(CUIWindow* pWnd, s16 msg, void* pData)
 {
 	CUIWindow::SendMessage(pWnd, msg, pData);
@@ -336,6 +351,9 @@ void CUIMMShniaga::Update()
 
 
 	ProcessEvent(E_Update);
+
+	if (IsFrozenByModal())
+		return;
 
 	CUIWindow::Update();
 }

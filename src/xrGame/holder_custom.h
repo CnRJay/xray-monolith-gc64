@@ -9,6 +9,7 @@ class CGameObject;
 class CCameraBase;
 class CActor;
 class CScriptGameObject;
+class CWeaponStatMgun;
 
 class CHolderCustom
 {
@@ -23,8 +24,8 @@ protected:
 public:
 	CHolderCustom()
 	{
-		m_owner = nullptr;
-		m_ownerActor = nullptr;
+		m_owner = NULL;
+		m_ownerActor = NULL;
 		m_bEnterLocked = false;
 		m_bExitLocked = false;
 	}
@@ -34,8 +35,13 @@ public:
 	virtual void UpdateEx(float fov)
 	{
 	}; //called by owner
+
 	virtual CHolderCustom* cast_holder_custom() { return this; }
-	bool Engaged() { return m_owner != nullptr; }
+	virtual CCar* cast_car() { return nullptr; }
+	virtual CGameObject* cast_game_object() { return nullptr; }
+	virtual CWeaponStatMgun* cast_weapon_stat_mgun() { return nullptr; }
+
+	bool Engaged() { return m_owner != NULL; }
 	virtual void OnMouseMove(int x, int y) = 0;
 	virtual void OnKeyboardPress(int dik) = 0;
 	virtual void OnKeyboardRelease(int dik) = 0;

@@ -9,14 +9,13 @@
 #include "client_spawn_manager.h"
 #include "../xrEngine/xr_object.h"
 #include "../xrEngine/IGame_Persistent.h"
-#include "../xrCore/profiler.h"
 
 void CLevel::cl_Process_Spawn(NET_Packet& P)
 {
-	PROF_EVENT("cl_Process_Spawn");
 	// Begin analysis
 	shared_str s_name;
 	P.r_stringZ(s_name);
+	PROF_EVENT("CLevel::cl_Process_Spawn", PROF_CAT(GameLogic));
 
 	//Msg("cl_Process_Spawn spawning %s", s_name.c_str());
 
@@ -88,7 +87,6 @@ void CLevel::g_cl_Spawn(LPCSTR name, u8 rp, u16 flags, Fvector pos)
 
 void CLevel::g_sv_Spawn(CSE_Abstract* E)
 {
-	PROF_EVENT_DYNAMIC(*E->s_name);
 #ifdef DEBUG_MEMORY_MANAGER
 	size_t							E_mem = 0;
 	if (g_bMEMO)	{
@@ -118,22 +116,34 @@ void CLevel::g_sv_Spawn(CSE_Abstract* E)
 #ifdef DEBUG_MEMORY_MANAGER
 	mem_alloc_gather_stats		(false);
 #endif // DEBUG_MEMORY_MANAGER
-	if (0 == O || (!O->net_Spawn(E)))
+
+    if (0 == O)
+    {
+        Msg("! Failed to spawn entity '%s', O is nullptr", *E->s_name);
+        return;
+    }
+
+	if (!O->net_Spawn(E))
 	{
+        Msg("! Failed to spawn entity '%s', net_Spawn failed", *E->s_name);
 		O->net_Destroy();
 		if (!g_dedicated_server)
 			client_spawn_manager().clear(O->ID());
 		Objects.Destroy(O);
 		Msg("! Failed to spawn entity '%s'", *E->s_name);
+
 #ifdef DEBUG_MEMORY_MANAGER
 		mem_alloc_gather_stats	(!!psAI_Flags.test(aiDebugOnFrameAllocs));
 #endif // DEBUG_MEMORY_MANAGER
+
 	}
 	else
 	{
+
 #ifdef DEBUG_MEMORY_MANAGER
 		mem_alloc_gather_stats	(!!psAI_Flags.test(aiDebugOnFrameAllocs));
 #endif // DEBUG_MEMORY_MANAGER
+
 		if (!g_dedicated_server)
 			client_spawn_manager().callback(O);
 		//Msg			("--spawn--SPAWN: %f ms",1000.f*T.GetAsync());
@@ -152,7 +162,7 @@ void CLevel::g_sv_Spawn(CSE_Abstract* E)
 			}
 			else
 			{
-				if (CurrentEntity() != nullptr)
+				if (CurrentEntity() != NULL)
 				{
 					CGameObject* pGO = smart_cast<CGameObject*>(CurrentEntity());
 					if (pGO) pGO->On_B_NotCurrentEntity();
@@ -204,6 +214,7 @@ void CLevel::g_sv_Spawn(CSE_Abstract* E)
 	//---------------------------------------------------------
 	Game().OnSpawn(O);
 	//---------------------------------------------------------
+
 #ifdef DEBUG_MEMORY_MANAGER
 	if (g_bMEMO) {
 		lua_gc					(ai().script_engine().lua(),LUA_GCCOLLECT,0);
@@ -211,6 +222,7 @@ void CLevel::g_sv_Spawn(CSE_Abstract* E)
 		Msg						("* %20s : %lld bytes, %d ops", *E->s_name,Memory.mem_usage()-E_mem, Memory.stat_calls );
 	}
 #endif // DEBUG_MEMORY_MANAGER
+
 }
 
 CSE_Abstract* CLevel::spawn_item(LPCSTR section, const Fvector& position, u32 level_vertex_id, u16 parent_id,

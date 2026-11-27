@@ -28,7 +28,7 @@ CParticlesPlayer::SParticlesInfo* CParticlesPlayer::SBoneInfo::AppendParticles(
 	if (pi) return pi;
 	particles.push_back(SParticlesInfo());
 	pi = &particles.back();
-	pi->ps = CParticlesObject::Create(*ps_name,FALSE);
+	pi->ps = Particles::Details::Create(*ps_name,FALSE);
 	return pi;
 }
 
@@ -40,7 +40,7 @@ void CParticlesPlayer::SBoneInfo::StopParticles(const shared_str& ps_name, bool 
 		if (!bDestroy)
 			pi->ps->Stop();
 		else
-			CParticlesObject::Destroy(pi->ps);
+			Particles::Details::Destroy(pi->ps);
 	}
 }
 
@@ -52,7 +52,7 @@ void CParticlesPlayer::SBoneInfo::StopParticles(u16 sender_id, bool bDestroy)
 			if (!bDestroy)
 				it->ps->Stop();
 			else
-				CParticlesObject::Destroy(it->ps);
+				Particles::Details::Destroy(it->ps);
 		}
 }
 
@@ -122,7 +122,7 @@ void CParticlesPlayer::net_DestroyParticles()
 		for (ParticlesInfoListIt p_it = b_info.particles.begin(); p_it != b_info.particles.end(); p_it++)
 		{
 			SParticlesInfo& p_info = *p_it;
-			CParticlesObject::Destroy(p_info.ps);
+			Particles::Details::Destroy(p_info.ps);
 		}
 		b_info.particles.clear();
 	}
@@ -298,7 +298,7 @@ void CParticlesPlayer::UpdateParticles()
 			}
 			if (!p_info.ps->IsPlaying())
 			{
-				CParticlesObject::Destroy(p_info.ps);
+				Particles::Details::Destroy(p_info.ps);
 			}
 			else
 				m_bActiveBones = true;

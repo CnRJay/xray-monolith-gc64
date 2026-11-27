@@ -29,8 +29,21 @@ using namespace collide;
 ICollisionForm::ICollisionForm(CObject* _owner, ECollisionFormType tp)
 {
 	owner = _owner;
+	owner_attachment = nullptr;
 	m_type = tp;
 	bv_sphere.identity();
+	bv_box.identity();
+	dwQueryID = 0;
+}
+
+ICollisionForm::ICollisionForm(script_attachment* _owner, ECollisionFormType tp)
+{
+	owner = nullptr;
+	owner_attachment = _owner;
+	m_type = tp;
+	bv_sphere.identity();
+	bv_box.identity();
+	dwQueryID = 0;
 }
 
 ICollisionForm::~ICollisionForm()
@@ -65,8 +78,9 @@ bool pred_find_elem(const CCF_Skeleton::SElement& E, u16 elem)
 
 bool CCF_Skeleton::_ElementCenter(u16 elem_id, Fvector& e_center)
 {
+	xrSRWLockGuard guard(&build_lock, true);
 	ElementVecIt it = std::lower_bound(elements.begin(), elements.end(), elem_id, pred_find_elem);
-	if (it->elem_id == elem_id)
+	if ((it != elements.end()) && (it->elem_id == elem_id))
 	{
 		it->center(e_center);
 		return true;
@@ -74,7 +88,7 @@ bool CCF_Skeleton::_ElementCenter(u16 elem_id, Fvector& e_center)
 	return false;
 }
 
-IC bool RAYvsOBB(const Fmatrix& IM, const Fvector& b_hsize, const Fvector& S, const Fvector& D, float& R, BOOL bCull)
+bool RAYvsOBB(const Fmatrix& IM, const Fvector& b_hsize, const Fvector& S, const Fvector& D, float& R, BOOL bCull)
 {
 	Fbox E = {-b_hsize.x, -b_hsize.y, -b_hsize.z, b_hsize.x, b_hsize.y, b_hsize.z};
 	// XForm world-2-local
@@ -97,14 +111,14 @@ IC bool RAYvsOBB(const Fmatrix& IM, const Fvector& b_hsize, const Fvector& S, co
 	return false;
 }
 
-IC bool RAYvsSPHERE(const Fsphere& s_sphere, const Fvector& S, const Fvector& D, float& R, BOOL bCull)
+bool RAYvsSPHERE(const Fsphere& s_sphere, const Fvector& S, const Fvector& D, float& R, BOOL bCull)
 {
 	Fsphere::ERP_Result rp_res = s_sphere.intersect(S, D, R);
 	VERIFY(R >= 0.f);
 	return ((rp_res == Fsphere::rpOriginOutside) || (!bCull && (rp_res == Fsphere::rpOriginInside)));
 }
 
-IC bool RAYvsCYLINDER(const Fcylinder& c_cylinder, const Fvector& S, const Fvector& D, float& R, BOOL bCull)
+bool RAYvsCYLINDER(const Fcylinder& c_cylinder, const Fvector& S, const Fvector& D, float& R, BOOL bCull)
 {
 	// Actual test
 	Fcylinder::ERP_Result rp_res = c_cylinder.intersect(S, D, R);
@@ -116,23 +130,26 @@ CCF_Skeleton::CCF_Skeleton(CObject* O) : ICollisionForm(O, cftObject)
 {
 	//getVisData
 	IRenderVisual* pVisual = O->Visual();
-	//IKinematics* K = PKinematics(pVisual); VERIFY3(K,"Can't create skeleton without Kinematics.",*O->cNameVisual());
 	IKinematics* K = PKinematics(pVisual);
 	VERIFY3(K, "Can't create skeleton without Kinematics.", *O->cNameVisual());
-	//bv_box.set (K->vis.box);
 	bv_box.set(pVisual->getVisData().box);
 	bv_box.getsphere(bv_sphere.P, bv_sphere.R);
 	vis_mask = 0;
+	dwFrame = 0;
+	dwFrameTL = 0;
 }
+
+CCF_Skeleton::CCF_Skeleton(script_attachment* O) : ICollisionForm(O, cftObject){}
 
 void CCF_Skeleton::BuildState()
 {
-	dwFrame = Device.dwFrame;
 	IRenderVisual* pVisual = owner->Visual();
 	IKinematics* K = PKinematics(pVisual);
-	K->CalculateBones();
+	//K->CalculateBones();
 	const Fmatrix& L2W = owner->XFORM();
 
+	xrSRWLockGuard guard(&build_lock, false);
+	dwFrame = Device.dwFrame;
 	if (vis_mask != K->LL_GetBonesVisible())
 	{
 		vis_mask = K->LL_GetBonesVisible();
@@ -149,6 +166,11 @@ void CCF_Skeleton::BuildState()
 		}
 	}
 
+    // Non-blocking: BuildState runs inside the IK callback from CalculateBones, which already
+    // holds the current skeleton's UCalc_Mutex; a blocking acquire of this neighbour skeleton's
+    // lock could cross-lock two objects in opposite order on two threads (AB-BA deadlock). If
+    // it's mid-recalc elsewhere, read its 1-frame-stale transforms instead of blocking.
+    xrCriticalSectionTryGuard g(K->UCalc_Mutex);
 	for (ElementVecIt I = elements.begin(); I != elements.end(); I++)
 	{
 		if (!I->valid()) continue;
@@ -212,9 +234,11 @@ void CCF_Skeleton::BuildState()
 
 void CCF_Skeleton::BuildTopLevel()
 {
-	dwFrameTL = Device.dwFrame;
 	IRenderVisual* K = owner->Visual();
 	vis_data& vis = K->getVisData();
+
+	xrSRWLockGuard guard(&build_lock, false);
+	dwFrameTL = Device.dwFrame;
 	Fbox& B = vis.box;
 	bv_box.min.average(B.min);
 	bv_box.max.average(B.max);
@@ -227,12 +251,16 @@ void CCF_Skeleton::BuildTopLevel()
 
 BOOL CCF_Skeleton::_RayQuery(const collide::ray_defs& Q, collide::rq_results& R)
 {
+	PROF_EVENT("CCF_Skeleton::_RayQuery", PROF_CAT(Physics));
 	if (dwFrameTL != Device.dwFrame) BuildTopLevel();
 
 
 	Fsphere w_bv_sphere;
-	owner->XFORM().transform_tiny(w_bv_sphere.P, bv_sphere.P);
-	w_bv_sphere.R = bv_sphere.R;
+	{
+		xrSRWLockGuard guard(&build_lock, true);
+		owner->XFORM().transform_tiny(w_bv_sphere.P, bv_sphere.P);
+		w_bv_sphere.R = bv_sphere.R;
+	}
 
 	//
 	float tgt_dist = Q.range;
@@ -254,6 +282,7 @@ BOOL CCF_Skeleton::_RayQuery(const collide::ray_defs& Q, collide::rq_results& R)
 	}
 
 	BOOL bHIT = FALSE;
+	xrSRWLockGuard guard(&build_lock, true);
 	for (ElementVecIt I = elements.begin(); I != elements.end(); I++)
 	{
 		if (!I->valid())continue;
@@ -415,14 +444,14 @@ void CCF_Shape::_BoxQuery(const Fbox& B, const Fmatrix& M, u32 flags)
 */
 void CCF_Shape::add_sphere(Fsphere& S)
 {
-	shapes.push_back(shape_def());
+	shapes.emplace_back();
 	shapes.back().type = 0;
 	shapes.back().data.sphere.set(S);
 }
 
 void CCF_Shape::add_box(Fmatrix& B)
 {
-	shapes.push_back(shape_def());
+	shapes.emplace_back();
 	shapes.back().type = 1;
 	shapes.back().data.box.set(B);
 	shapes.back().data.ibox.invert(B);

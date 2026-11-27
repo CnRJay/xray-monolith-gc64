@@ -48,7 +48,7 @@ extern void restore_actor();
 bool g_bDisableAllInput = false;
 extern float g_fTimeFactor;
 
-#define CURRENT_ENTITY()	(game?((GameID() == eGameIDSingle) ? CurrentEntity() : CurrentControlEntity()):nullptr)
+#define CURRENT_ENTITY()	(game?((GameID() == eGameIDSingle) ? CurrentEntity() : CurrentControlEntity()):NULL)
 
 void CLevel::IR_OnMouseWheel(int direction)
 {
@@ -66,7 +66,7 @@ void CLevel::IR_OnMouseWheel(int direction)
                 return;
             }
         }
-        //g_actor->callback(GameObject::eMouseWheel)(direction);
+        g_actor->callback(GameObject::eMouseWheel)(direction);
     }
 #endif
 	/* avo: end */
@@ -266,16 +266,23 @@ void CLevel::IR_OnKeyboardPress(int key)
 
 	case kQUIT:
 		{
-			if (b_ui_exist && CurrentGameUI()->TopInputReceiver())
+		if (b_ui_exist && CurrentGameUI()->TopInputReceiver())
+		{
+			if(Device.Paused())
 			{
-				if (CurrentGameUI()->IR_UIOnKeyboardPress(key)) return; //special case for mp and main_menu
-				CurrentGameUI()->TopInputReceiver()->HideDialog();
+				// Снимаем паузу, через Esc
+				Device.Pause(FALSE, TRUE, TRUE, "kQUIT");
+				return;
 			}
-			else
-			{
-				Console->Execute("main_menu");
-			}
-			return;
+
+			if (CurrentGameUI()->IR_UIOnKeyboardPress(key)) return; //special case for mp and main_menu
+			CurrentGameUI()->TopInputReceiver()->HideDialog();
+		}
+		else
+		{
+			Console->Execute("main_menu");
+		}
+		return;
 		}
 		break;
 	};

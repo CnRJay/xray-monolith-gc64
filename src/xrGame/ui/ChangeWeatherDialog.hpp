@@ -64,6 +64,8 @@ public:
 	virtual void OnButtonClick(int i) override;
 	// ~ButtonListDialog
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 private:
 	void ParseWeather();
 };
@@ -79,4 +81,6 @@ public:
 	// ButtonListDialog
 	virtual void OnButtonClick(int i) override;
 	// ~ButtonListDialog
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 };

@@ -4755,6 +4755,18 @@
     <ClInclude Include="game_graph_inline.h">
       <Filter>AI\ANavigation\GameGraph</Filter>
     </ClInclude>
+    <ClInclude Include="game_graph_builder.h">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClInclude>
+    <ClInclude Include="spawn_overlays.h">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClInclude>
+    <ClInclude Include="spawn_packs.h">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClInclude>
+    <ClInclude Include="spawn_templates.h">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClInclude>
     <ClInclude Include="..\xrServerEntities\game_graph_space.h">
       <Filter>AI\ANavigation\GameGraph</Filter>
     </ClInclude>
@@ -5152,6 +5164,9 @@
       <Filter>AI\AScript\ScriptClasses\ScriptFS</Filter>
     </ClInclude>
     <ClInclude Include="console_registrator.h">
+      <Filter>AI\AScript\ScriptClasses\Console</Filter>
+    </ClInclude>
+    <ClInclude Include="shader_bus_script.h">
       <Filter>AI\AScript\ScriptClasses\Console</Filter>
     </ClInclude>
     <ClInclude Include="base_client_classes.h">
@@ -5814,8 +5829,8 @@
     <ClInclude Include="WeaponBinoculars.h">
       <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Various weapons\Binocular</Filter>
     </ClInclude>
-    <ClInclude Include="WeaponBinocularsVision.h">
-      <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Various weapons\Binocular</Filter>
+    <ClInclude Include="ui\UIBinocularsVision.h">
+      <Filter>UI\Common\MainIngame</Filter>
     </ClInclude>
     <ClInclude Include="WeaponShotgun.h">
       <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Various weapons\Weapon Shotgun</Filter>
@@ -6041,9 +6056,6 @@
     </ClInclude>
     <ClInclude Include="CarLights.h">
       <Filter>Core\Client\Objects\vehicles\Car</Filter>
-    </ClInclude>
-    <ClInclude Include="CarDrone.h">
-      <Filter>Core\Client\Objects\vehicles\Car\CarDrone</Filter>
     </ClInclude>
     <ClInclude Include="CarWeapon.h">
       <Filter>Core\Client\Objects\vehicles\Car\CarWeapon</Filter>
@@ -6840,6 +6852,9 @@
     <ClInclude Include="ui\UITabButton.h">
       <Filter>UI\UIWindows\TabControl</Filter>
     </ClInclude>
+    <ClInclude Include="ui\UITabScrollArrows.h">
+      <Filter>UI\UIWindows\TabControl</Filter>
+    </ClInclude>
     <ClInclude Include="ui\UITabControl.h">
       <Filter>UI\UIWindows\TabControl</Filter>
     </ClInclude>
@@ -7380,6 +7395,14 @@
     <ClInclude Include="player_hud_legs.h">
       <Filter>Core\Client\Objects\items &amp; weapons\HudItem</Filter>
     </ClInclude>
+    <ClInclude Include="UI3dStatic.h" />
+    <ClInclude Include="iscript_attachment.h">
+      <Filter>Core\Client\Objects\base</Filter>
+    </ClInclude>
+    <ClInclude Include="CarDrone.h" />
+    <ClInclude Include="script_monster_enemy_info.h" />
+    <ClInclude Include="script_monster_home_info.h" />
+    <ClInclude Include="script_monster_movement_info.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="damage_manager.cpp">
@@ -8543,6 +8566,18 @@
     <ClCompile Include="game_graph_script.cpp">
       <Filter>AI\ANavigation\GameGraph</Filter>
     </ClCompile>
+    <ClCompile Include="game_graph_builder.cpp">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClCompile>
+    <ClCompile Include="spawn_overlays.cpp">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClCompile>
+    <ClCompile Include="spawn_packs.cpp">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClCompile>
+    <ClCompile Include="spawn_templates.cpp">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClCompile>
     <ClCompile Include="level_graph.cpp">
       <Filter>AI\ANavigation\LevelGraph</Filter>
     </ClCompile>
@@ -8751,6 +8786,9 @@
       <Filter>AI\AScript\ScriptClasses\ScriptFS</Filter>
     </ClCompile>
     <ClCompile Include="console_registrator_script.cpp">
+      <Filter>AI\AScript\ScriptClasses\Console</Filter>
+    </ClCompile>
+    <ClCompile Include="shader_bus_script.cpp">
       <Filter>AI\AScript\ScriptClasses\Console</Filter>
     </ClCompile>
     <ClCompile Include="base_client_classes_script.cpp">
@@ -9383,8 +9421,11 @@
     <ClCompile Include="WeaponBinoculars_script.cpp">
       <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Various weapons\Binocular</Filter>
     </ClCompile>
-    <ClCompile Include="WeaponBinocularsVision.cpp">
-      <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Various weapons\Binocular</Filter>
+    <ClCompile Include="ui\UIBinocularsVision.cpp">
+      <Filter>UI\Common\MainIngame</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\UIBinocularsVision_script.cpp">
+      <Filter>UI\Common\MainIngame</Filter>
     </ClCompile>
     <ClCompile Include="WeaponShotgun.cpp">
       <Filter>Core\Client\Objects\items &amp; weapons\Weapons\Various weapons\Weapon Shotgun</Filter>
@@ -9587,12 +9628,6 @@
     <ClCompile Include="searchlight.cpp">
       <Filter>Core\Client\Objects\searchlight</Filter>
     </ClCompile>
-    <ClCompile Include="searchlight_script.cpp">
-      <Filter>Core\Client\Objects\searchlight_script</Filter>
-    </ClCompile>
-    <ClCompile Include="searchlight_struct.cpp">
-      <Filter>Core\Client\Objects\searchlight_struct</Filter>
-    </ClCompile>
     <ClCompile Include="trade.cpp">
       <Filter>Core\Client\Objects\searchlight\Trade</Filter>
     </ClCompile>
@@ -9694,9 +9729,6 @@
     </ClCompile>
     <ClCompile Include="DBG_Car.cpp">
       <Filter>Core\Client\Objects\vehicles\Car</Filter>
-    </ClCompile>
-    <ClCompile Include="CarDrone.cpp">
-      <Filter>Core\Client\Objects\vehicles\Car\CarDrone</Filter>
     </ClCompile>
     <ClCompile Include="CarWeapon.cpp">
       <Filter>Core\Client\Objects\vehicles\Car\CarWeapon</Filter>
@@ -10523,6 +10555,12 @@
     <ClCompile Include="ui\UITabControl.cpp">
       <Filter>UI\UIWindows\TabControl</Filter>
     </ClCompile>
+    <ClCompile Include="ui\UITabControl_scroll.cpp">
+      <Filter>UI\UIWindows\TabControl</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\UITabScrollArrows.cpp">
+      <Filter>UI\UIWindows\TabControl</Filter>
+    </ClCompile>
     <ClCompile Include="ui\UITabControl_script.cpp">
       <Filter>UI\UIWindows\TabControl</Filter>
     </ClCompile>
@@ -11090,9 +11128,21 @@
     <ClCompile Include="script_imgui_script.cpp">
       <Filter>UI\Common\ImGui</Filter>
     </ClCompile>
+    <ClCompile Include="map_manager_script.cpp">
+      <Filter>Core\Client\Objects\tasks_info_dialogs\map</Filter>
+    </ClCompile>
+    <ClCompile Include="searchlight_script.cpp" />
+    <ClCompile Include="searchlight_struct.cpp" />
     <ClCompile Include="player_hud_legs.cpp">
       <Filter>Core\Client\Objects\items &amp; weapons\HudItem</Filter>
     </ClCompile>
+    <ClCompile Include="UI3dStatic.cpp" />
+    <ClCompile Include="CarDrone.cpp" />
+    <ClCompile Include="script_monster_enemy_info_script.cpp" />
+    <ClCompile Include="script_monster_home_info_script.cpp" />
+    <ClCompile Include="script_monster_movement_info_script.cpp" />
+    <ClCompile Include="searchlight_script.cpp" />
+    <ClCompile Include="searchlight_struct.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="Explosive.h">

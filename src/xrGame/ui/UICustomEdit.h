@@ -20,7 +20,7 @@ public:
 	void Init(u32 max_char_count, bool number_only_mode = false, bool read_mode = false, bool fn_mode = false);
 
 	virtual void InitCustomEdit(Fvector2 pos, Fvector2 size);
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 
 	virtual bool OnMouseAction(float x, float y, EUIMessages mouse_action);
 	virtual bool OnKeyboardAction(int dik, EUIMessages keyboard_action);
@@ -42,6 +42,9 @@ public:
 
 	void SetPasswordMode(bool mode = true);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIStatic* ui_cast_static() { return this; }
+
 protected:
 	void Register_callbacks();
 
@@ -51,7 +54,7 @@ protected:
 	void xr_stdcall press_tab();
 
 protected:
-	typedef fastdelegate::FastDelegate0<void> Callback;
+	typedef xr_delegate<void()> Callback;
 
 	enum { EDIT_BUF_SIZE = 256 };
 

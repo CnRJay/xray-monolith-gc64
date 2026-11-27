@@ -110,7 +110,7 @@ public:
 	void ReculcInterpolationSteps();
 	u32 GetNumCrSteps() const { return m_dwNumSteps; }
 	void SetNumCrSteps(u32 NumSteps);
-	static void PhisStepsCallback(u32 Time0, u32 Time1);
+
 	bool In_NetCorrectionPrediction() { return m_bIn_CrPr; }
 	virtual void OnMessage(void* data, u32 size);
 	virtual void OnInvalidHost();
@@ -161,7 +161,8 @@ public:
 	void OnBuildVersionChallenge();
 	void OnConnectResult(NET_Packet* P);
 	// Static particles
-	DEFINE_VECTOR(CParticlesObject*, POVec, POIt);
+	using POVec = xr_vector<intrusive_ptr<CParticlesObject>>;
+	using POIt = POVec::iterator;
 	POVec m_StaticParticles;
 	game_cl_GameState* game = nullptr;
 	bool m_bGameConfigStarted = false;
@@ -208,6 +209,7 @@ public:
 	bool IsChecksumsEqual(u32 check_sum) const;
 	// sounds
 	xr_vector<ref_sound*> static_Sounds;
+	void SkipMusicTrack();
 	// startup options
 	shared_str m_caServerOptions;
 	shared_str m_caClientOptions;
@@ -236,7 +238,9 @@ public:
 
 	Flags32 m_debug_render_flags;
 	xr_map<shared_str, DBG_ScriptObject*> m_debug_render_queue;
+	xr_vector<DBG_ScriptObject*> m_debug_render_queue_immediate;
 	xr_map<shared_str, DBG_ScriptObject*>* getScriptRenderQueue() { return &m_debug_render_queue; }
+    xr_vector<DBG_ScriptObject*>* getImmediateScriptRenderQueue() { return &m_debug_render_queue_immediate; }
 	void ScriptDebugRender();
 
 	virtual shared_str OpenDemoFile(const char* demo_file_name);
@@ -317,6 +321,7 @@ public:
 	CLevel();
 	virtual ~CLevel();
 	// названияе текущего уровня
+	void set_name(const shared_str& level_name){ map_data.m_name = level_name;}
 	virtual shared_str name() const;
 	// this method can be used ONLY from CCC_ChangeGameType
 	// XXX nitrocaster: why c_str?

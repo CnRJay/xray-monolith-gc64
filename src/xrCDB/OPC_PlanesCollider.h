@@ -52,21 +52,21 @@ public:
 	 */
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	bool Collide(PlanesCache& cache, const Plane* planes, udword nb_planes, OPCODE_Model* model,
-	             const Matrix4x4* worldm = nullptr);
+	             const Matrix4x4* worldm = null);
 
 	// Collision queries
 	bool Collide(PlanesCache& cache, const Plane* planes, udword nb_planes, const AABBCollisionTree* tree,
-	             const Matrix4x4* worldm = nullptr);
+	             const Matrix4x4* worldm = null);
 	bool Collide(PlanesCache& cache, const Plane* planes, udword nb_planes, const AABBNoLeafTree* tree,
-	             const Matrix4x4* worldm = nullptr);
+	             const Matrix4x4* worldm = null);
 	bool Collide(PlanesCache& cache, const Plane* planes, udword nb_planes, const AABBQuantizedTree* tree,
-	             const Matrix4x4* worldm = nullptr);
+	             const Matrix4x4* worldm = null);
 	bool Collide(PlanesCache& cache, const Plane* planes, udword nb_planes, const AABBQuantizedNoLeafTree* tree,
-	             const Matrix4x4* worldm = nullptr);
+	             const Matrix4x4* worldm = null);
 
 	// Mutant box-with-planes collision queries
-	inline_ bool Collide(PlanesCache& cache, const OBB& box, OPCODE_Model* model, const Matrix4x4* worldb = nullptr,
-	                     const Matrix4x4* worldm = nullptr)
+	inline_ bool Collide(PlanesCache& cache, const OBB& box, OPCODE_Model* model, const Matrix4x4* worldb = null,
+	                     const Matrix4x4* worldm = null)
 	{
 		Plane PL[6];
 
@@ -114,7 +114,7 @@ protected:
 	                               udword in_clip_mask);
 	inline_ BOOL PlanesTriOverlap(udword in_clip_mask);
 	// Init methods
-	BOOL InitQuery(PlanesCache& cache, const Plane* planes, udword nb_planes, const Matrix4x4* worldm = nullptr);
+	BOOL InitQuery(PlanesCache& cache, const Plane* planes, udword nb_planes, const Matrix4x4* worldm = null);
 };
 
 #endif // __OPC_PLANESCOLLIDER_H__

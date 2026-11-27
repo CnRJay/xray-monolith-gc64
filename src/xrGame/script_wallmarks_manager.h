@@ -5,7 +5,7 @@
 struct ScriptWallmarksArray
 {
 	FactoryPtr<IWallMarkArray>* m_wallmarks;
-	shared_str m_section;
+	LPCSTR m_section;
 
 	ScriptWallmarksArray(LPCSTR section);
 };

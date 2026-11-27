@@ -71,7 +71,7 @@ void CUIActorMenu::SetPartner(CInventoryOwner* io)
 		else
 			m_PartnerCharacterInfo->InitCharacter(m_pPartnerInvOwner->object_id());
 
-		SetInvBox(nullptr);
+		SetInvBox(NULL);
 	}
 	else
 		m_PartnerCharacterInfo->ClearInfo();
@@ -84,14 +84,14 @@ void CUIActorMenu::SetInvBox(CInventoryBox* box)
 	if (box)
 	{
 		m_pInvBox->set_in_use(true);
-		SetPartner(nullptr);
+		SetPartner(NULL);
 	}
 }
 
 void CUIActorMenu::SetMenuMode(EMenuMode mode)
 {
-	SetCurrentItem(nullptr);
-	m_hint_wnd->set_text(nullptr);
+	SetCurrentItem(NULL);
+	m_hint_wnd->set_text(NULL);
 
 	if (mode != m_currMenuMode)
 	{
@@ -346,7 +346,7 @@ CUIDragDropListEx* CUIActorMenu::GetListByType(EDDListType t)
 		}
 		break;
 	}
-	return nullptr;
+	return NULL;
 }
 
 CUICellItem* CUIActorMenu::CurrentItem()
@@ -365,7 +365,7 @@ void CUIActorMenu::SetCurrentItem(CUICellItem* itm)
 	m_pCurrentCellItem = itm;
 	if (!itm)
 	{
-		InfoCurItem(nullptr);
+		InfoCurItem(NULL);
 	}
 	TryHidePropertiesBox();
 
@@ -379,12 +379,12 @@ void CUIActorMenu::InfoCurItem(CUICellItem* cell_item)
 {
 	if (!cell_item || !cell_item->m_pData)
 	{
-		m_ItemInfo->InitItem(nullptr);
+		m_ItemInfo->InitItem(NULL);
 		return;
 	}
 	PIItem current_item = (PIItem)cell_item->m_pData;
 
-	PIItem compare_item = nullptr;
+	PIItem compare_item = NULL;
 	u16 compare_slot = current_item->BaseSlot();
 	if (compare_slot != NO_ACTIVE_SLOT)
 	{
@@ -851,9 +851,8 @@ void CUIActorMenu::CallMessageBoxOK(LPCSTR text)
 void CUIActorMenu::ResetMode()
 {
 	ClearAllLists();
-	m_pMouseCapturer = nullptr;
 	m_UIPropertiesBox->Hide();
-	SetCurrentItem(nullptr);
+	SetCurrentItem(NULL);
 }
 
 void CUIActorMenu::UpdateActorMP()

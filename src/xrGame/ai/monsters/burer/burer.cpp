@@ -25,6 +25,7 @@
 #include "../../../../xrCore/_vector3d_ext.h"
 #include "../control_direction_base.h"
 #include "../../script_game_object.h"
+#include "pch_script.h"
 
 bool CBurer::can_scan = true;
 
@@ -82,6 +83,13 @@ void CBurer::ActivateShield()
 void CBurer::DeactivateShield()
 {
 	m_shield_active = false;
+}
+
+void CBurer::on_gravi_fired()
+{
+	::luabind::functor<void> funct;
+	if (ai().script_engine().functor("_G.CBurerOnGravi", funct))
+		funct(lua_game_object());
 }
 
 void CBurer::Load(LPCSTR section)
@@ -327,7 +335,7 @@ void CBurer::UpdateGraviObject()
 	float trace_dist = float(m_gravi.step);
 
 	collide::rq_result l_rq;
-	if (Level().ObjectSpace.RayPick(new_pos, dir, trace_dist, collide::rqtBoth, l_rq, nullptr))
+	if (Level().ObjectSpace.RayPick(new_pos, dir, trace_dist, collide::rqtBoth, l_rq, NULL))
 	{
 		const CObject* enemy = smart_cast<const CObject *>(m_gravi_object.enemy);
 		if ((l_rq.O == enemy) && (l_rq.range < trace_dist))
@@ -367,7 +375,7 @@ void CBurer::UpdateGraviObject()
 
 	// ---------------------------------------------------------------------
 	// draw particle
-	CParticlesObject* ps = CParticlesObject::Create(particle_gravi_wave,TRUE);
+	intrusive_ptr<CParticlesObject> ps = Particles::Details::Create(particle_gravi_wave,TRUE);	
 
 	// вычислить позицию и направленность партикла
 	Fmatrix pos;
@@ -382,7 +390,7 @@ void CBurer::UpdateGraviObject()
 
 	// hit objects
 	m_nearest.clear_not_free();
-	Level().ObjectSpace.GetNearest(m_nearest, m_gravi_object.cur_pos, m_gravi.radius, nullptr);
+	Level().ObjectSpace.GetNearest(m_nearest, m_gravi_object.cur_pos, m_gravi.radius, NULL);
 	//xr_vector<CObject*> &m_nearest = Level().ObjectSpace.q_nearest;
 
 	for (u32 i = 0; i < m_nearest.size(); i++)
@@ -466,7 +474,7 @@ void CBurer::Hit(SHit* pHDS)
 		CParticlesPlayer::MakeXFORM(this, pHDS->bone(), pHDS->dir, pHDS->p_in_bone_space, pos);
 
 		// установить particles
-		CParticlesObject* ps = CParticlesObject::Create(particle_fire_shield,TRUE);
+		intrusive_ptr<CParticlesObject> ps = Particles::Details::Create(particle_fire_shield,TRUE);
 
 		ps->UpdateParent(pos, Fvector().set(0.f, 0.f, 0.f));
 		GamePersistent().ps_needtoplay.push_back(ps);

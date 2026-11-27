@@ -18,8 +18,8 @@ CPolterSpecialAbility::CPolterSpecialAbility(CPoltergeist* polter)
 
 CPolterSpecialAbility::~CPolterSpecialAbility()
 {
-	CParticlesObject::Destroy(m_particles_object);
-	CParticlesObject::Destroy(m_particles_object_electro);
+	Particles::Details::Destroy(m_particles_object);
+	Particles::Details::Destroy(m_particles_object_electro);
 }
 
 void CPolterSpecialAbility::load(LPCSTR section)
@@ -57,8 +57,8 @@ void CPolterSpecialAbility::on_hide()
 
 void CPolterSpecialAbility::on_show()
 {
-	if (m_particles_object) CParticlesObject::Destroy(m_particles_object);
-	if (m_particles_object_electro) CParticlesObject::Destroy(m_particles_object_electro);
+	if (m_particles_object) Particles::Details::Destroy(m_particles_object);
+	if (m_particles_object_electro) Particles::Details::Destroy(m_particles_object_electro);
 }
 
 void CPolterSpecialAbility::update_frame()
@@ -74,8 +74,8 @@ void CPolterSpecialAbility::on_die()
 
 	m_object->PlayParticles(m_particles_death, particles_position, Fvector().set(0.0f, 1.0f, 0.0f), TRUE, FALSE);
 
-	CParticlesObject::Destroy(m_particles_object_electro);
-	CParticlesObject::Destroy(m_particles_object);
+	Particles::Details::Destroy(m_particles_object_electro);
+	Particles::Details::Destroy(m_particles_object);
 }
 
 void CPolterSpecialAbility::on_hit(SHit* pHDS)
@@ -113,7 +113,7 @@ void CPolterSpecialAbility::on_hit(SHit* pHDS)
 void CPoltergeist::PhysicalImpulse(const Fvector& position)
 {
 	m_nearest.clear_not_free();
-	Level().ObjectSpace.GetNearest(m_nearest, position, IMPULSE_RADIUS, nullptr);
+	Level().ObjectSpace.GetNearest(m_nearest, position, IMPULSE_RADIUS, NULL);
 	//xr_vector<CObject*> &m_nearest = Level().ObjectSpace.q_nearest;
 	if (m_nearest.empty()) return;
 
@@ -144,7 +144,7 @@ void CPoltergeist::StrangeSounds(const Fvector& position)
 		dir.random_dir();
 
 		collide::rq_result l_rq;
-		if (Level().ObjectSpace.RayPick(position, dir, TRACE_DISTANCE, collide::rqtStatic, l_rq, nullptr))
+		if (Level().ObjectSpace.RayPick(position, dir, TRACE_DISTANCE, collide::rqtStatic, l_rq, NULL))
 		{
 			if (l_rq.range < TRACE_DISTANCE)
 			{

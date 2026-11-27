@@ -256,7 +256,7 @@ void CSE_Abstract::Spawn_Write(NET_Packet& tNetPacket, BOOL bLocal)
 	tNetPacket.w_seek(position, &size, sizeof(u16));
 }
 
-enum EGameTypes
+static enum EGameTypes
 {
 	GAME_ANY = 0,
 	GAME_SINGLE = 1,
@@ -366,7 +366,7 @@ BOOL CSE_Abstract::Spawn_Read(NET_Packet& tNetPacket)
 	u16 size;
 	tNetPacket.r_u16(size); // size
 	bool b1 = (m_tClassID == CLSID_SPECTATOR);
-	bool b2 = (size > sizeof(size)) || (tNetPacket.inistream != nullptr);
+	bool b2 = size > sizeof(size);
 	R_ASSERT3((b1 || b2), "cannot read object, which is not successfully saved :(", name_replace());
 	STATE_Read(tNetPacket, size);
 	return TRUE;

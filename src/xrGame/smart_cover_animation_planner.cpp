@@ -399,12 +399,11 @@ bool animation_planner::hit_callback(SHit const* hit)
 	if (!object().g_Alive())
 		return (false);
 
-	const CGameObject* who_object = smart_cast<const CGameObject*>(hit->who);
 	object().callback(GameObject::eHit)(
 		m_object->lua_game_object(),
 		hit->damage(),
 		hit->direction(),
-		who_object ? who_object->lua_game_object() : nullptr,
+		smart_cast<const CGameObject*>(hit->who)->lua_game_object(),
 		hit->boneID
 	);
 

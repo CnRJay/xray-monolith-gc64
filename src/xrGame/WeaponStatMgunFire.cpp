@@ -84,7 +84,7 @@ void CWeaponStatMgun::UpdateFire()
 			{
 				if (p_overheat->IsPlaying())
 					p_overheat->Stop(FALSE);
-				CParticlesObject::Destroy(p_overheat);
+				Particles::Details::Destroy(p_overheat);
 			}
 			if (m_firing_disabled)
 				m_firing_disabled = false;
@@ -126,7 +126,7 @@ void CWeaponStatMgun::UpdateFire()
 		{
 			if (!p_overheat)
 			{
-				p_overheat = CParticlesObject::Create(m_overheat_particles.c_str(),FALSE);
+				p_overheat = Particles::Details::Create(m_overheat_particles.c_str(),FALSE);
 				Fmatrix pos;
 				pos.set(get_ParticlesXFORM());
 				pos.c.set(get_CurrentFirePoint());

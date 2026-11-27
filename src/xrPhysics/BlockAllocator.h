@@ -18,16 +18,8 @@ public:
 
 	IC void empty()
 	{
-		block_count = 0;
-		if (blocks.size())
-		{
-			block_position = 0;
-			current_block = blocks[0];
-		}
-		else
-		{
-			block_position = block_size;
-		}
+		// keep allocated blocks; next add() reuses blocks[0] via next_block() so block_count stays in sync
+		init();
 	}
 
 	CBlockAllocator()
@@ -44,7 +36,7 @@ public:
 	{
 		block_position = block_size;
 		block_count = 0;
-		current_block = nullptr;
+		current_block = NULL;
 	}
 
 	IC void clear()

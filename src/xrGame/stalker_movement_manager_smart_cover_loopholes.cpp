@@ -161,7 +161,7 @@ bool stalker_movement_manager_smart_cover::test_pick(Fvector source, Fvector des
 	float range = distance;
 	parameters params(range, object());
 	collide::ray_defs ray_defs(source, direction, distance, CDB::OPT_CULL, collide::rqtStatic);
-	Level().ObjectSpace.RayQuery(m_ray_query_storage, ray_defs, &test_pick::callback, &params, nullptr, nullptr);
+	Level().ObjectSpace.RayQuery(m_ray_query_storage, ray_defs, &test_pick::callback, &params, NULL, NULL);
 	return (range == distance);
 }
 
@@ -404,7 +404,7 @@ void stalker_movement_manager_smart_cover::build_exit_path_to_cover()
 			);
 
 		buffer_vector<shared_str> temp(
-			_alloca(sizeof(u32) * m_temp_loophole_path.size()),
+			_alloca(sizeof(shared_str) * m_temp_loophole_path.size()),
 			m_temp_loophole_path.size(),
 			m_temp_loophole_path.begin(),
 			m_temp_loophole_path.end()

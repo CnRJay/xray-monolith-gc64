@@ -58,44 +58,6 @@ void CCar::ScopeOnMouseWheel(int direction)
     }
 }
 
-u16 CCar::GetCameraBone()
-{
-    if (IsScopeEnable())
-    {
-        return m_scopes.at(m_scope_active).camera_bone;
-    }
-    return (m_zoom_status) ? m_camera_bone_aim : m_camera_bone_def;
-}
-
-float CCar::GetZoomFactor()
-{
-    if (IsScopeEnable())
-    {
-        return m_scopes.at(m_scope_active).zoom_factor;
-    }
-    return (m_zoom_status) ? m_zoom_factor_aim : m_zoom_factor_def;
-}
-
-void CCar::SetScopeActive(u16 val)
-{
-    if (0 <= val && val < m_scopes.size())
-    {
-        m_scope_active = val;
-    }
-}
-
-void CCar::ScopeOnMouseWheel(int direction)
-{
-    if (direction > 0)
-    {
-        SetScopeActive(m_scope_active + 1);
-    }
-    else
-    {
-        SetScopeActive(m_scope_active - 1);
-    }
-}
-
 /*------------------------------------------------------------------------------------------------------------------------
     SVisualCamera
 ------------------------------------------------------------------------------------------------------------------------*/

@@ -115,7 +115,7 @@ bool CCar::bfAssignObject(CScriptEntityAction* tpEntityAction)
 		}
 		return (false);
 	}
-	SCarLight* light = nullptr;
+	SCarLight* light = NULL;
 	if (m_lights.findLight(l_sBoneID, light))
 	{
 		switch (l_tObjectAction.m_tGoalType)
@@ -361,14 +361,14 @@ bool CCar::isObjectVisible(CScriptGameObject* O_)
 		float ray_length = from_point.distance_to(to_point);
 
 
-		BOOL res = Level().ObjectSpace.RayTest(from_point, dir_to_object, ray_length, collide::rqtStatic, nullptr, nullptr);
+		BOOL res = Level().ObjectSpace.RayTest(from_point, dir_to_object, ray_length, collide::rqtStatic, NULL, NULL);
 		return (0 == res);
 	}
 }
 
 bool CCar::HasWeapon()
 {
-	return (m_car_weapon != nullptr);
+	return (m_car_weapon != NULL);
 }
 
 Fvector CCar::CurrentVel()

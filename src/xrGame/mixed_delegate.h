@@ -1,7 +1,7 @@
 #ifndef MIXED_DELEGATE_INCLUDED
 #define MIXED_DELEGATE_INCLUDED
 
-#include <fastdelegate/fastdelegate.h>
+#include "../xrCore/xr_delegate.h"
 #include "pch_script.h"
 #include "script_export_space.h"
 #include "script_callback_ex.h"
@@ -18,7 +18,7 @@ public:
 	typedef Param1 param1_type;
 	typedef Param2 param2_type;
 
-	typedef fastdelegate::FastDelegate<R (Param1, Param2)> fastdelegate_type;
+	typedef xr_delegate<R (Param1, Param2)> fastdelegate_type;
 	typedef CScriptCallbackEx<R> lua_delegate_type;
 	typedef ::luabind::object lua_object_type;
 	typedef ::luabind::functor<R> lua_function_type;

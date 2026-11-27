@@ -51,7 +51,7 @@ namespace inventory
 			{
 				return ((*i).second);
 			}
-			return (nullptr);
+			return (NULL);
 		}
 
 		Upgrade* Manager::get_upgrade(shared_str const& upgrade_id)
@@ -61,7 +61,7 @@ namespace inventory
 			{
 				return ((*i).second);
 			}
-			return (nullptr);
+			return (NULL);
 		}
 
 		Group* Manager::get_group(shared_str const& group_id)
@@ -71,7 +71,7 @@ namespace inventory
 			{
 				return ((*i).second);
 			}
-			return (nullptr);
+			return (NULL);
 		}
 
 		Property* Manager::get_property(shared_str const& property_id)
@@ -81,7 +81,7 @@ namespace inventory
 			{
 				return ((*i).second);
 			}
-			return (nullptr);
+			return (NULL);
 		}
 
 		// -----------------------------------------------------------------------
@@ -366,6 +366,10 @@ void Manager::test_all_upgrades( CInventoryItem& item )
 		bool Manager::upgrade_install(CInventoryItem& item, shared_str const& upgrade_id, bool loading)
 		{
 			Upgrade* upgrade = upgrade_verify(item.m_section_id, upgrade_id);
+			if (upgrade == nullptr)
+			{
+				return false;
+			}
 			UpgradeStateResult res = upgrade->can_install(item, loading);
 
 			if (res == result_ok)
@@ -430,13 +434,13 @@ void Manager::test_all_upgrades( CInventoryItem& item )
 		LPCSTR Manager::get_item_scheme(CInventoryItem& item)
 		{
 			Root* root_p = get_root(item.m_section_id);
-			if (!root_p) return nullptr;
+			if (!root_p) return NULL;
 			return root_p->scheme();
 		}
 
 		LPCSTR Manager::get_upgrade_by_index(CInventoryItem& item, Ivector2 const& index)
 		{
-			Upgrade* upgrade = nullptr;
+			Upgrade* upgrade = NULL;
 
 			Root* root_p = get_root(item.m_section_id);
 			if (root_p)
@@ -450,7 +454,7 @@ void Manager::test_all_upgrades( CInventoryItem& item )
 
 			VERIFY2(upgrade, make_string( "! Upgrade with index <%d,%d> in inventory item [%s] does not exist!",
 				        index.x, index.y, item.m_section_id.c_str() ));
-			return nullptr;
+			return NULL;
 		}
 
 		// -------------------------------------------------------------------------------------------------

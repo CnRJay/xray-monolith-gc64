@@ -21,6 +21,7 @@ void S2DVert::rotate_pt(const Fvector2& pivot, const float cosA, const float sin
 void C2DFrustum::CreateFromRect(const Frect& rect)
 {
 	m_rect.set(float(rect.x1), float(rect.y1), float(rect.x2), float(rect.y2));
+	m_force_clip = false;
 	planes.resize(4);
 	planes[0].build(rect.lt, Fvector2().set(-1, 0));
 	planes[1].build(rect.lt, Fvector2().set(0, -1));
@@ -42,7 +43,7 @@ sPoly2D* C2DFrustum::ClipPoly(sPoly2D& S, sPoly2D& D) const
 
 	sPoly2D* src = &D;
 	sPoly2D* dest = &S;
-	if (!bFullTest) return dest;
+	if (!bFullTest && !m_force_clip) return dest;
 
 	for (u32 i = 0; i < planes.size(); i++)
 	{
@@ -195,7 +196,7 @@ void ui_core::PopScissor()
 	m_Scissors.pop();
 
 	if (m_Scissors.empty())
-		UIRender->SetScissor(nullptr);
+		UIRender->SetScissor(NULL);
 	else
 	{
 		const Frect& top = m_Scissors.top();
@@ -218,8 +219,8 @@ ui_core::ui_core()
 	}
 	else
 	{
-		m_pUICursor = nullptr;
-		m_pFontManager = nullptr;
+		m_pUICursor = NULL;
+		m_pFontManager = NULL;
 	}
 	m_bPostprocess = false;
 
@@ -273,7 +274,7 @@ bool ui_core::is_widescreen()
 
 u8 ui_core::screenmode()
 {
-	if ((float(Device.dwWidth) / float(Device.dwHeight)) > 1.8f)
+	if ((float(Device.dwWidth) / float(Device.dwHeight)) > 2.05f) // halfway between 16:9 and 21:9
 		return u8(2);
 	else if ((float(Device.dwWidth) / float(Device.dwHeight)) > (UI_BASE_WIDTH / UI_BASE_HEIGHT + 0.01f))
 		return u8(1);
@@ -282,6 +283,11 @@ u8 ui_core::screenmode()
 
 float ui_core::get_current_kx()
 {
+	// the world space pass and a map update made for it use no screen aspect
+	ui_core* core = GamePersistent().m_pUI_core;
+	if (core && (core->m_currentPointType == IUIRender::pttLIT || core->m_bAspectNeutral))
+		return 1.0f;
+
 	float h = float(Device.dwHeight);
 	float w = float(Device.dwWidth);
 
@@ -313,8 +319,9 @@ shared_str ui_core::get_xml_name(LPCSTR fn)
 		{
 			if (screenmode() == u8(2))
 			{
-				xr_sprintf(str, "%s_16", fn);
-				if (NULL == strext(fn)) xr_strcat(str, "_16.xml");
+				xr_strcpy(str, fn);
+				if (strext(str)) *strext(str) = 0;
+				xr_strcat(str, "_16.xml");
 
 				if (NULL != FS.exist(str_, "$game_config$", "ui\\", str))
 				{

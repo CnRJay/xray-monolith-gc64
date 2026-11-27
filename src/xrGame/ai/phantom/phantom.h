@@ -31,7 +31,7 @@ private:
 
 	void UpdateFlyMedia();
 
-	fastdelegate::FastDelegate0<> UpdateEvent;
+	xr_delegate<void()> UpdateEvent;
 private:
 	struct SStateData
 	{
@@ -93,6 +93,7 @@ public:
 	virtual BOOL UsedAI_Locations() { return false; }
 
 	virtual CEntity* cast_entity() { return this; }
+	virtual CPhantom* cast_phantom() { return this; }
 
 	void SetEnemy(CObject* enemy) { m_enemy = enemy; } //Alundaio
 };

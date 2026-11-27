@@ -33,7 +33,7 @@ CCoverManager::~CCoverManager()
 	xr_delete(m_smart_covers_storage);
 }
 
-IC bool CCoverManager::edge_vertex(u32 index)
+IC bool CCoverManager::edge_vertex(u32 index) const
 {
 	CLevelGraph::CVertex* v = ai().level_graph().vertex(index);
 	return (
@@ -48,7 +48,7 @@ IC bool CCoverManager::edge_vertex(u32 index)
 	);
 }
 
-IC bool CCoverManager::cover(CLevelGraph::CVertex* v, u32 index0, u32 index1)
+IC bool CCoverManager::cover(CLevelGraph::CVertex* v, u32 index0, u32 index1) const
 {
 	return (
 		ai().level_graph().valid_vertex_id(v->link(index0)) &&
@@ -57,7 +57,7 @@ IC bool CCoverManager::cover(CLevelGraph::CVertex* v, u32 index0, u32 index1)
 	);
 }
 
-IC bool CCoverManager::critical_point(CLevelGraph::CVertex* v, u32 index, u32 index0, u32 index1)
+IC bool CCoverManager::critical_point(CLevelGraph::CVertex* v, u32 index, u32 index0, u32 index1) const
 {
 	return (
 		!ai().level_graph().valid_vertex_id(v->link(index)) &&
@@ -70,7 +70,7 @@ IC bool CCoverManager::critical_point(CLevelGraph::CVertex* v, u32 index, u32 in
 	);
 }
 
-IC bool CCoverManager::critical_cover(u32 index)
+IC bool CCoverManager::critical_cover(u32 index) const
 {
 	CLevelGraph::CVertex* v = ai().level_graph().vertex(index);
 	return (
@@ -83,38 +83,39 @@ IC bool CCoverManager::critical_cover(u32 index)
 
 void CCoverManager::compute_static_cover()
 {
+	PROF_EVENT(PROF_CAT(Navigation));
 	clear();
 	xr_delete(m_covers);
-	m_covers = xr_new<CPointQuadTree>(ai().level_graph().header().box(), ai().level_graph().header().cell_size() * .5f,
-	                                  8 * 65536, 4 * 65536);
+	m_covers = xr_new<CPointQuadTree>(ai().level_graph().header().box(), ai().level_graph().header().cell_size() * .5f, 8 * 65536, 4 * 65536);
 	m_temp.resize(ai().level_graph().header().vertex_count());
 
-	CLevelGraph const& graph = ai().level_graph();
-	u32 n = ai().level_graph().header().vertex_count();
-	xr_parallel_for(0u, n, [&](u32 i)
+	const CLevelGraph& Graph = ai().level_graph();
+	const u32 LevelVertexCount = ai().level_graph().header().vertex_count();
+
+	xr_parallel_for(0u, LevelVertexCount, [&](u32 range)
 	{
-		CLevelGraph::CVertex const& vertex = *graph.vertex(i);
+		const CLevelGraph::CVertex& vertex = *Graph.vertex(range);
 		if (vertex.high_cover(0) + vertex.high_cover(1) + vertex.high_cover(2) + vertex.high_cover(3))
 		{
-			m_temp[i] = edge_vertex(i);
+			m_temp[range] = edge_vertex(range);
 			return;
 		}
 
 		if (vertex.low_cover(0) + vertex.low_cover(1) + vertex.low_cover(2) + vertex.low_cover(3))
 		{
-			m_temp[i] = edge_vertex(i);
+			m_temp[range] = edge_vertex(range);
 			return;
 		}
 
-		m_temp[i] = false;
+		m_temp[range] = false;
 	});
 
-	for (u32 i = 0; i < n; ++i)
+	for (u32 i = 0; i < LevelVertexCount; ++i)
 		if (m_temp[i] && critical_cover(i))
-			m_covers->insert(xr_new<CCoverPoint>(ai().level_graph().vertex_position(ai().level_graph().vertex(i)), i));
+			m_covers->insert(xr_new<CCoverPoint>(ai().level_graph().vertex_position(ai().level_graph().vertex(i)),i));
 
-	VERIFY(!m_smart_covers_storage);
-	m_smart_covers_storage = xr_new<smart_cover::storage>();
+	VERIFY					(!m_smart_covers_storage);
+	m_smart_covers_storage	= xr_new<smart_cover::storage>();
 }
 
 void CCoverManager::clear_covers(PointVector& covers)

@@ -81,6 +81,6 @@ void CMonsterCorpseManager::remove_links(CObject* O)
 {
 	if (corpse == O)
 	{
-		corpse = nullptr;
+		corpse = NULL;
 	}
 }

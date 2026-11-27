@@ -17,8 +17,9 @@
 
 
 //////////////////////////////////////////////////////////////////////
-CGlow::CGlow() : ISpatial(g_SpatialSpace)
+CGlow::CGlow()// : ISpatial(g_SpatialSpace)
 {
+	ISpatialOwner::spatial_create(g_SpatialSpace, this, STYPE_GLOW);
 	flags.bActive = false;
 	position.set(0, 0, 0);
 	direction.set(0, 0, 0);
@@ -27,7 +28,6 @@ CGlow::CGlow() : ISpatial(g_SpatialSpace)
 	bTestResult = FALSE;
 	fade = 1.f;
 	dwFrame = 0;
-	spatial.type = STYPE_RENDERABLE;
 }
 
 CGlow::~CGlow()
@@ -42,13 +42,13 @@ void CGlow::set_active(bool a)
 	{
 		if (flags.bActive) return;
 		flags.bActive = true;
-		spatial_register();
+		ISpatialOwner::spatial_register();
 	}
 	else
 	{
 		if (!flags.bActive) return;
 		flags.bActive = false;
-		spatial_unregister();
+		ISpatialOwner::spatial_unregister();
 	}
 }
 
@@ -90,8 +90,8 @@ void CGlow::set_color(float r, float g, float b)
 
 void CGlow::spatial_move()
 {
-	spatial.sphere.set(position, radius);
-	ISpatial::spatial_move();
+	SpatialComponent->spatial.sphere.set(position, radius);
+	ISpatialOwner::spatial_move();
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -121,7 +121,7 @@ void CGlowManager::Load(IReader* fs)
 		CGlow* G = xr_new<CGlow>();
 		fs->r(&G->position, 3 * sizeof(float));
 		fs->r(&G->radius, 1 * sizeof(float));
-		G->spatial.sphere.set(G->position, G->radius);
+		G->SpatialComponent->spatial.sphere.set(G->position, G->radius);
 		G->direction.set(0, 0, 0);
 
 		u16 S = fs->r_u16();
@@ -131,7 +131,7 @@ void CGlowManager::Load(IReader* fs)
 		G->dwFrame = 0x0;
 		G->bTestResult = TRUE;
 
-		G->spatial.type = STYPE_RENDERABLE;
+		G->SpatialComponent->spatial.type = STYPE_RENDERABLE;
 
 		G->set_active(true);
 
@@ -169,7 +169,7 @@ void CGlowManager::add(ref_glow G_)
 	float dt = Device.fTimeDelta;
 	float dlim2 = MAX_GlowsDist2;
 
-	float range = Device.vCameraPosition.distance_to_sqr(G->spatial.sphere.P);
+	float range = Device.vCameraPosition.distance_to_sqr(G->position);
 	if (range < dlim2)
 	{
 		// 2. Use result of test
@@ -241,7 +241,7 @@ void CGlowManager::render_sw()
 		if (G.dwFrame == 'test') break;
 		G.dwFrame = 'test';
 		Fvector dir;
-		dir.sub(G.spatial.sphere.P, start);
+		dir.sub(G.position, start);
 		float range = dir.magnitude();
 		if (range > EPS_S)
 		{

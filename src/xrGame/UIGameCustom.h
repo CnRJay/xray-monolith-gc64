@@ -85,6 +85,8 @@ protected:
 	CUIWindow* Window;
 	CUIXml* MsgConfig;
 	xr_vector<StaticDrawableWrapper*> CustomStatics;
+	// captions are mutated by game logic and drawn by the render thread, guard every access
+	xrCriticalSection m_customs_lock;
 	CUIActorMenu* ActorMenu;
 	CUIPdaWnd* PdaMenu;
 	bool showGameIndicators;
@@ -149,6 +151,7 @@ public:
 	void UpdatePda();
 	void update_fake_indicators(u8 type, float power);
 	void enable_fake_indicators(bool enable);
+	void TalkMenuSetVisible(bool vis);
 DECLARE_SCRIPT_REGISTER_FUNCTION
 };
 

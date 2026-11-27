@@ -120,8 +120,8 @@ struct CDestroyer
 		template <typename T>
 		IC static void delete_data(T& data)
 		{
-			T::iterator I = data.begin();
-			T::iterator E = data.end();
+			auto I = data.begin();
+			auto E = data.end();
 			for (; I != E; ++I)
 				CDestroyer::delete_data(*I);
 			data.clear();

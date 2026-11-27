@@ -48,6 +48,7 @@ void CPSLibrary::OnDestroy()
 	for (PS::PGDIt g_it = m_PGDs.begin(); g_it != m_PGDs.end(); ++g_it)
 		xr_delete(*g_it);
 	m_PGDs.clear();
+    m_all_ps.clear();
 }
 
 //----------------------------------------------------
@@ -133,7 +134,7 @@ bool CPSLibrary::Load2()
 	FS.file_list(files, _path, FS_ListFiles, "*.pe,*.pg");
 
 #ifdef _EDITOR
-	SPBItem* pb = nullptr;
+	SPBItem* pb = NULL;
 	if(UI->m_bReady)
     pb 							= UI->ProgressStart(files.size(),"Loading particles...");
 #endif
@@ -158,7 +159,10 @@ bool CPSLibrary::Load2()
 			PS::CPEDef* def = xr_new<PS::CPEDef>();
 			def->m_Name = _path;
 			if (def->Load2(ini))
-				m_PEDs.push_back(def);
+            {
+                m_all_ps.push_back(def->m_Name);
+                m_PEDs.push_back(def);
+            }
 			else
 				xr_delete(def);
 		}
@@ -167,7 +171,10 @@ bool CPSLibrary::Load2()
 			PS::CPGDef* def = xr_new<PS::CPGDef>();
 			def->m_Name = _path;
 			if (def->Load2(ini))
-				m_PGDs.push_back(def);
+            {
+                m_all_ps.push_back(def->m_Name);
+                m_PGDs.push_back(def);
+            }
 			else
 				xr_delete(def);
 		}
@@ -216,7 +223,10 @@ bool CPSLibrary::Load(const char* nm)
 			PS::CPEDef* def = xr_new<PS::CPEDef>();
 			def->m_Name = _path;
 			if (def->Load2(ini))
-				m_PEDs.push_back(def);
+            {
+                m_all_ps.push_back(def->m_Name);
+                m_PEDs.push_back(def);
+            }
 			else
 				xr_delete(def);
 		}
@@ -225,7 +235,10 @@ bool CPSLibrary::Load(const char* nm)
 			PS::CPGDef* def = xr_new<PS::CPGDef>();
 			def->m_Name = _path;
 			if (def->Load2(ini))
-				m_PGDs.push_back(def);
+            {
+                m_all_ps.push_back(def->m_Name);
+                m_PGDs.push_back(def);
+            }
 			else
 				xr_delete(def);
 		}

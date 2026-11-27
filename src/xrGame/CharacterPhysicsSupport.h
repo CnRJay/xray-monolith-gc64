@@ -127,6 +127,7 @@ public:
 	IC const CPHMovementControl* movement() const { return m_PhysicMovementControl; }
 	IC CPHSoundPlayer* ph_sound_player() { return &m_ph_sound_player; }
 	IC CIKLimbsController* ik_controller() { return m_ik_controller; }
+	CPhysicsShell* physics_shell() { return m_pPhysicsShell; }
 	bool interactive_motion();
 	bool can_drop_active_weapon();
 	void SetRemoved();
@@ -136,6 +137,7 @@ public:
 	void set_movement_position(const Fvector& pos);
 	void ForceTransform(const Fmatrix& m);
 	void set_use_hit_anims(bool v) { m_flags.set(fl_use_hit_anims, (BOOL)v); }
+	bool is_hit_anim_playing() const { return m_hit_animations.is_hit_anim_playing(); }
 	//////////////////base hierarchi methods///////////////////////////////////////////////////
 	void CreateCharacterSafe();
 	void CreateCharacter();
@@ -152,6 +154,7 @@ public:
 	void in_Hit(SHit& H, bool is_killing = false);
 	void in_NetSave(NET_Packet& P);
 	void in_ChangeVisual();
+	void RecreateSkeleton();
 	void in_Die(bool hit = true);
 	void on_create_anim_mov_ctrl();
 	void on_destroy_anim_mov_ctrl();
@@ -186,6 +189,8 @@ private:
 	void ActivateShell(CObject* who);
 	void CreateShell(CObject* who, Fvector& dp, Fvector& velocity);
 	void AddActiveWeaponCollision();
+	void AddAllAttachmentsCollision();
+	void RemoveAllAttachmentsCollision();
 	void RemoveActiveWeaponCollision();
 	void bone_chain_disable(u16 bone, u16 r_bone, IKinematics& K);
 	void bone_fix_clear();

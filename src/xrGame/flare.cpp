@@ -13,7 +13,7 @@ BOOL CFlare::net_Spawn(CSE_Abstract* DC)
 {
 	BOOL res = inherited::net_Spawn(DC);
 	SwitchState(eFlareHidden);
-	m_pFlareParticles = nullptr;
+	m_pFlareParticles = NULL;
 	return res;
 }
 
@@ -112,7 +112,7 @@ void CFlare::SwitchOn()
 
 	light_render->set_active(true);
 
-	m_pFlareParticles = CParticlesObject::Create(pSettings->r_string(cNameSect(), "working_particles"), FALSE);
+	m_pFlareParticles = Particles::Details::Create(pSettings->r_string(cNameSect(), "working_particles"), FALSE);
 	m_pFlareParticles->Play(true);
 }
 
@@ -120,7 +120,7 @@ void CFlare::SwitchOff()
 {
 	SetCondition(0.0f);
 	light_render.destroy();
-	CParticlesObject::Destroy(m_pFlareParticles);
+	Particles::Details::Destroy(m_pFlareParticles);
 	processing_deactivate();
 }
 

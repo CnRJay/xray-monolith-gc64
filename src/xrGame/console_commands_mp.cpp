@@ -347,7 +347,7 @@ struct SearcherClientByName
 	bool operator()(IClient* client)
 	{
 		xrClientData* temp_client = smart_cast<xrClientData*>(client);
-		LPSTR tmp_player = nullptr;
+		LPSTR tmp_player = NULL;
 		if (!temp_client->ps)
 			return false;
 
@@ -487,13 +487,13 @@ static xrClientData* exclude_command_initiator(LPCSTR args)
 	if (clientidstr)
 	{
 		clientidstr += sizeof(RAPREFIX) - 1;
-		u32 client_id = static_cast<u32>(strtoul(clientidstr, nullptr, 10));
+		u32 client_id = static_cast<u32>(strtoul(clientidstr, NULL, 10));
 		ClientID tmp_id;
 		tmp_id.set(client_id);
 		if (g_pGameLevel && Level().Server)
 			return Level().Server->ID_to_client(tmp_id);
 	}
-	return nullptr;
+	return NULL;
 };
 
 static char const* exclude_raid_from_args(LPCSTR args, LPSTR dest, size_t dest_size)
@@ -651,8 +651,8 @@ protected:
 		param_name[0] = 0;
 
 		sscanf_s(args_string, "%16s %32s",
-		         action_name, (unsigned int)sizeof(action_name),
-		         param_name, (unsigned int)sizeof(param_name));
+		         action_name, (u32)sizeof(action_name),
+		         param_name, (u32)sizeof(param_name));
 		m_action_param = param_name;
 
 		if (!xr_strcmp(action_name, "roundstart"))
@@ -720,7 +720,7 @@ public:
 
 	virtual void Info(TInfo& I)
 	{
-		LPCSTR info_str = nullptr;
+		LPCSTR info_str = NULL;
 		STRCONCAT(info_str,
 		          "Play demo until specified event (then pause playing). Format: mpdemoplay_pause_on ",
 		          DemoPlayControlArgParser::GetInfoString());
@@ -776,7 +776,7 @@ public:
 
 	virtual void Info(TInfo& I)
 	{
-		LPCSTR info_str = nullptr;
+		LPCSTR info_str = NULL;
 		STRCONCAT(info_str,
 		          "Rewind demo until specified event (then pause playing). Format: mpdemoplay_rewind_until ",
 		          DemoPlayControlArgParser::GetInfoString());
@@ -1039,7 +1039,7 @@ public:
 
 		char hex_digest[64];
 		s32 ban_time = 0;
-		if (sscanf_s(args_, "%s %i", hex_digest, (unsigned int)sizeof(hex_digest), &ban_time) != 2)
+		if (sscanf_s(args_, "%s %i", hex_digest, (u32)sizeof(hex_digest), &ban_time) != 2)
 		{
 			Msg("! ERROR: bad command parameters.");
 			Msg(
@@ -1082,8 +1082,8 @@ public:
 		}
 		else
 		{
-			u32 player_index = 0;
-			if (sscanf_s(args_, "%u", &player_index) != 1)
+			size_t player_index = 0;
+			if (sscanf_s(args_, "%zu", &player_index) != 1)
 			{
 				Msg("! ERROR: bad command parameters.");
 				Msg(
@@ -1269,7 +1269,7 @@ public:
 
 			PlayersEnumerator()
 			{
-				filter_string = nullptr;
+				filter_string = NULL;
 			}
 
 			void operator()(IClient* client)
@@ -1309,7 +1309,7 @@ public:
 			exclude_raid_from_args(args, tmp_dest, sizeof(tmp_dest));
 			if (xr_strlen(tmp_dest))
 			{
-				sscanf_s(tmp_dest, "%s", filter_string, (unsigned int)sizeof(filter_string));
+				sscanf_s(tmp_dest, "%511s", filter_string, (u32)sizeof(filter_string));
 				tmp_functor.filter_string = filter_string;
 			}
 		}
@@ -1401,7 +1401,7 @@ public:
 		exclude_raid_from_args(args, tmp_dest, sizeof(tmp_dest));
 		if (xr_strlen(tmp_dest))
 		{
-			sscanf_s(tmp_dest, "%s", filter_dest, (unsigned int)sizeof(filter_dest));
+			sscanf_s(tmp_dest, "%511s", filter_dest, (u32)sizeof(filter_dest));
 		}
 		tmp_sv_game->PrintBanList(filter_dest);
 		Level().Server->Print_Banned_Addreses();
@@ -1435,9 +1435,9 @@ public:
 		GameType[0] = 0;
 
 		sscanf_s(args, "%255s %255s %255s",
-		         LevelName, (unsigned int)sizeof(LevelName),
-		         LevelVersion, (unsigned int)sizeof(LevelVersion),
-		         GameType, (unsigned int)sizeof(GameType)
+		         LevelName, (u32)sizeof(LevelName),
+		         LevelVersion, (u32)sizeof(LevelVersion),
+		         GameType, (u32)sizeof(GameType)
 		);
 
 		EGameIDs GameTypeID = ParseStringToGameType(GameType);
@@ -1540,8 +1540,8 @@ public:
 		LevelName[0] = 0;
 		LevelVersion[0] = 0;
 		sscanf_s(args, "%255s %255s",
-		         LevelName, (unsigned int)sizeof(LevelName),
-		         LevelVersion, (unsigned int)sizeof(LevelVersion)
+		         LevelName, (u32)sizeof(LevelName),
+		         LevelVersion, (u32)sizeof(LevelVersion)
 		);
 
 		string1024 argsNew;

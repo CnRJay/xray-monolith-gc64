@@ -58,7 +58,19 @@ public:
 	virtual void execute();
 	virtual void finalize();
 	virtual void critical_finalize();
-	virtual void remove_links(CObject* object) { inherited::remove_links(object); }
+	virtual void remove_links(CObject* object)
+	{
+		inherited::remove_links(object);
+
+		if (selected_object == smart_cast<CPhysicsShellHolder*>(object))
+		{
+			selected_object = nullptr;
+			if (m_action == ACTION_TELE_FIRE)
+			{
+				m_action = ACTION_TELE_CONTINUE;
+			}
+		}
+	}
 
 	virtual bool check_start_conditions();
 	virtual bool check_completion();

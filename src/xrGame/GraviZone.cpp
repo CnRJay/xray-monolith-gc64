@@ -35,12 +35,12 @@ void CBaseGraviZone::Load(LPCSTR section)
 	if (pSettings->line_exist(section, "tele_particles_big"))
 		m_sTeleParticlesBig = pSettings->r_string(section, "tele_particles_big");
 	else
-		m_sTeleParticlesBig = nullptr;
+		m_sTeleParticlesBig = NULL;
 
 	if (pSettings->line_exist(section, "tele_particles_small"))
 		m_sTeleParticlesSmall = pSettings->r_string(section, "tele_particles_small");
 	else
-		m_sTeleParticlesSmall = nullptr;
+		m_sTeleParticlesSmall = NULL;
 }
 
 BOOL CBaseGraviZone::net_Spawn(CSE_Abstract* DC)
@@ -221,7 +221,7 @@ void CBaseGraviZone::PlayTeleParticles(CGameObject* pObject)
 	CParticlesPlayer* PP = smart_cast<CParticlesPlayer*>(pObject);
 	if (!PP) return;
 
-	shared_str particle_str = nullptr;
+	shared_str particle_str = NULL;
 
 	//разные партиклы для объектов разного размера
 	if (pObject->Radius() < SMALL_OBJECT_RADIUS)
@@ -242,7 +242,7 @@ void CBaseGraviZone::StopTeleParticles(CGameObject* pObject)
 {
 	CParticlesPlayer* PP = smart_cast<CParticlesPlayer*>(pObject);
 	if (!PP) return;
-	shared_str particle_str = nullptr;
+	shared_str particle_str = NULL;
 
 	//разные партиклы для объектов разного размера
 	if (pObject->Radius() < SMALL_OBJECT_RADIUS)
@@ -265,4 +265,18 @@ void CBaseGraviZone::net_Relcase(CObject* O)
 	inherited::net_Relcase(O);
 
 	Telekinesis().remove_links(O);
+}
+
+void CBaseGraviZone::exit_Zone(SZoneObjectInfo& io)
+{
+    CPhysicsShellHolder* GO = smart_cast<CPhysicsShellHolder*>(io.object);
+    CEntityAlive* Alive = smart_cast<CEntityAlive*>(io.object);
+
+    if (!Alive && GO && GO->PPhysicsShell() && Telekinesis().is_active_object(GO))
+    {
+        Telekinesis().deactivate(GO);
+        StopTeleParticles(GO);
+    }
+
+    inherited::exit_Zone(io);
 }

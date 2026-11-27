@@ -26,13 +26,10 @@ void CRenderDevice::Destroy(void)
 {
 	if (!b_is_Ready) return;
 
-	// Make sure seqParallelRender_tasks is done
-	seqParallelRender_tasks.wait();
-
 	Log("Destroying Direct3D...");
 
 	ShowCursor(TRUE);
-	ClipCursor(nullptr);
+	ClipCursor(NULL);
 	m_pRender->ValidateHW();
 
 	_Destroy(FALSE);
@@ -53,7 +50,6 @@ void CRenderDevice::Destroy(void)
 	seqDeviceReset.R.clear();
 	seqParallel.clear();
 	seqParallelRender.clear();
-	seqParallelBeforRender.clear();
 
 	RenderFactory->DestroyRenderDeviceRender(m_pRender);
 	m_pRender = 0;
@@ -72,9 +68,7 @@ extern ENGINE_API u32 psCurrentVidMode[];
 
 void CRenderDevice::Reset(bool precache)
 {
-	// Make sure seqParallelRender_tasks is done
-	seqParallelRender_tasks.wait();
-
+	PROF_EVENT("CRenderDevice::Reset", PROF_CAT(Rendering));
 	if (use_reshade)
 		unregister_reshade();
 

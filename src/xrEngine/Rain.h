@@ -68,6 +68,7 @@ private:
 	// Data and logic
 	xr_vector<Item> items;
 	States state;
+	xrCriticalSection rainCS;
 
 	// Particles
 	xr_vector<Particle> particle_pool;
@@ -78,6 +79,7 @@ private:
 	ref_sound snd_Ambient;
 	float rain_volume;
 	float rain_hemi = 0.0f;
+	float rain_volume_mult = 1.0f;   // set once at rain onset by COnRainSound; 1.0 = vanilla
 
 	// Utilities
 	void p_create();
@@ -98,8 +100,6 @@ private:
 	BOOL RayPick(const Fvector& s, const Fvector& d, float& range, collide::rq_target tgt);
 	void RenewItem(Item& dest, float height, BOOL bHit);
 	void Prepare(Fvector2& offset, Fvector3& axis, float Wind_Vel, float Wind_Dir);
-	void UpdateItemsMT();
-	xrCriticalSection rainCS;
 public:
 	CEffect_Rain();
 	~CEffect_Rain();
@@ -116,6 +116,7 @@ public:
 
 	float GetRainVolume() { return rain_volume; }
 	float GetRainHemi() { return rain_hemi; }
+	void UpdateItems();
 };
 
 #endif //RainH

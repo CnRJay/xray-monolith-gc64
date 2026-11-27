@@ -8,7 +8,6 @@
 
 #include "pch_script.h"
 #include "script_storage.h"
-#include "../xrCore/profiler.h"
 #include "script_thread.h"
 #include "../xrCore/mezz_stringbuffer.h"
 #include <stdarg.h>
@@ -98,7 +97,7 @@ static void* lua_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 	if (nsize == 0)
 	{
 		xr_free(ptr);
-		return nullptr;
+		return NULL;
 	}
 	else
 #ifdef DEBUG_MEMORY_NAME
@@ -162,38 +161,32 @@ u32 game_lua_memory_usage()
 }
 #endif //!USE_DL_ALLOCATOR
 
-static void* __cdecl luabind_allocator(
-	const void* pointer,
+static LPVOID __cdecl luabind_allocator(
+	luabind::memory_allocation_function_parameter const,
+	void const* const pointer,
 	size_t const size
 )
 {
 	if (!size)
 	{
-		void* non_const_pointer = const_cast<void*>(pointer);
+		LPVOID non_const_pointer = const_cast<LPVOID>(pointer);
 		xr_free(non_const_pointer);
-		return nullptr;
+		return (0);
 	}
 
 	if (!pointer)
 	{
-#ifdef DEBUG
-		return	(Memory.mem_alloc(size, "luabind"));
-#else //!DEBUG
 		return (Memory.mem_alloc(size));
-#endif //-DEBUG
 	}
 
-	void* non_const_pointer = const_cast<void*>(pointer);
-#ifdef DEBUG
-	return		(Memory.mem_realloc(non_const_pointer, size, "luabind"));
-#else //!DEBUG
+	LPVOID non_const_pointer = const_cast<LPVOID>(pointer);
 	return (Memory.mem_realloc(non_const_pointer, size));
-#endif //-DEBUG
 }
 
 void setup_luabind_allocator()
 {
-	::luabind::set_allocator(&luabind_allocator);
+	::luabind::allocator = &luabind_allocator;
+	::luabind::allocator_parameter = 0;
 }
 
 #ifdef USE_LUAJIT_ONE //  [1/14/2015 Andrey]
@@ -210,7 +203,7 @@ static int report(lua_State *L, int status)
     if (status && !lua_isnil(L, -1))
     {
         const char *msg = lua_tostring(L, -1);
-        if (msg == nullptr) msg = "(error object is not a string)";
+        if (msg == NULL) msg = "(error object is not a string)";
         l_message(L, msg);
         lua_pop(L, 1);
     }
@@ -389,16 +382,23 @@ bool LoadKernelScriptToGlobal(lua_State* L, const char* name)
 };
 
 BOOL lua_debug = FALSE;
+
+#ifdef USE_LUA_FUNCTOR_CACHE
+BOOL lua_use_functor_cache = FALSE;
+#endif
+
 void CScriptStorage::reinit()
 {
 	if (m_virtual_machine)
 		lua_close(m_virtual_machine);
-
+	
 #ifdef USE_GSC_MEM_ALLOC
-    m_virtual_machine = lua_newstate(lua_alloc, nullptr);
+    m_virtual_machine = lua_newstate(lua_alloc, NULL);
 #else
 	m_virtual_machine = luaL_newstate();
 #endif //-USE_GSC_MEM_ALLOC
+	if (m_virtual_machine)
+		luaJIT_gc_udhint(m_virtual_machine); // GC userdata walk hints go to the game state
 
 	if (!m_virtual_machine)
 	{
@@ -409,7 +409,7 @@ void CScriptStorage::reinit()
 
 #ifndef USE_LUAJIT_ONE
 	luaL_openlibs(lua());
-	if (strstr(Core.Params, "-nojit"))
+	if (Core.ParamsData.test(ECoreParams::nojit))
 		luaJIT_setmode(lua(), 0, LUAJIT_MODE_ENGINE | LUAJIT_MODE_OFF);
 #else // USE_LUAJIT_ONE
     // initialize lua standard library functions    
@@ -429,11 +429,11 @@ void CScriptStorage::reinit()
     luajit::open_lib(lua(), LUA_DBLIBNAME, luaopen_debug);
 #else //!DEBUG
 
-    if (strstr(Core.Params, "-dbg"))
+    if (Core.isDebug())
         luajit::open_lib(lua(), LUA_DBLIBNAME, luaopen_debug);
 #endif //-DEBUG
 
-	if (!strstr(Core.Params, "-nojit"))
+	if (!Core.ParamsData.test(ECoreParams::nojit))
 	{
 		luajit::open_lib(lua(), LUA_JITLIBNAME, luaopen_jit);
 #ifndef DEBUG
@@ -465,8 +465,8 @@ void CScriptStorage::reinit()
 			LoadKernelScriptToGlobal(lua(), "LuaPanda.lua");
 		}
 	}
-
-	if (strstr(Core.Params, "-_g"))
+	
+	if (Core.ParamsData.test(ECoreParams::_g))
 		file_header = file_header_new; //AVO: I get fatal crash at the start if this is used
 	else
 		file_header = file_header_old;
@@ -502,10 +502,10 @@ int CScriptStorage::vscript_log(ScriptStorage::ELuaMessageType tLuaMessageType, 
 	//return		(0);
 	//#else //PRINT_CALL_STACK
 #   ifndef NO_XRGAME_SCRIPT_ENGINE
-	//AVO: allow LUA debug prints (i.e.: ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, "CWeapon : cannot access class member Weapon_IsScopeAttached!");)
+	//AVO: allow LUA debug prints (i.e.: ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, make_string("CWeapon [%s]: cannot access class member Weapon_IsScopeAttached!", object().cNameSect().c_str()).c_str());)
 #       ifndef DEBUG
 
-	if (!strstr(Core.Params, "-dbg"))
+	if (!Core.isDebug())
 		return (0);
 #       endif //!DEBUG
 #       ifndef LUA_DEBUG_PRINT
@@ -779,7 +779,7 @@ bool CScriptStorage::load_buffer(lua_State* L, LPCSTR caBuffer, size_t tSize, LP
 	if (l_iErrorCode)
 	{
 //#ifdef DEBUG
-		if (strstr(Core.Params, "-dbg")) print_output(L,caScriptName,l_iErrorCode);
+		if (Core.isDebug()) print_output(L,caScriptName,l_iErrorCode);
 //#endif //-DEBUG
 		on_error(L);
 		return (false);
@@ -787,11 +787,11 @@ bool CScriptStorage::load_buffer(lua_State* L, LPCSTR caBuffer, size_t tSize, LP
 	return (true);
 }
 
-xr_unordered_map<std::string, std::set<std::string>> unlocalizers;
+xr_unordered_map<xr_string, xr_set<xr_string>> unlocalizers;
 bool unlocalizerPassed = false;
 
-static std::string join_list(const std::vector<std::string>& items_vec, std::string delim = "\n") {
-	std::string ret;
+static xr_string join_list(const xr_vector<xr_string>& items_vec, xr_string delim = "\n") {
+	xr_string ret;
 	for (const auto& i : items_vec) {
 		if (!ret.empty()) {
 			ret += delim;
@@ -801,12 +801,12 @@ static std::string join_list(const std::vector<std::string>& items_vec, std::str
 	return ret;
 };
 
-static bool unlocalRegex(std::set<std::string>& unlocals, std::string& s, const std::regex& pattern, const int group, const std::string& replacement) {
+static bool unlocalRegex(xr_set<xr_string>& unlocals, xr_string& s, const std::regex& pattern, const int group, const xr_string& replacement) {
 	if (std::regex_match(s, pattern)) {
 		//Msg("matching local function pattern");
 		std::smatch match;
 		std::regex_search(s, match, pattern);
-		std::string variable = match[group];
+		xr_string variable = std::string(match[group]).c_str();
 		if (unlocals.find(variable) != unlocals.end()) {
 			Msg("[unlocalRegex] found variable %s to unlocal", variable.c_str());
 			s = std::regex_replace(s, pattern, replacement);
@@ -820,7 +820,6 @@ static bool unlocalRegex(std::set<std::string>& unlocals, std::string& s, const 
 
 bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 {
-	PROF_EVENT_DYNAMIC(caScriptName);
 	if (!unlocalizerPassed) {
 		auto file_list = FS.file_list_open("$game_config$", "unlocalizers\\", FS_RootOnly | FS_ListFiles);
 		if (!file_list) {
@@ -856,8 +855,7 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 				sections_type::const_iterator e = sections.end();
 				for (; i != e; ++i)
 				{
-					auto sectionName = std::string((*i).Name.c_str());
-					toLowerCase(sectionName);
+					auto sectionName = xr_string((*i).Name.c_str()).ToLowerCase();
 					if (unlocalizers.find(sectionName) == unlocalizers.end()) {
 
 						// construct set that contains top level variables to delocalize by section name
@@ -866,7 +864,7 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 					}
 					auto& data = (*i).Data;
 					for (auto& item : data) {
-						unlocalizers[sectionName].insert(std::string(item.first.c_str()));
+						unlocalizers[sectionName].insert(xr_string(item.first.c_str()));
 						Msg("adding variable %s for unlocalizer for script %s", item.first.c_str(), sectionName.c_str());
 					}
 				}
@@ -890,23 +888,23 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 	auto scriptContents = static_cast<LPCSTR>(l_tpFileReader->pointer());
 	auto scriptLength = (size_t)l_tpFileReader->length();
 	bool unlocalPerformed = false;
-	std::string unlocalizerResult;
-	std::string loweredNameSpaceName = caNameSpaceName;
-	toLowerCase(loweredNameSpaceName);
+	xr_string unlocalizerResult;
+	xr_string loweredNameSpaceName = caNameSpaceName;
+	loweredNameSpaceName = loweredNameSpaceName.ToLowerCase();
 	if (unlocalizers.find(loweredNameSpaceName) != unlocalizers.end()) {
 		Msg("found script %s in unlocalizers data", caNameSpaceName);
 
 		// Get contents of the script file and split by lines
-		std::vector<std::string> tokens;
-		std::string temp;
+		xr_vector<xr_string> tokens;
+		xr_string temp;
 		while (!l_tpFileReader->eof())
 		{
 			char c = l_tpFileReader->r_u8();
 			temp += c;
 		}
 
-		std::stringstream stringStream(temp);
-		std::string line;
+		std::stringstream stringStream(std::string(temp.c_str()));
+		xr_string line;
 		tokens.clear();
 		while (std::getline(stringStream, line)) {
 			tokens.push_back(line);
@@ -915,10 +913,9 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 		// Iterate lines and unlocalize variables
 		auto& unlocals = unlocalizers[loweredNameSpaceName];
 
-		const std::regex pattern_func(R"((^local)([\t ]+)(function)([\t ]+)([_a-zA-Z].*)([\t ]*)(\(.*$))");
-		const std::regex pattern_local(R"((^local)([\t ]+)(.*))");
-		const std::regex pattern_comment(R"((.*)--.*)");
-		const std::regex pattern_comment_suffix(R"((.*)(--.*))");
+		/*for (auto& u : unlocals) {
+			Msg("%s", u);
+		}*/
 
 		for (auto& s : tokens) {
 
@@ -929,13 +926,11 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 				continue;
 			}
 
-			// Pre-filter: only process lines starting with "local " or "local\t"
-			if (s.size() <= 5 || (s.compare(0, 6, "local ") != 0 && s.compare(0, 6, "local\t") != 0)) {
-				continue;
-			}
+			std::regex pattern;
 
 			//local function x(a,b,c)
-			if (unlocalRegex(unlocals, s, pattern_func, 5, "$3$4$5$6$7")) {
+			pattern = std::regex(R"((^local)([\t ]+)(function)([\t ]+)([_a-zA-Z].*)([\t ]*)(\(.*$))");
+			if (unlocalRegex(unlocals, s, pattern, 5, "$3$4$5$6$7")) {
 				unlocalPerformed = true;
 				continue;
 			}
@@ -944,37 +939,40 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 			//local a
 			//local a,b,c = ... (if one of a,b,c is in unlocalizers list - all of them will be unlocalized)
 			//local x; local y; - unsupported yet
-			if (std::regex_match(s, pattern_local)) {
+			pattern = std::regex(R"((^local)([\t ]+)(.*))");
+			if (std::regex_match(s, pattern)) {
 				std::smatch match;
-				std::regex_search(s, match, pattern_local);
-				std::string m = match[3];
+				std::regex_search(s, match, pattern);
+				xr_string m = std::string(match[3]).c_str();
 
 				// strip comments
-				if (std::regex_match(m, pattern_comment)) {
+				std::regex r = std::regex(R"((.*)--.*)");
+				if (std::regex_match(m, r)) {
 					//Msg("found comments\n");
 					std::smatch noncomments;
-					std::regex_search(m, noncomments, pattern_comment);
-					m = noncomments[1];
+					std::regex_search(m, noncomments, r);
+					m = std::string(noncomments[1]).c_str();
 				}
 
-				auto variablesAndValues = splitStringLimit(m, "=", 1);
+				auto variablesAndValues = m.SplitStringLimit("=", 1);
 				bool hasValue = variablesAndValues.size() > 1;
-				auto variables = splitStringMulti(variablesAndValues[0], ",");
+				auto variables = variablesAndValues[0].SplitStringMulti(",");
 				for (auto v : variables) {
 					trim(v);
 					//Msg("%s\n", v.c_str());
 					if (unlocals.find(v) != unlocals.end()) {
 						unlocalPerformed = true;
 						Msg("found variable %s to unlocal", v.c_str());
-						s = std::regex_replace(s, pattern_local, "$3");
+						s = std::regex_replace(s, pattern, "$3");
 						if (!hasValue) {
 
 							// strip comments
-							if (std::regex_match(s, pattern_comment_suffix)) {
+							std::regex r = std::regex(R"((.*)(--.*))");
+							if (std::regex_match(s, r)) {
 								//Msg("found comments\n");
 								std::smatch noncomments;
-								std::regex_search(s, noncomments, pattern_comment_suffix);
-								s = std::string(noncomments[1]) + "= nil " + std::string(noncomments[2]);
+								std::regex_search(s, noncomments, r);
+								s = xr_string((std::string(noncomments[1]) + "= nil " + std::string(noncomments[2])).c_str());
 							} else {
 								s += " = nil";
 							}
@@ -1043,7 +1041,7 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 	if (l_iErrorCode)
 	{
 //#ifdef DEBUG
-		if (strstr(Core.Params, "-dbg")) print_output(lua(),caScriptName,l_iErrorCode);
+		if (Core.isDebug()) print_output(lua(),caScriptName,l_iErrorCode);
 //#endif
 		on_error(lua());
 		lua_settop(lua(), start);
@@ -1127,6 +1125,22 @@ bool CScriptStorage::namespace_loaded(LPCSTR N, bool remove_from_stack)
 bool CScriptStorage::object(LPCSTR identifier, int type)
 {
 	int start = lua_gettop(lua());
+
+   	// Direct lookup instead of iterating the whole table
+   	if (lua_istable(lua(), -1))
+   	{
+   		lua_pushstring(lua(), identifier);
+   		lua_rawget(lua(), -2);
+        if (type != LUA_TNIL && lua_type(lua(), -1) == type)
+        {
+            lua_pop(lua(), 2);
+            VERIFY(lua_gettop(lua()) == start - 1);
+            return true;
+        }
+        lua_pop(lua(), 1);
+   	}    
+
+    //Original behavior
 	lua_pushnil(lua());
 	while (lua_next(lua(), -2))
 	{
@@ -1197,7 +1211,7 @@ struct raii_guard : private xray::noncopyable
 #endif //-DEBUG
 		{
 #ifdef DEBUG
-            static bool const break_on_assert	= !!strstr(Core.Params,"-break_on_assert");
+            static bool const break_on_assert	= Core.ParamsData.test(ECoreParams::break_on_assert);
 #else //!DEBUG
 			static bool const break_on_assert = false; //Alundaio: Can't get a proper stack trace with this enabled
 #endif //-DEBUG

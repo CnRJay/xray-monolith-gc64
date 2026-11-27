@@ -57,10 +57,10 @@ public:
 	virtual void OnKeyboardPress(int dik);
 	virtual void OnKeyboardRelease(int dik);
 	virtual void OnKeyboardHold(int dik);
-	virtual CInventory* GetInventory() { return nullptr; };
+	virtual CInventory* GetInventory() { return NULL; };
 	virtual void cam_Update(float dt, float fov = 90.0f);
 
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM);
 
 	virtual void attach_actor_script(bool bForce = false);
 	virtual void detach_actor_script(bool bForce = false);

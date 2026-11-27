@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "../xrCore/profiler.h"
 #include "UIDialogHolder.h"
 #include "ui/UIDialogWnd.h"
 #include "UIGameCustom.h"
@@ -17,6 +16,10 @@ dlgItem::dlgItem(CUIWindow* pWnd)
 
 bool dlgItem::operator <(const dlgItem& itm) const
 {
+    if (!wnd)
+        return false;
+    if (!itm.wnd)
+        return true;
 	return (int)enabled > (int)itm.enabled;
 }
 
@@ -39,6 +42,9 @@ bool operator ==(const recvItem& i1, const recvItem& i2)
 CDialogHolder::CDialogHolder()
 {
 	m_b_in_update = false;
+    m_b_in_render = false;
+    m_dialogsToRender.reserve(64);
+    m_dialogsToRender_new.reserve(64);
 }
 
 CDialogHolder::~CDialogHolder()
@@ -110,7 +116,7 @@ void CDialogHolder::StopMenu(CUIDialogWnd* pDialog)
 		SetMainInputReceiver(pDialog, true);
 
 	RemoveDialogToRender(pDialog);
-	pDialog->SetHolder(nullptr);
+	pDialog->SetHolder(NULL);
 
 	if (!TopInputReceiver() || !TopInputReceiver()->NeedCursor())
 		GetUICursor().Hide();
@@ -128,7 +134,7 @@ void CDialogHolder::AddDialogToRender(CUIWindow* pDialog)
 	bAdd = (m_dialogsToRender.end() == std::find(m_dialogsToRender.begin(), m_dialogsToRender.end(), itm));
 	if (!bAdd) return;
 
-	if (m_b_in_update)
+	if (m_b_in_update || m_b_in_render)
 		m_dialogsToRender_new.push_back(itm);
 	else
 		m_dialogsToRender.push_back(itm);
@@ -141,37 +147,46 @@ void CDialogHolder::RemoveDialogToRender(CUIWindow* pDialog)
 	if (TopInputReceiver() == pDialog)
 		SetMainInputReceiver(NULL, false);
 
-	dlgItem itm(pDialog);
-	itm.enabled = true;
-	xr_vector<dlgItem>::iterator it = std::find(m_dialogsToRender.begin(), m_dialogsToRender.end(), itm);
+    auto remove_from_list = [&](xr_vector<dlgItem>& list)
+    {
+        dlgItem itm(pDialog);
+        auto it = std::find(list.begin(), list.end(), itm);
 
-	if (it != m_dialogsToRender.end())
-	{
-		(*it).wnd->Show(false);
-		(*it).wnd->Enable(false);
-		(*it).enabled = false;
-		return;
-	}
-	
-	it = std::find(m_dialogsToRender_new.begin(), m_dialogsToRender_new.end(), itm);
+        if (it != list.end())
+        {
+            (*it).wnd->Show(false);
+            (*it).wnd->Enable(false);
+            (*it).enabled = false;
 
-	if (it != m_dialogsToRender_new.end())
-	{
-		(*it).wnd->Show(false);
-		(*it).wnd->Enable(false);
-		(*it).enabled = false;
-	}
+            // NEW: If we aren't currently updating, we can safely erase it now.
+            // Otherwise, we MUST nullify the pointer to prevent dangling access.
+            if (m_b_in_update || m_b_in_render)
+                (*it).wnd = nullptr; // Crucial: stop OnFrame from touching this memory
+            else
+                list.erase(it);
+                
+            return true;
+        }
+        return false;
+    };
+
+    if (!remove_from_list(m_dialogsToRender))
+    {
+        remove_from_list(m_dialogsToRender_new);
+    }
 }
 
 
-void CDialogHolder::DoRenderDialogs()
+void CDialogHolder::DoRenderDialogs(CUIWindow* skip)
 {
+    m_b_in_render = true;
 	xr_vector<dlgItem>::iterator it = m_dialogsToRender.begin();
 	for (; it != m_dialogsToRender.end(); ++it)
 	{
-		if ((*it).enabled && (*it).wnd->IsShown())
+		if ((*it).enabled && (*it).wnd && (*it).wnd->IsShown() && (*it).wnd != skip)
 			(*it).wnd->Draw();
 	}
+    m_b_in_render = false;
 }
 
 void CDialogHolder::OnExternalHideIndicators()
@@ -189,12 +204,12 @@ CUIDialogWnd* CDialogHolder::TopInputReceiver()
 {
 	if (!m_input_receivers.empty())
 		return m_input_receivers.back().m_item;
-	return nullptr;
+	return NULL;
 };
 
 void CDialogHolder::SetMainInputReceiver(CUIDialogWnd* ir, bool _find_remove)
 {
-	if (TopInputReceiver() == ir) return;
+	if (!_find_remove && TopInputReceiver() == ir) return;
 
 	if (!ir || _find_remove)
 	{
@@ -206,19 +221,21 @@ void CDialogHolder::SetMainInputReceiver(CUIDialogWnd* ir, bool _find_remove)
 		{
 			VERIFY(ir && _find_remove);
 
-			u32 cnt = m_input_receivers.size();
-			for (; cnt > 0; --cnt)
-				if (m_input_receivers[cnt - 1].m_item == ir)
+			for (int currentIndex = m_input_receivers.size() - 1; currentIndex >= 0; --currentIndex)
+			{
+				if (m_input_receivers[currentIndex].m_item != ir)
+					continue;
+
+				const u32 nextIndex = currentIndex + 1;
+				if (nextIndex < m_input_receivers.size())
 				{
-					m_input_receivers[cnt].m_flags.set(recvItem::eCrosshair,
-					                                   m_input_receivers[cnt - 1].m_flags.test(recvItem::eCrosshair));
-					m_input_receivers[cnt].m_flags.set(recvItem::eIndicators,
-					                                   m_input_receivers[cnt - 1].m_flags.test(recvItem::eIndicators));
-					xr_vector<recvItem>::iterator it = m_input_receivers.begin();
-					std::advance(it, cnt - 1);
-					m_input_receivers.erase(it);
-					break;
+					m_input_receivers[nextIndex].m_flags.set(recvItem::eCrosshair, m_input_receivers[currentIndex].m_flags.test(recvItem::eCrosshair));
+					m_input_receivers[nextIndex].m_flags.set(recvItem::eIndicators,	m_input_receivers[currentIndex].m_flags.test(recvItem::eIndicators));
 				}
+
+				m_input_receivers.erase(m_input_receivers.begin() + currentIndex);
+				break;
+			}
 		}
 	}
 	else
@@ -243,7 +260,7 @@ void CDialogHolder::StopDialog(CUIDialogWnd* pDialog)
 
 void CDialogHolder::OnFrame()
 {
-	PROF_EVENT("CDialogHolder::OnFrame");
+	PROF_EVENT("CDialogHolder::OnFrame", PROF_CAT(UI));
 	m_b_in_update = true;
 	CUIDialogWnd* wnd = TopInputReceiver();
 	if (wnd && wnd->IsEnabled())
@@ -265,9 +282,18 @@ void CDialogHolder::OnFrame()
 		m_dialogsToRender_new.clear();
 	}
 
-	std::sort(m_dialogsToRender.begin(), m_dialogsToRender.end());
-	while (!m_dialogsToRender.empty() && (!m_dialogsToRender[m_dialogsToRender.size() - 1].enabled))
-		m_dialogsToRender.pop_back();
+    static auto eraseFunc = [](const dlgItem& item)
+    {
+        return !item.enabled || !item.wnd;
+    };
+    m_dialogsToRender.erase(
+        std::remove_if(
+            m_dialogsToRender.begin(),
+            m_dialogsToRender.end(),
+            eraseFunc
+        ),
+        m_dialogsToRender.end()
+    );
 }
 
 void CDialogHolder::CleanInternals()

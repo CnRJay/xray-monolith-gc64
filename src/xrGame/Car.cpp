@@ -1,9 +1,5 @@
 #include "stdafx.h"
 #include "car.h"
-//#if 0
-
-#include "ParticlesObject.h"
-//#include "Physics.h"
 
 #ifdef DEBUG
 #	include "../xrEngine/StatGraph.h"
@@ -46,7 +42,7 @@ CCar::CCar()
 :m_visual_camera(this)
 #endif
 {
-	m_memory = nullptr;
+	m_memory = NULL;
 	m_driver_anim_type = 0;
 	m_bone_steer = BI_NONE;
 	active_camera = 0;
@@ -98,7 +94,7 @@ CCar::CCar()
 	m_breaks_to_back_rate = 1.f;
 
 	b_exploded = false;
-	m_car_weapon = nullptr;
+	m_car_weapon = NULL;
 	m_power_neutral_factor = 0.25f;
 	m_steer_angle = 0.f;
 	m_speed_governed = false;
@@ -185,8 +181,7 @@ void CCar::Load(LPCSTR section)
 {
 	inherited::Load(section);
 	//CPHSkeleton::Load(section);
-	ISpatial* self = smart_cast<ISpatial*>(this);
-	if (self) self->spatial.type |= STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type |= STYPE_VISIBLEFORAI;
 
 #ifdef CAR_NEW
 	m_on_before_hit_callback = READ_IF_EXISTS(pSettings, r_string, section, "on_before_hit", nullptr);
@@ -250,17 +245,7 @@ BOOL CCar::net_Spawn(CSE_Abstract* DC)
 		m_memory->reload(pUserData->r_string("visual_memory_definition", "section"));
 	}
 	
-	renderable.visual->flags.set(IRenderVisualFlags::eIgnoreOptimization, TRUE);
-
-	xr_vector<IRenderVisual*>* children = renderable.visual->get_children();
-
-	if (children)
-	{
-		for (auto* child : *children)
-		{
-			child->flags.set(IRenderVisualFlags::eIgnoreOptimization, TRUE);
-		}
-	}
+    renderable.visual->MarkIgnoreOptimization(TRUE);
 
 #ifdef CAR_NEW
 	CInifile *ini = Visual()->dcast_PKinematics()->LL_UserData();
@@ -630,9 +615,9 @@ void CCar::VisualUpdate(float fov)
 	m_lights.Update();
 }
 
-void CCar::renderable_Render()
+void CCar::renderable_Render(IDSGraphManager* DM)
 {
-	inherited::renderable_Render();
+	inherited::renderable_Render(DM);
 	if (m_car_weapon)
 		m_car_weapon->Render_internal();
 }
@@ -653,7 +638,7 @@ void CCar::net_Import(NET_Packet& P)
 	//	P.w_u32 (NumItems);
 }
 
-void CCar::OnHUDDraw(CCustomHUD* /**hud*/)
+void CCar::OnHUDDraw(CCustomHUD* hud, IDSGraphManager* DM)
 {
 #ifdef DEBUG
 	Fvector velocity;
@@ -786,7 +771,7 @@ void CCar::detach_Actor()
 	m_current_rpm = m_min_rpm;
 	//	CurrentGameUI()->UIMainIngameWnd->CarPanel().Show(false);
 	///Break();
-	//H_SetParent(nullptr);
+	//H_SetParent(NULL);
 	HandBreak();
 	processing_deactivate();
 #ifdef DEBUG
@@ -2015,7 +2000,7 @@ void CCar::PhDataUpdate(float step)
 		SDoor* D = m_doors_update[k];
 		if (!D->update)
 		{
-			m_doors_update.erase(m_doors_update.begin() + k);
+			m_doors_update.erase_fast(m_doors_update.begin() + k);
 			--k;
 		}
 		else
@@ -2081,8 +2066,8 @@ void CCar::CarExplode()
 //void CCar::object_contactCallbackFun(bool& do_colide,dContact& c,SGameMtl * ,SGameMtl * )
 //{
 //
-//	dxGeomUserData *l_pUD1 = nullptr;
-//	dxGeomUserData *l_pUD2 = nullptr;
+//	dxGeomUserData *l_pUD1 = NULL;
+//	dxGeomUserData *l_pUD2 = NULL;
 //	l_pUD1 = PHRetrieveGeomUserData(c.geom.g1);
 //	l_pUD2 = PHRetrieveGeomUserData(c.geom.g2);
 //
@@ -2166,6 +2151,7 @@ IC void CCar::fill_exhaust_vector(LPCSTR S, xr_vector<SExhaust>& exhausts)
 	IKinematics* pKinematics = smart_cast<IKinematics*>(Visual());
 	string64 S1;
 	int count = _GetItemCount(S);
+    exhausts.reserve(count);
 	for (int i = 0; i < count; ++i)
 	{
 		_GetItem(S, i, S1);

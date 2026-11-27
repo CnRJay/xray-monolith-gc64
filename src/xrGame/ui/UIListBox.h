@@ -42,6 +42,9 @@ public:
 	void SetFont(CGameFont* pFont);
 	CGameFont* GetFont();
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIScrollView* ui_cast_scroll_view() { return this; }
+
 public:
 	bool bComplexMode;
 	bool bLineWrap;

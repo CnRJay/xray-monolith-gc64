@@ -6,7 +6,7 @@ Flags32 psHUD_Flags = {
 	HUD_DRAW_RT2
 };
 
-ENGINE_API CCustomHUD* g_hud = nullptr;
+ENGINE_API CCustomHUD* g_hud = NULL;
 
 CCustomHUD::CCustomHUD()
 {
@@ -16,6 +16,6 @@ CCustomHUD::CCustomHUD()
 
 CCustomHUD::~CCustomHUD()
 {
-	g_hud = nullptr;
+	g_hud = NULL;
 	Device.seqResolutionChanged.Remove(this);
 }

@@ -22,36 +22,16 @@
 
 namespace luabind 
 {
-    static void* __cdecl luabind_allocator(const void* pointer, size_t const size) 
-    {
-        if (!size)
-        {
-            void* non_const_pointer = const_cast<void*>(pointer);
-            free(non_const_pointer);
-            return nullptr;
-        }
+	typedef void* memory_allocation_function_parameter;
+	typedef void* (__cdecl *memory_allocation_function_pointer) (memory_allocation_function_parameter parameter, void const *, size_t);
 
-        if (!pointer) 
-        {
-            return malloc(size);
-        }
+	extern LUABIND_API	memory_allocation_function_pointer		allocator;
+	extern LUABIND_API	memory_allocation_function_parameter	allocator_parameter;
 
-        void* non_const_pointer = const_cast<void*>(pointer);
-        return realloc(non_const_pointer, size);
-    }
-
-    typedef void* (__cdecl* allocator_func_t)(const void* pointer, size_t const size);
-    LUABIND_API extern allocator_func_t custom_allocator;
-
-    inline void* call_allocator(void const* buffer, size_t const size)
-    {
-        return custom_allocator(buffer, size);
-    }
-
-    inline void set_allocator(allocator_func_t allocator)
-    {
-        custom_allocator = allocator ? allocator : luabind_allocator;
-    }
+	inline void* call_allocator	(void const* buffer, size_t const size)
+	{
+		return			(allocator(allocator_parameter, buffer, size));
+	}
 } // namespace luabind
 
 #include <luabind/luabind_delete.h>

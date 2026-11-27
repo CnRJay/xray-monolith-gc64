@@ -10,9 +10,9 @@ ScriptWallmarksArray::ScriptWallmarksArray(LPCSTR section)
 	m_wallmarks = xr_new<FactoryPtr<IWallMarkArray>>();
 	m_section = section;
 
-	R_ASSERT2(pSettings->section_exist(section), make_string("[ScriptWallmarksManager] Can't find section '%s'", m_section.c_str()));
+	R_ASSERT2(pSettings->section_exist(section), make_string("[ScriptWallmarksManager] Can't find section '%s'", m_section));
 	LPCSTR wallmarks_string = READ_IF_EXISTS(pSettings, r_string, m_section, "wallmarks", nullptr);
-	R_ASSERT2(wallmarks_string, make_string("[ScriptWallmarksManager] Can't find 'wallmarks' in section '%s'", m_section.c_str()));
+	R_ASSERT2(wallmarks_string, make_string("[ScriptWallmarksManager] Can't find 'wallmarks' in section '%s'", m_section));
 
 	string256 tmp;
 	int cnt = _GetItemCount(wallmarks_string);
@@ -64,11 +64,6 @@ void ScriptWallmarksManager::PlaceWallmark(Fvector dir, Fvector start_pos,
 	float trace_dist, float wallmark_size, LPCSTR section,
 	CScriptGameObject* ignore_obj, float ttl, float rotation)
 {
-	if (!_valid(start_pos) || !_valid(dir)) {
-		Msg("! [Error] ScriptWallmarksManager::PlaceWallmark received invalid coordinates!");
-		return;
-	}
-
 	collide::rq_result result;
 	BOOL reach_wall =
 		Level().ObjectSpace.RayPick(
@@ -102,11 +97,6 @@ void ScriptWallmarksManager::PlaceWallmark(Fvector dir, Fvector start_pos,
 void ScriptWallmarksManager::PlaceSkeletonWallmark(CScriptGameObject* obj, LPCSTR section, 
 	Fvector start, Fvector dir, float size, float ttl)
 {
-	if (!_valid(start) || !_valid(dir)) {
-		Msg("! [Error] ScriptWallmarksManager::PlaceSkeletonWallmark received invalid coordinates!");
-		return;
-	}
-
 	if (!obj)
 	{
 		Msg("[ScriptWallmarksManager] object is null!");

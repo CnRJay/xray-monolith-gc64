@@ -16,8 +16,8 @@
 CCartridge::CCartridge()
 {
 	m_flags.assign(cfTracer | cfRicochet);
-	m_ammoSect = nullptr;
-	m_InvShortName = nullptr;
+	m_ammoSect = NULL;
+	m_InvShortName = NULL;
 	param_s.Init();
 	bullet_material_idx = u16(-1);
 	m_4to1_tracer = false;
@@ -73,7 +73,10 @@ void CCartridge::Load(LPCSTR section, u8 LocalAmmoType, float ap_mod)
 
 	m_flags.set(cfExplosive, pSettings->r_bool(section, "explosive"));
 
-	bullet_material_idx = GMLib.GetMaterialIdx(WEAPON_MATERIAL_NAME);
+	bullet_material_idx = GMLib.GetMaterialIdx(READ_IF_EXISTS(pSettings, r_string, section, "bullet_material", WEAPON_MATERIAL_NAME));
+
+	bullet_material_idx = GMLib.GetMaterialIdx(READ_IF_EXISTS(pSettings, r_string, section, "bullet_material", WEAPON_MATERIAL_NAME));
+
 	VERIFY(u16(-1)!=bullet_material_idx);
 	VERIFY(param_s.fWallmarkSize>0);
 
@@ -211,14 +214,15 @@ bool CWeaponAmmo::Get(CCartridge& cartridge)
 	return true;
 }
 
-void CWeaponAmmo::renderable_Render()
+void CWeaponAmmo::renderable_Render(IDSGraphManager* DM)
 {
 	if (!m_ready_to_destroy)
-		inherited::renderable_Render();
+		inherited::renderable_Render(DM);
 }
 
 void CWeaponAmmo::UpdateCL()
 {
+	PROF_EVENT(PROF_CAT(GameLogic));
 	VERIFY2(_valid(renderable.xform), *cName());
 	inherited::UpdateCL();
 	VERIFY2(_valid(renderable.xform), *cName());

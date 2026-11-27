@@ -4,14 +4,48 @@
 #include "UIFrameLineWnd.h"
 #include "UIDialogWnd.h"
 #include "UIDialogHolder.h"
-#include "../GamePersistent.h"
-//#include "UILabel.h"
-#include "UIMMShniaga.h"
 #include "UITextureMaster.h"
-#include "UIScrollView.h"
-#include "UIHint.h"
+#include "../GamePersistent.h"
 #include "../ScriptXMLInit.h"
 #include "../UICursor.h"
+#include "ServerList.h"
+#include "UI3tButton.h"
+#include "UIActorMenu.h"
+#include "UIAnimatedStatic.h"
+#include "UIBinocularsVision.h"
+#include "UIButton.h"
+#include "UICheckButton.h"
+#include "UIComboBox.h"
+#include "UICustomEdit.h"
+#include "UICustomSpin.h"
+#include "UIDialogWnd.h"
+#include "UIEditBox.h"
+#include "UIFrameLineWnd.h"
+#include "UIFrameWindow.h"
+#include "UIHint.h"
+#include "UIHudStatesWnd.h"
+#include "UIListBox.h"
+#include "UIListBoxItem.h"
+#include "UIListBoxItemMsgChain.h"
+#include "UIMainIngameWnd.h"
+#include "UIMapInfo.h"
+#include "UIMapList.h"
+#include "UIMessageBox.h"
+#include "UIMessageBoxEx.h"
+#include "UIMessagesWindow.h"
+#include "UIMMShniaga.h"
+#include "UIMotionIcon.h"
+#include "UIPdaWnd.h"
+#include "UIProgressBar.h"
+#include "UIPropertiesBox.h"
+#include "UIScriptWnd.h"
+#include "UIScrollView.h"
+#include "UISpinNum.h"
+#include "UISpinText.h"
+#include "UIStatic.h"
+#include "UITabButton.h"
+#include "UITabControl.h"
+#include "UITrackBar.h"
 
 CFontManager& mngr()
 {
@@ -131,6 +165,27 @@ void SetCursorPosition_script(Fvector2& pos)
 	GetUICursor().SetUICursorPosition(pos);
 }
 
+bool CursorVisible()
+{
+    return GetUICursor().IsVisible();
+}
+
+void SetCursorVisible(bool vis)
+{
+    if (vis)
+        GetUICursor().Show();
+    else
+        GetUICursor().Hide();
+}
+
+template <typename T>
+T* ui_window_cast(CUIWindow* window)
+{
+	return smart_cast<T*>(window);
+}
+
+#define UI_WINDOW_CAST(class_name) &ui_window_cast<class_name>
+
 using namespace luabind;
 #pragma optimize("s",on)
 void CUIWindow::script_register(lua_State* L)
@@ -159,30 +214,22 @@ void CUIWindow::script_register(lua_State* L)
 		def("GetFontLetterica25", &GetFontLetterica25),
 		def("GetCursorPosition", &GetCursorPosition_script),
 		def("SetCursorPosition", &SetCursorPosition_script),
+		def("GetCursorVisible", &CursorVisible),
+		def("SetCursorVisible", &SetCursorVisible),
 		def("FitInRect", &fit_in_rect),
 
 		class_<CUIWindow>("CUIWindow")
 		.def(constructor<>())
 		.def("AttachChild", &CUIWindow::AttachChild, adopt<2>())
+		.def("AttachChildKeepOwner", &CUIWindow::AttachChild)
 		.def("DetachChild", &CUIWindow::DetachChild)
+		.def("FindChild", &CUIWindow::FindChild)
 		.def("SetAutoDelete", &CUIWindow::SetAutoDelete)
 		.def("IsAutoDelete", &CUIWindow::IsAutoDelete)
 
 		.def("IsCursorOverWindow", &CUIWindow::CursorOverWindow)
 		.def("FocusReceiveTime", &CUIWindow::FocusReceiveTime)
 		.def("GetAbsoluteRect", &CUIWindow::GetAbsoluteRect)
-
-		/*
-		.def("DisableHint",			&CUIWindow::DisableHint)
-		.def("EnableHint",			&CUIWindow::EnableHint)
-		.def("SetHintDelay",		&CUIWindow::SetHintDelay)
-		.def("GetHintDelay",		&CUIWindow::GetHintDelay)
-		.def("RemoveHint",			&CUIWindow::RemoveHint)
-		.def("SetHintWnd",			&CUIWindow::SetHintWnd)
-		.def("GetHintWnd",			&CUIWindow::GetHintWnd)
-		.def("SetHintText",			&CUIWindow::SetHintText)
-		.def("GetHintText",			&CUIWindow::GetHintText)
-		*/
 
 		.def("SetWndRect", (void (CUIWindow::*)(Frect))&CUIWindow::SetWndRect_script)
 		.def("SetWndPos", (void (CUIWindow::*)(Fvector2))&CUIWindow::SetWndPos_script)
@@ -195,11 +242,63 @@ void CUIWindow::script_register(lua_State* L)
 		.def("IsEnabled", &CUIWindow::IsEnabled)
 		.def("Show", &CUIWindow::Show)
 		.def("IsShown", &CUIWindow::IsShown)
+		.def("SetHideLock", &CUIWindow::SetHideLock)
+		.def("GetHideLock", &CUIWindow::GetHideLock)
+
+		.def("SetMouseCapture", &CUIWindow::SetMouseCapture)
+		.def("IsMouseCapturer", &CUIWindow::IsMouseCapturer)
+
+		.def("EnableClip", &CUIWindow::EnableClip)
+		.def("IsClipEnabled", &CUIWindow::IsClipEnabled)
+		.def("SetClipRect", &CUIWindow::SetClipRect)
+		.def("ResetClipRect", &CUIWindow::ResetClipRect)
+		.def("Update", &CUIWindow::Update)
 
 		.def("WindowName", &CUIWindow::WindowName_script)
 		.def("SetWindowName", &CUIWindow::SetWindowName)
 		.def("SetPPMode", &CUIWindow::SetPPMode)
 		.def("ResetPPMode", &CUIWindow::ResetPPMode)
+
+		.def("cast_3tButton", UI_WINDOW_CAST(CUI3tButton))
+		.def("cast_ActorMenu", UI_WINDOW_CAST(CUIActorMenu))
+		.def("cast_BinocularsVision", UI_WINDOW_CAST(CUIBinocularsVision))
+		.def("cast_Button", UI_WINDOW_CAST(CUIButton))
+		.def("cast_CheckButton", UI_WINDOW_CAST(CUICheckButton))
+		.def("cast_ComboBox", UI_WINDOW_CAST(CUIComboBox))
+		.def("cast_CustomEdit", UI_WINDOW_CAST(CUICustomEdit))
+		.def("cast_CustomSpin", UI_WINDOW_CAST(CUICustomSpin))
+		.def("cast_DialogWnd", UI_WINDOW_CAST(CUIDialogWnd))
+		.def("cast_EditBox", UI_WINDOW_CAST(CUIEditBox))
+		.def("cast_FrameLineWnd", UI_WINDOW_CAST(CUIFrameLineWnd))
+		.def("cast_FrameWindow", UI_WINDOW_CAST(CUIFrameWindow))
+		.def("cast_Hint", UI_WINDOW_CAST(UIHint))
+		.def("cast_HudStatesWnd", UI_WINDOW_CAST(CUIHudStatesWnd))
+		.def("cast_ListBox", UI_WINDOW_CAST(CUIListBox))
+		.def("cast_ListBoxItem", UI_WINDOW_CAST(CUIListBoxItem))
+		.def("cast_ListBoxItemMsgChain", UI_WINDOW_CAST(CUIListBoxItemMsgChain))
+		.def("cast_MMShniaga", UI_WINDOW_CAST(CUIMMShniaga))
+		.def("cast_MainIngameWnd", UI_WINDOW_CAST(CUIMainIngameWnd))
+		.def("cast_MapInfo", UI_WINDOW_CAST(CUIMapInfo))
+		.def("cast_MapList", UI_WINDOW_CAST(CUIMapList))
+		.def("cast_MessageBox", UI_WINDOW_CAST(CUIMessageBox))
+		.def("cast_MessageBoxEx", UI_WINDOW_CAST(CUIMessageBoxEx))
+		.def("cast_MessagesWindow", UI_WINDOW_CAST(CUIMessagesWindow))
+		.def("cast_MotionIcon", UI_WINDOW_CAST(CUIMotionIcon))
+		.def("cast_PdaWnd", UI_WINDOW_CAST(CUIPdaWnd))
+		.def("cast_ProgressBar", UI_WINDOW_CAST(CUIProgressBar))
+		.def("cast_PropertiesBox", UI_WINDOW_CAST(CUIPropertiesBox))
+		.def("cast_ScriptWnd", UI_WINDOW_CAST(CUIDialogWndEx))
+		.def("cast_ScrollView", UI_WINDOW_CAST(CUIScrollView))
+		.def("cast_ServerList", UI_WINDOW_CAST(CServerList))
+		.def("cast_SleepStatic", UI_WINDOW_CAST(CUISleepStatic))
+		.def("cast_SpinFlt", UI_WINDOW_CAST(CUISpinFlt))
+		.def("cast_SpinNum", UI_WINDOW_CAST(CUISpinNum))
+		.def("cast_SpinText", UI_WINDOW_CAST(CUISpinText))
+		.def("cast_Static", UI_WINDOW_CAST(CUIStatic))
+		.def("cast_TabButton", UI_WINDOW_CAST(CUITabButton))
+		.def("cast_TabControl", UI_WINDOW_CAST(CUITabControl))
+		.def("cast_TextWnd", UI_WINDOW_CAST(CUITextWnd))
+		.def("cast_TrackBar", UI_WINDOW_CAST(CUITrackBar))
 	];
 
 	module(L)
@@ -270,6 +369,8 @@ void CUIWindow::script_register(lua_State* L)
 			value("WINDOW_LBUTTON_UP", int(WINDOW_LBUTTON_UP)),
 			value("WINDOW_RBUTTON_UP", int(WINDOW_RBUTTON_UP)),
 			value("WINDOW_MOUSE_MOVE", int(WINDOW_MOUSE_MOVE)),
+			value("WINDOW_MOUSE_WHEEL_UP", int(WINDOW_MOUSE_WHEEL_UP)),
+			value("WINDOW_MOUSE_WHEEL_DOWN", int(WINDOW_MOUSE_WHEEL_DOWN)),
 			value("WINDOW_LBUTTON_DB_CLICK", int(WINDOW_LBUTTON_DB_CLICK)),
 			value("WINDOW_KEY_PRESSED", int(WINDOW_KEY_PRESSED)),
 			value("WINDOW_KEY_RELEASED", int(WINDOW_KEY_RELEASED)),
@@ -319,3 +420,5 @@ void CUIWindow::script_register(lua_State* L)
 		]
 	];
 }
+
+#undef UI_WINDOW_CAST

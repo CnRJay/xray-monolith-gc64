@@ -66,8 +66,8 @@ public:
 	virtual ~CSoundRender_Core();
 
 	// General
-	virtual void _initialize(int stage) = 0;
-	virtual void _clear() = 0;
+	virtual void _initialize(int stage) =0;
+	virtual void _clear() =0;
 	virtual void _restart();
 	virtual void switch_device(LPCSTR device_name) {}
 	virtual void refresh_devices() {}
@@ -86,8 +86,8 @@ public:
 	virtual void play(ref_sound& S, CObject* O, u32 flags = 0, float delay = 0.f);
 	virtual void play_at_pos(ref_sound& S, CObject* O, const Fvector& pos, u32 flags = 0, float delay = 0.f);
 	virtual void play_no_feedback(ref_sound& S, CObject* O, u32 flags = 0, float delay = 0.f, Fvector* pos = 0,
-		float* vol = 0, float* freq = 0, Fvector2* range = 0);
-	virtual void set_master_volume(float f) = 0;
+	                              float* vol = 0, float* freq = 0, Fvector2* range = 0);
+	virtual void set_master_volume(float f) =0;
 	virtual void set_geometry_env(IReader* I);
 	virtual void set_geometry_som(IReader* I);
 	virtual void set_geometry_occ(CDB::MODEL* M);
@@ -98,20 +98,20 @@ public:
 	virtual void statistic(CSound_stats* dest, CSound_stats_ext* ext);
 
 	// listener
-	virtual void update_listener(const Fvector& P, const Fvector& D, const Fvector& N, float dt) = 0;
-
+	virtual void update_listener(const Fvector& P, const Fvector& D, const Fvector& N, float dt)=0;
+	
 	//  EFX listener
-	virtual void set_listener(const CSoundRender_Environment& env) = 0;
-	virtual void get_listener(CSoundRender_Environment& env) = 0;
-	virtual void commit() = 0;
+	virtual void set_listener(const CSoundRender_Environment& env)=0;
+	virtual void get_listener(CSoundRender_Environment& env)=0;
+	virtual void commit()=0;
 
 #ifdef _EDITOR
-	virtual SoundEnvironment_LIB* get_env_library() { return s_environment; }
-	virtual void						refresh_env_library();
-	virtual void						set_user_env(CSound_environment* E);
-	virtual void						refresh_sources();
-	virtual void						set_environment(u32 id, CSound_environment** dst_env);
-	virtual void						set_environment_size(CSound_environment* src_env, CSound_environment** dst_env);
+	virtual SoundEnvironment_LIB*		get_env_library			()																{ return s_environment; }
+	virtual void						refresh_env_library		();
+	virtual void						set_user_env			(CSound_environment* E);
+	virtual void						refresh_sources			();
+    virtual void						set_environment			(u32 id, CSound_environment** dst_env);
+    virtual void						set_environment_size	(CSound_environment* src_env, CSound_environment** dst_env);
 #endif
 public:
 	CSoundRender_Source* i_create_source(LPCSTR name);

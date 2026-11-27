@@ -79,7 +79,7 @@ static inline u32 hash2(u32 x, u32 y)
 }
 
 //#define		DBG_SWITCHOFF_RANDOMIZE
-void CDetailManager::cache_Decompress(Slot* S, CDB::COLLIDER* collider)
+void CDetailManager::cache_Decompress(Slot* S)
 {
 	VERIFY(S);
 	Slot& D = *S;
@@ -99,16 +99,14 @@ void CDetailManager::cache_Decompress(Slot* S, CDB::COLLIDER* collider)
     Scene->BoxPickObjects(D.vis.box,pinf,GetSnapList());
 	u32	triCount		= pinf.size();
 #else
-	CDB::COLLIDER* pCollider = collider ? collider : xrc.collider();
-	pCollider->box_options(CDB::OPT_FULL_TEST);
-	pCollider->box_query(g_pGameLevel->ObjectSpace.GetStaticModel(), bC, bD);
-	u32 triCount = pCollider->r_count();
+	xrc.box_options(CDB::OPT_FULL_TEST);
+	xrc.box_query(g_pGameLevel->ObjectSpace.GetStaticModel(), bC, bD);
+	u32 triCount = xrc.r_count();
 	CDB::TRI* tris = g_pGameLevel->ObjectSpace.GetStaticTris();
 	Fvector* verts = g_pGameLevel->ObjectSpace.GetStaticVerts();
 #endif
 
 	if (0 == triCount) return;
-	xr_vector<SlotItem*> local_items[dm_obj_in_slot];
 
 	// Build shading table
 	float alpha255 [dm_obj_in_slot][4];
@@ -183,6 +181,8 @@ void CDetailManager::cache_Decompress(Slot* S, CDB::COLLIDER* collider)
 #endif
 
 			CDetail* Dobj = objects[DS.r_id(index)];
+			SlotItem* ItemP = poolSI.create();
+			SlotItem& Item = *ItemP;
 
 			// Position (XZ)
 			float rx = (float(x) / float(d_size)) * dm_slot_size + D.vis.box.min.x;
@@ -202,6 +202,7 @@ void CDetailManager::cache_Decompress(Slot* S, CDB::COLLIDER* collider)
 			Fvector3 terrain_normal;
 
 			float r_u, r_v, r_range;
+			bool no_push = false;
 			for (u32 tid = 0; tid < triCount; tid++)
 			{
 #ifdef _EDITOR
@@ -221,10 +222,22 @@ RDEVICE.Statistic->TEST0.End		();
 					}
 				}
 #else
-				CDB::TRI& T = tris[pCollider->r_begin()[tid].id];
+				CDB::TRI& T = tris[xrc.r_begin()[tid].id];
 				SGameMtl* mtl = GMLib.GetMaterialByIdx(T.material);
+				
 				if (mtl->Flags.test(SGameMtl::flPassable))
 					continue;
+
+				//Detect sector
+				if (RImplementation.pOutdoorSector)
+				{
+					CSector* sector = (CSector*)RImplementation.getSector(T.sector);
+					if (sector != RImplementation.pOutdoorSector)
+					{
+						no_push = true;
+						break;
+					}
+				}
 
 				Fvector Tv[3] = {verts[T.verts[0]], verts[T.verts[1]], verts[T.verts[2]]};
 				if (CDB::TestRayTri(Item_P, dir, Tv, r_u, r_v, r_range,TRUE))
@@ -233,8 +246,9 @@ RDEVICE.Statistic->TEST0.End		();
 					{
 						float y_test = Item_P.y - r_range;
 						if (y_test > y) y = y_test;
-						terrain_normal.mknormal(Tv[0], Tv[1], Tv[2]);
 					}
+					terrain_normal.mknormal(Tv[0], Tv[1], Tv[2]);
+					break;
 				}
 #endif
 			}
@@ -243,18 +257,10 @@ RDEVICE.Statistic->TEST0.End		();
 			float DotP = terrain_normal.dotproduct(dir);
 			if (DotP > -(1.0f - r_scale.randF(ps_ssfx_terrain_grass_slope * 0.8f, ps_ssfx_terrain_grass_slope))) continue;
 
+			if (no_push) continue;
 			if (y < D.vis.box.min.y) continue;
 			Item_P.y = y;
-
-			// Allocate item only after validation passes
-			SlotItem* ItemP = nullptr;
-			{
-				xrCriticalSectionGuard lock(pool_mutex);
-				ItemP = poolSI.create();
-			}
-			SlotItem& Item = *ItemP;
-
-			Item.normal = terrain_normal;
+			Item.normal = terrain_normal; // Save terrain normal here to feed the grass shader later.
 
 			// Angles and scale
 #ifndef		DBG_SWITCHOFF_RANDOMIZE
@@ -344,17 +350,8 @@ RDEVICE.Statistic->TEST0.End		();
 #else
 			Item.vis_ID = 0;
 #endif
-			// Store locally
-			local_items[index].push_back(ItemP);
-		}
-	}
-
-	// Batch insert all items
-	for (u32 i = 0; i < dm_obj_in_slot; i++)
-	{
-		if (!local_items[i].empty())
-		{
-			D.G[i].items.insert(D.G[i].items.end(), local_items[i].begin(), local_items[i].end());
+			// Save it
+			D.G[index].items.push_back(ItemP);
 		}
 	}
 

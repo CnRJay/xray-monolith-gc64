@@ -1,6 +1,7 @@
-﻿#pragma once
+#pragma once
 
-#include "../xrRender/r__dsgraph_structure.h"
+#include "../xrRender/r__dsgraph_manager.h"
+#include "../xrRender/r__sector.h"
 #include "../xrRender/r__occlusion.h"
 
 #include "../xrRender/PSLibrary.h"
@@ -15,28 +16,19 @@
 
 #include "smap_allocator.h"
 #include "../xrRender/light_db.h"
-#include "light_render_direct.h"
 #include "../xrRender/LightTrack.h"
 #include "../xrRender/r_sun_cascades.h"
 
 #include "../../xrEngine/irenderable.h"
+#include "../../Include/xrRender/RenderVisual.h"
 #include "../../xrEngine/fmesh.h"
 
 
 class dxRender_Visual;
 
 // definition
-class CRender : public R_dsgraph_structure
+class CRender : public IRender_interface, public pureFrame
 {
-public:
-	enum
-	{
-		PHASE_NORMAL = 0,
-		// E[0]
-		PHASE_SMAP = 1,
-		// E[1]
-	};
-
 public:
 	struct _options
 	{
@@ -89,12 +81,24 @@ public:
 		s32 s_used, s_merged, s_finalclip;
 		u32 o_queries, o_culled;
 		u32 ic_total, ic_culled;
+		u32 ls_shadowed_in;
+		u32 ls_shadowed_after_vis;
+		u32 ls_shadowed_rendered;
+		u32 ls_shadowed_pending_skipped;
+		u32 ls_shadowed_invisible_skipped;
+		u32 ls_shadowed_peak_in;
+		u32 ls_shadowed_peak_after_vis;
+		u32 ls_unshadowed_point_in;
+		u32 ls_unshadowed_spot_in;
+		u32 ls_unshadowed_point_rendered;
+		u32 ls_unshadowed_spot_rendered;
 	} stats;
 
 public:
 	bool is_sun();
 	// Sector detection and visibility
 	CSector* pLastSector;
+	CSector* pOutdoorSector;
 	Fvector vLastCameraPos;
 	u32 uLastLTRACK;
 	xr_vector<IRender_Portal*> Portals;
@@ -121,26 +125,35 @@ public:
 	CRenderTarget* Target; // Render-target
 
 	CLight_DB Lights;
-	CLight_Compute_XFORM_and_VIS LR;
-	xr_vector<light*> Lights_LastFrame;
 	SMAP_Allocator LP_smap_pool;
 	light_Package LP_normal;
 	light_Package LP_pending;
 
-	xr_vector<Fbox3,render_alloc<Fbox3>> main_coarse_structure;
+	CFrustum rainwet_cull_frustum;
+	Fvector3 rainwet_cull_COP;
+	Fmatrix rainwet_cull_xform;
+
+	//CDSGraphManager GMRainWet = CDSGraphManager(u32(0), u32(STYPE_RENDERABLE), { true,false,false,false,true,false,false });
+	CDSGraphManager GMUI3D = CDSGraphManager(0, 0, { true,true,false,true,false,false,false });
+	virtual IDSGraphManager* GetUI3DGraph() override { return &GMUI3D; }
+
+	CDSGraphManager GMBase = CDSGraphManager(u32(CDSGraphManager::VQ_HOM + CDSGraphManager::VQ_SSA + CDSGraphManager::VQ_FADE),
+		u32(STYPE_RENDERABLE + STYPE_PARTICLE + STYPE_LIGHTSOURCE),
+		{ true,true,true,true,false,false,false });
 
 	shared_str c_sbase;
 	shared_str c_lmaterial;
 	float o_hemi;
 	float o_hemi_cube[CROS_impl::NUM_FACES];
 	float o_sun;
-	IDirect3DQuery9* q_sync_point[CHWCaps::MAX_GPUS];
-	u32 q_sync_count;
 
 	bool m_bMakeAsyncSS;
 	bool m_bFirstFrameAfterReset; // Determines weather the frame is the first after resetting device.
 
 	xr_vector<sun::cascade> m_sun_cascades;
+
+	xr_set<light*> v_all_lights;
+	xr_list<light*>												v_all_lights_dque;
 
 private:
 	// Loading / Unloading
@@ -151,21 +164,12 @@ private:
 	void LoadSectors(IReader* fs);
 	void LoadSWIs(CStreamReader* fs);
 
-	BOOL add_Dynamic(dxRender_Visual* pVisual, u32 planes); // normal processing
-	void add_Static(dxRender_Visual* pVisual, u32 planes);
-	void add_leafs_Dynamic(dxRender_Visual* pVisual); // if detected node's full visibility
-	void add_leafs_Static(dxRender_Visual* pVisual); // if detected node's full visibility
-
 public:
 	IRender_Sector* rimp_detectSector(Fvector& P, Fvector& D);
-	void render_main(Fmatrix& mCombined, bool _fportals);
 	void render_forward();
 	void render_smap_direct(Fmatrix& mCombined);
 	void render_indirect(light* L);
 	void render_lights(light_Package& LP);
-	void render_sun();
-	void render_sun_near();
-	void render_sun_filtered();
 	void render_menu();
 	void render_sun_cascade(u32 cascade_ind);
 	void init_cacades();
@@ -182,6 +186,9 @@ public:
 	IRender_Sector* getSectorActive();
 	IRenderVisual* model_CreatePE(LPCSTR name);
 	IRender_Sector* detectSector(const Fvector& P, Fvector& D);
+	IRender_Sector* detectLastSector(const Fvector& P);
+	void detectSectors_sphere(CSector* sector, FixedSet<IRender_Sector*>& m_sectors, const Fvector& b_center, const Fvector& b_dim);
+	void detectSectors_frustum(CSector* sector, FixedSet<IRender_Sector*>& m_sectors, CFrustum* _frustum);
 	int translateSector(IRender_Sector* pSector);
 
 	// HW-occlusion culling
@@ -191,6 +198,7 @@ public:
 
 	ICF void apply_object(IRenderable* O)
 	{
+		RCache.bus_object.apply(O);
 		if (0 == O) return;
 		if (0 == O->renderable_ROS()) return;
 		CROS_impl& LT = *((CROS_impl*)O->renderable_ROS());
@@ -202,6 +210,7 @@ public:
 
 	IC void apply_lmaterial()
 	{
+		RCache.bus_object.apply_static();
 		R_constant* C = RCache.get_c(c_sbase); // get sampler
 		if (0 == C) return;
 		VERIFY(RC_dest_sampler == C->destination);
@@ -256,12 +265,9 @@ public:
 	virtual IRender_Sector* detectSector(const Fvector& P);
 	virtual IRender_Target* getTarget();
 
-	// Main 
+	// Main
 	virtual void flush();
-	virtual void set_Object(IRenderable* O);
 	virtual void add_Occluder(Fbox2& bb_screenspace); // mask screen region as oclluded
-	virtual void add_Visual(IRenderVisual* V); // add visual leaf	(no culling performed at all)
-	virtual void add_Geometry(IRenderVisual* V); // add visual(s)	(all culling performed)
 
 	// wallmarks
 	// demonized: add user defined rotation to wallmark
@@ -277,8 +283,9 @@ public:
 	                                  const Fvector& dir, float size, float ttl = 0.f, bool ignore_opt = false);
 	virtual void add_SkeletonWallmark(const Fmatrix* xf, IKinematics* obj, IWallMarkArray* pArray, const Fvector& start,
 	                                  const Fvector& dir, float size, float ttl = 0.f, bool ignore_opt = false);
-	virtual void remove_SkeletonWallmarksFromObject(IKinematics* obj);
-	virtual void update_Wallmarks();
+
+    virtual void remove_SkeletonWallmarksFromObject(IKinematics* obj);
+    virtual void update_Wallmarks();
 
 	//
 	virtual IBlender* blender_create(CLASS_ID cls);
@@ -299,13 +306,13 @@ public:
 	virtual IRenderVisual* model_CreateChild(LPCSTR name, IReader* data);
 	virtual IRenderVisual* model_Duplicate(IRenderVisual* V);
 	virtual void model_Delete(IRenderVisual* & V, BOOL bDiscard);
-	virtual void model_Delete_Deffered(IRenderVisual*& V);
 	virtual void model_Delete(IRender_DetailModel* & F);
+	virtual void model_Delete_Deffered(IRenderVisual* &	V);
 	virtual void model_Logging(BOOL bEnable) { Models->Logging(bEnable); }
 	virtual void models_Prefetch();
 	virtual void models_PrefetchOne(LPCSTR name, bool assert = true);
 	virtual void models_Clear(BOOL b_complete);
-	virtual bool models_Exists(LPCSTR name);
+	virtual bool models_Exists(LPCSTR name, bool no_prefetch = false);
 
 	// anglobes: Sun Values
 	virtual Fvector GetSunPosition()
@@ -349,6 +356,7 @@ public:
 	// Main
 	virtual void Calculate();
 	virtual void Render();
+	virtual void RenderUI3DDirect();
 	virtual void Screenshot(ScreenshotMode mode = SM_NORMAL, LPCSTR name = 0);
 	virtual void Screenshot(ScreenshotMode mode, CMemoryWriter& memory_writer);
 	virtual void ScreenshotAsyncBegin();
@@ -364,6 +372,8 @@ public:
 	// Constructor/destructor/loader
 	CRender();
 	virtual ~CRender();
+
+	virtual size_t SectorsCount() { return Sectors.size(); }
 protected:
 	virtual void ScreenshotImpl(ScreenshotMode mode, LPCSTR name, CMemoryWriter* memory_writer);
 

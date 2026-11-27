@@ -16,6 +16,8 @@ public:
 	virtual void Load(LPCSTR section);
 	virtual void OnEvent(NET_Packet& P, u16 type);
 
+	virtual CWeaponRG6* cast_weapon_rg6() { return this; }
+
 #ifdef CROCKETLAUNCHER_CHANGE
 	virtual void UnloadRocket();
 #endif

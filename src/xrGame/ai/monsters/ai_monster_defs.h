@@ -268,6 +268,15 @@ enum EPState
 	PS_STAND_UPPER
 };
 
+enum EHitSide 
+{
+	eSideFront = u32(0),
+	eSideBack,
+	eSideLeft,
+	eSideRight,
+	eSideCount
+};
+
 typedef shared_str anim_string;
 #define		DEFAULT_ANIM		eAnimStandIdle
 
@@ -275,6 +284,7 @@ typedef shared_str anim_string;
 struct SAnimItem
 {
 	anim_string target_name; // "stand_idle_"
+	bool target_may_not_exist;
 	int spec_id; // (-1) - any,  (0 - ...) - идентификатор 3
 	u8 count; // количество анимаций : "idle_0", "idle_1", "idle_2" 
 
@@ -288,6 +298,7 @@ struct SAnimItem
 		anim_string back;
 		anim_string left;
 		anim_string right;
+		std::bitset<eSideCount> may_not_exist;
 	} fxs;
 };
 
@@ -426,15 +437,6 @@ struct t_fx_index
 	s8 front;
 	s8 back;
 };
-
-enum EHitSide
-{
-	eSideFront = u32(0),
-	eSideBack,
-	eSideLeft,
-	eSideRight
-};
-
 
 DEFINE_VECTOR(SAnimItem*, ANIM_ITEM_VECTOR, ANIM_ITEM_VECTOR_IT);
 DEFINE_VECTOR(STransition, TRANSITION_ANIM_VECTOR, TRANSITION_ANIM_VECTOR_IT);

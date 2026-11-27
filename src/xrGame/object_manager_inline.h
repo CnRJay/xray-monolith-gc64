@@ -69,14 +69,21 @@ float CAbstractObjectManager::do_evaluate(T* object) const
 TEMPLATE_SPECIALIZATION
 bool CAbstractObjectManager::is_useful(T* object) const
 {
-	const ISpatial* self = (const ISpatial*)(object);
-	if (!self)
-		return (false);
+	// 1. Check if the object exists
+	if (!object) return false;
 
-	if ((object->spatial.type & STYPE_VISIBLEFORAI) != STYPE_VISIBLEFORAI)
-		return (false);
+	// 2. Access the component via the intrusive_ptr
+	// We take a const reference to avoid atomic ref-count churn
+	const ISpatialShared spatial = object->SpatialComponent;
 
-	return (true);
+	// 3. Check if the component exists (is_useful requires a spatial presence)
+	if (!spatial) return false;
+
+	// 4. Check the AI visibility flag
+	if (!(spatial->spatial.type & STYPE_VISIBLEFORAI))
+		return false;
+
+	return true;
 }
 
 TEMPLATE_SPECIALIZATION

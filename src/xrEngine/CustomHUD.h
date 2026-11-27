@@ -16,6 +16,7 @@ ENGINE_API extern Flags32 psHUD_Flags;
 
 class ENGINE_API IRender_Visual;
 class CUI;
+class IDSGraphManager;
 
 class ENGINE_API CCustomHUD :
 	public DLL_Pure,
@@ -28,12 +29,13 @@ public:
 
 	BENCH_SEC_SCRAMBLEVTBL2
 
-	virtual void Render_First() { ; }
-	virtual void Render_Last() { ; }
+	virtual void Render_First(IDSGraphManager* DM) { ; }
+	virtual void Render_Last(IDSGraphManager* DM) { ; }
 	BENCH_SEC_SCRAMBLEVTBL1
 
-	virtual void OnFrame() { ; }
-	virtual void OnEvent(EVENT E, u64 P1, u64 P2) { ; }
+	virtual		void		OnFrame					(){;}
+	virtual		void		OnFrameMT				(){;}
+	virtual		void		OnEvent					(EVENT E, u64 P1, u64 P2){;}
 
 	virtual void Load() { ; }
 	virtual void OnDisconnected() = 0;

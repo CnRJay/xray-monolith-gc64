@@ -12,17 +12,17 @@
 	template <class T>
 	class doug_lea_alloc {
 	public:
-		typedef	size_t		size_type;
-		typedef ptrdiff_t	difference_type;
-		typedef T*			pointer;
-		typedef const T*	const_pointer;
-		typedef T&			reference;
-		typedef const T&	const_reference;
-		typedef T			value_type;
+		using size_type = size_t;
+		using difference_type = ptrdiff_t;
+		using pointer = T*;
+		using const_pointer = const T*;
+		using reference = T&;
+		using const_reference = const T&;
+		using value_type = T;
 
 	public:
 		template<class _Other>	
-		struct rebind			{	typedef doug_lea_alloc<_Other> other;	};
+		struct rebind			{ using other = doug_lea_alloc<_Other>;	};
 	public:
 								pointer					address			(reference _Val) const					{	return (&_Val);	}
 								const_pointer			address			(const_reference _Val) const			{	return (&_Val);	}
@@ -45,7 +45,7 @@
 	struct doug_lea_allocator_wrapper {
 		template <typename T>
 		struct helper {
-			typedef doug_lea_alloc<T>	result;
+			using result = doug_lea_alloc<T>;
 		};
 
 		static	void	*alloc		(const u32 &n)	{	return g_render_lua_allocator.malloc_impl((u32)n);	}
@@ -54,186 +54,359 @@
 	};
 
 #	define render_alloc				doug_lea_alloc
-	typedef doug_lea_allocator_wrapper	render_allocator;
+	using render_allocator = doug_lea_allocator_wrapper;
 
 #else // USE_DOUG_LEA_ALLOCATOR_FOR_RENDER
 #	define render_alloc				xalloc
-typedef xr_allocator render_allocator;
+using render_allocator = xr_allocator;
 #endif // USE_DOUG_LEA_ALLOCATOR_FOR_RENDER
 
 class dxRender_Visual;
+struct SPass;
 
 // #define	USE_RESOURCE_DEBUGGER
 
 namespace R_dsgraph
 {
-	// Elementary types
-	struct _NormalItem
+	template<typename T, bool Reverse>
+	struct DSGraphItem
 	{
-		float ssa;
-		dxRender_Visual* pVisual;
+		T sortKey;
+		float ssa = 0.0f;
+		IRenderable* pObject = nullptr;
+		dxRender_Visual* pVisual = nullptr;
+		Fmatrix* pMatrix = nullptr;
+		ShaderElement* pSE = nullptr;
+		bool b_hud_mode = false;
+		float fov = 0.f;
+
+        DSGraphItem(T key, float _ssa, IRenderable* obj, dxRender_Visual* vis,
+            Fmatrix* mat, ShaderElement* se, bool hud, float custom_fov = 0.f)
+            : sortKey(key), ssa(_ssa), pObject(obj), pVisual(vis),
+            pMatrix(mat), pSE(se), b_hud_mode(hud), fov(custom_fov) {
+        }
+
+        bool operator<(const DSGraphItem& other) const noexcept
+        {
+            if constexpr (Reverse)
+                return other.sortKey < sortKey;
+            else
+                return sortKey < other.sortKey;
+        }
 	};
 
-	struct _MatrixItem
-	{
-		float ssa;
-		IRenderable* pObject;
-		dxRender_Visual* pVisual;
-		Fmatrix Matrix; // matrix (copy)
-		Fmatrix PrevMatrix;
-	};
-
-	struct _MatrixItemS : public _MatrixItem
-	{
-		ShaderElement* se;
-	};
-
-	struct _LodItem
-	{
-		float ssa;
-		dxRender_Visual* pVisual;
-	};
-
-#ifdef USE_RESOURCE_DEBUGGER
-	typedef	ref_vs						vs_type;
-	typedef	ref_ps						ps_type;
-#	if defined(USE_DX10) || defined(USE_DX11)
-		typedef	ref_gs						gs_type;
-#		ifdef USE_DX11
-		typedef	ref_hs						hs_type;
-		typedef	ref_ds						ds_type;
-#		endif
-#	endif	//	USE_DX10
-#else
 #if defined(USE_DX10) || defined(USE_DX11)	//	DX10 needs shader signature to propperly bind deometry to shader
-		typedef	SVS*					vs_type;
-		typedef	ID3DGeometryShader*		gs_type;
+	using vs_type = SVS*;
+	using gs_type = ID3DGeometryShader*;
 #ifdef USE_DX11
-			typedef	ID3D11HullShader*		hs_type;
-			typedef	ID3D11DomainShader*		ds_type;
+	using hs_type = ID3D11HullShader*;
+	using ds_type = ID3D11DomainShader*;
 #endif
 #else	//	USE_DX10
-	typedef ID3DVertexShader* vs_type;
+	using vs_type = ID3DVertexShader*;
 #endif	//	USE_DX10
-	typedef ID3DPixelShader* ps_type;
-#endif
+	using ps_type = ID3DPixelShader*;
 
-	// NORMAL
-	typedef xr_vector<_NormalItem, render_allocator::helper<_NormalItem>::result> mapNormalDirect;
+	template<typename T, bool Reverse>
+	using mapDSGraphItems = xr_vector<DSGraphItem<T, Reverse>, typename render_allocator::template helper<DSGraphItem<T, Reverse>>::result>;
 
-	struct mapNormalItems : public mapNormalDirect
+	template<typename T, bool Reverse>
+	using mapDSGraphItemsMap = FixedMAP<T, DSGraphItem<T, Reverse>, render_allocator>;
+
+	struct alignas(16) RenderPacketSortKey
 	{
-		float ssa;
+		// Calculated key for sorting
+		u64 high; // VS, GS, PS, HS
+		u64 low; // DS, Constants, State, Textures
+
+		bool operator<(const RenderPacketSortKey& other) const noexcept
+		{
+			if (high != other.high)
+				return high < other.high;
+			return low < other.low;
+		}
+
+		bool operator!=(const RenderPacketSortKey& other) const noexcept
+		{
+			return (high != other.high) || (low != other.low);
+		}
+
+        bool operator==(const RenderPacketSortKey& other) const noexcept
+        {
+            return (high == other.high) && (low == other.low);
+        }
 	};
 
-	struct mapNormalTextures : public FixedMAP<STextureList*, mapNormalItems, render_allocator>
+	struct RenderPacket
 	{
-		float ssa;
-	};
+		// Sorting key
+        RenderPacketSortKey sortKey;
 
-	struct mapNormalStates : public FixedMAP<ID3DState*, mapNormalTextures, render_allocator>
-	{
-		float ssa;
-	};
+		// Visual data
+		DSGraphItem<u32, false> item;
 
-	struct mapNormalCS : public FixedMAP<R_constant_table*, mapNormalStates, render_allocator>
-	{
-		float ssa;
-	};
-#ifdef USE_DX11
-	struct	mapNormalAdvStages
-	{
-		hs_type		hs;
-		ds_type		ds;
-		mapNormalCS	mapCS;
-	};
-	struct	mapNormalPS			: public	FixedMAP<ps_type, mapNormalAdvStages,render_allocator>						{	float	ssa;	};
-#else
-	struct mapNormalPS : public FixedMAP<ps_type, mapNormalCS, render_allocator>
-	{
-		float ssa;
-	};
-#endif	//	USE_DX11
+		// Pointers to resources (previously keys in FixedMAPs)
+        ID3DState* pState;
+
 #if defined(USE_DX10) || defined(USE_DX11)
-	struct	mapNormalGS			: public	FixedMAP<gs_type, mapNormalPS,render_allocator>						{	float	ssa;	};
-	struct	mapNormalVS			: public	FixedMAP<vs_type, mapNormalGS,render_allocator>						{	};
-#else	//	USE_DX10
-	struct mapNormalVS : public FixedMAP<vs_type, mapNormalPS, render_allocator>
-	{
-	};
-#endif	//	USE_DX10
-	typedef mapNormalVS mapNormal_T;
-	typedef mapNormal_T mapNormalPasses_T[SHADER_PASSES_MAX];
-
-	// MATRIX
-	typedef xr_vector<_MatrixItem, render_allocator::helper<_MatrixItem>::result> mapMatrixDirect;
-
-	struct mapMatrixItems : public mapMatrixDirect
-	{
-		float ssa;
-	};
-
-	struct mapMatrixTextures : public FixedMAP<STextureList*, mapMatrixItems, render_allocator>
-	{
-		float ssa;
-	};
-
-	struct mapMatrixStates : public FixedMAP<ID3DState*, mapMatrixTextures, render_allocator>
-	{
-		float ssa;
-	};
-
-	struct mapMatrixCS : public FixedMAP<R_constant_table*, mapMatrixStates, render_allocator>
-	{
-		float ssa;
-	};
-#ifdef USE_DX11
-	struct	mapMatrixAdvStages
-	{
-		hs_type		hs;
-		ds_type		ds;
-		mapMatrixCS	mapCS;
-	};
-	struct	mapMatrixPS			: public	FixedMAP<ps_type, mapMatrixAdvStages,render_allocator>						{	float	ssa;	};
+		gs_type pGS;
 #else
-	struct mapMatrixPS : public FixedMAP<ps_type, mapMatrixCS, render_allocator>
-	{
-		float ssa;
-	};
-#endif	//	USE_DX11
-#if defined(USE_DX10) || defined(USE_DX11)
-	struct	mapMatrixGS			: public	FixedMAP<gs_type, mapMatrixPS,render_allocator>						{	float	ssa;	};
-	struct	mapMatrixVS			: public	FixedMAP<vs_type, mapMatrixGS,render_allocator>						{	};
-#else	//	USE_DX10
-	struct mapMatrixVS : public FixedMAP<vs_type, mapMatrixPS, render_allocator>
-	{
-	};
-#endif	//	USE_DX10
-	typedef mapMatrixVS mapMatrix_T;
-	typedef mapMatrix_T mapMatrixPasses_T[SHADER_PASSES_MAX];
-
-	// Top level
-	typedef FixedMAP<float, _MatrixItemS, render_allocator> mapSorted_T;
-	typedef mapSorted_T::TNode mapSorted_Node;
-
-	typedef FixedMAP<float, _MatrixItemS, render_allocator> mapHUD_T;
-	typedef mapHUD_T::TNode mapHUD_Node;
-
-#if defined(USE_DX11)
-	typedef FixedMAP<float, _MatrixItemS, render_allocator> mapScopeHUD_T; // Redotix99: for 3D Shader Based Scopes
-	typedef mapScopeHUD_T::TNode mapScopeHUD_T_Node;
+        u64 _unused_pad_gs;
 #endif
 
-	typedef FixedMAP<float, _MatrixItemS, render_allocator> HUDMask_T;
-	typedef HUDMask_T::TNode HUDMask_Node;
+#ifdef USE_DX11
+		hs_type pHS;
+		ds_type pDS;
+#else
+        u64 _unused_pad_hs, _unused_pad_ds;
+#endif
 
-	typedef FixedMAP<float, _LodItem, render_allocator> mapLOD_T;
-	typedef mapLOD_T::TNode mapLOD_Node;
+        vs_type pVS;
+		ps_type pPS;
+        R_constant_table* pCS;
+		STextureList* pTextures;
 
-	typedef FixedMAP<float, _MatrixItemS, render_allocator> mapLandscape_T;
-	typedef mapLandscape_T::TNode mapLandscape_Node;
+        RenderPacket(const DSGraphItem<u32, false>& _item, const SPass& pass) : item(_item)
+        {
+            // Extract resource pointers from shader pass (previously used as map keys)
+#if defined(USE_DX10) || defined(USE_DX11)
+            pVS = &*pass.vs;
+            pGS = pass.gs->gs;
+#else
+            pVS = pass.vs->vs;
+#endif
 
-	typedef FixedMAP<float, _MatrixItemS, render_allocator> mapWater_T;
-	typedef mapWater_T::TNode mapWater_Node;
+            pPS = pass.ps->ps;
 
+#ifdef USE_DX11
+            pHS = pass.hs->sh;
+            pDS = pass.ds->sh;
+#endif
+
+            pCS = pass.constants._get();
+            pState = pass.state->state;
+            pTextures = pass.T._get();
+
+            // Build sort key
+            // Optimized grouping based on profiling, example:
+            // States:4, GS:0, HS:0, DS:0 they are pretty much unused and/or unchanged
+            // VS:13, PS:28, CS:93, Tex:179. Grouping based on increasing change of state
+            // Low key is used just for sorting
+            u64 keyHigh = 0;
+            u64 keyLow = 0;
+
+            keyHigh |= ((u64)pState >> 4 & 0xFFFF) << 48;
+
+#if defined(USE_DX10) || defined(USE_DX11)
+            keyHigh |= ((u64)pGS >> 4 & 0xFFFF) << 32;
+#endif
+
+#ifdef USE_DX11
+            keyHigh |= ((u64)pHS >> 4 & 0xFFFF) << 16;
+            keyHigh |= ((u64)pDS >> 4 & 0xFFFF);
+#endif
+
+            keyLow |= ((u64)pVS >> 4 & 0xFFFF) << 48;
+            keyLow |= ((u64)pPS >> 4 & 0xFFFF) << 32;
+            keyLow |= ((u64)pCS >> 4 & 0xFFFF) << 16;
+            keyLow |= ((u64)pTextures >> 4 & 0xFFFF);
+
+            sortKey = { keyHigh, keyLow };
+        }
+
+        bool operator<(const RenderPacket& other) const noexcept
+        {
+            return sortKey < other.sortKey;
+        }
+	};
+
+	using RenderQueue = xr_vector<RenderPacket, render_allocator::helper<RenderPacket>::result>;
+	using RenderQueueArray = xr_array<xr_array<RenderQueue, SHADER_PASSES_MAX>, 2>;
+
+	struct DynamicSceneRgraph
+	{
+		template<typename T, bool Reverse1, bool Reverse2, bool Reverse3, bool Reverse4>
+		struct mapSorted
+		{
+			mapDSGraphItems<T, Reverse1> Sorted;
+
+			mapDSGraphItems<T, Reverse2> Wmark;
+			mapDSGraphItems<T, Reverse3> Emissive;
+			mapDSGraphItems<T, Reverse4> Distort;
+		};
+
+		mapSorted<float, true, false, false, true> mapStaticSorted;
+		mapSorted<float, true, false, false, true> mapDynamicSorted;
+
+		RenderQueueArray mapStaticPasses;
+		RenderQueueArray mapDynamicPasses;
+
+		mapDSGraphItems<float, false> mapUI3D;
+		mapDSGraphItems<float, false> mapUI3DEmissive;
+#if RENDER == R_R4
+		// Main draws DX11 material-sorted icons front to back.
+		mapDSGraphItems<float, false> mapUI3DSorted;
+#else
+		mapDSGraphItems<float, true> mapUI3DSorted;
+#endif
+		mapDSGraphItems<float, false> mapCustomFOV;
+		mapSorted<float, true, false, false, true> mapCustomFOVSorted;
+		mapDSGraphItems<float, false> mapHUD;
+		mapSorted<float, true, false, false, false> mapHUDSorted;
+
+		mapDSGraphItems<float, false> mapLOD;
+
+		// Anomaly
+		mapDSGraphItems<float, false> mapCamAttached;
+		mapSorted<float, true, false, false, false> mapCamAttachedSorted;
+		mapDSGraphItems<float, false> mapWater;
+#ifdef USE_DX11
+		mapDSGraphItems<float, true> mapScopeHUDSorted;
+		mapDSGraphItems<float, true> mapReflexHUDSorted;
+		mapDSGraphItems<float, false> mapScopeHUD;
+		mapDSGraphItems<float, false> mapScopeCamAttached;
+		mapDSGraphItems<float, false> mapScopeCamAttachedSorted;
+#endif
+		template<bool free = true>
+		IC void clear_graph(RenderQueueArray& queue, u32 _priority)
+		{
+			PROF_EVENT("r_dsgraph_clear_graph", PROF_CAT(Rendering));
+			for (u32 iPass = 0; iPass < SHADER_PASSES_MAX; ++iPass)
+			{
+				if constexpr (free)
+					queue[_priority][iPass].clear_and_free();
+				else
+					queue[_priority][iPass].clear();
+			}
+		}
+
+		template<bool free = true>
+		IC void clear_dynamic()
+		{
+			clear_graph<free>(mapDynamicPasses, 0);
+			clear_graph<free>(mapDynamicPasses, 1);
+
+			if constexpr (free)
+			{
+				mapDynamicSorted.Wmark.clear_and_free();
+				mapDynamicSorted.Emissive.clear_and_free();
+				mapDynamicSorted.Sorted.clear_and_free();
+				mapDynamicSorted.Distort.clear_and_free();
+			}
+			else
+			{
+				mapDynamicSorted.Wmark.clear();
+				mapDynamicSorted.Emissive.clear();
+				mapDynamicSorted.Sorted.clear();
+				mapDynamicSorted.Distort.clear();
+			}
+		}
+
+		template<bool free = true>
+		IC void clear_static()
+		{
+			clear_graph<free>(mapStaticPasses, 0);
+			clear_graph<free>(mapStaticPasses, 1);
+
+			if constexpr (free)
+			{
+				mapStaticSorted.Wmark.clear_and_free();
+				mapStaticSorted.Emissive.clear_and_free();
+				mapStaticSorted.Sorted.clear_and_free();
+				mapStaticSorted.Distort.clear_and_free();
+			}
+			else
+			{
+				mapStaticSorted.Wmark.clear();
+				mapStaticSorted.Emissive.clear();
+				mapStaticSorted.Sorted.clear();
+				mapStaticSorted.Distort.clear();
+			}
+		}
+
+		template<bool free = true>
+		IC void clear_hud()
+		{
+			if constexpr (free)
+			{
+				mapUI3D.clear_and_free();
+				mapUI3DEmissive.clear_and_free();
+				mapUI3DSorted.clear_and_free();
+				mapCustomFOV.clear_and_free();
+				mapCustomFOVSorted.Sorted.clear_and_free();
+				mapCustomFOVSorted.Emissive.clear_and_free();
+				mapCustomFOVSorted.Distort.clear_and_free();
+				mapCustomFOVSorted.Wmark.clear_and_free();
+				mapHUD.clear_and_free();
+				mapHUDSorted.Wmark.clear_and_free();
+				mapHUDSorted.Emissive.clear_and_free();
+				mapHUDSorted.Sorted.clear_and_free();
+				mapHUDSorted.Distort.clear_and_free();
+				mapCamAttached.clear_and_free();
+				mapCamAttachedSorted.Wmark.clear_and_free();
+				mapCamAttachedSorted.Emissive.clear_and_free();
+				mapCamAttachedSorted.Sorted.clear_and_free();
+				mapCamAttachedSorted.Distort.clear_and_free();
+
+#ifdef USE_DX11
+				mapScopeCamAttached.clear_and_free();
+				mapScopeCamAttachedSorted.clear_and_free();
+				mapScopeHUD.clear_and_free();
+				mapScopeHUDSorted.clear_and_free();
+				mapReflexHUDSorted.clear_and_free();
+#endif
+			}
+			else
+			{
+				mapUI3D.clear();
+				mapUI3DEmissive.clear();
+				mapUI3DSorted.clear();
+				mapCustomFOV.clear();
+				mapCustomFOVSorted.Sorted.clear();
+				mapCustomFOVSorted.Emissive.clear();
+				mapCustomFOVSorted.Distort.clear();
+				mapCustomFOVSorted.Wmark.clear();
+				mapHUD.clear();
+				mapHUDSorted.Wmark.clear();
+				mapHUDSorted.Emissive.clear();
+				mapHUDSorted.Sorted.clear();
+				mapHUDSorted.Distort.clear();
+				mapCamAttached.clear();
+				mapCamAttachedSorted.Wmark.clear();
+				mapCamAttachedSorted.Emissive.clear();
+				mapCamAttachedSorted.Sorted.clear();
+				mapCamAttachedSorted.Distort.clear();
+
+#ifdef USE_DX11
+				mapScopeCamAttached.clear();
+				mapScopeCamAttachedSorted.clear();
+				mapScopeHUD.clear();
+				mapScopeHUDSorted.clear();
+				mapReflexHUDSorted.clear();
+#endif
+			}
+		}
+
+		template<bool free = true>
+		IC void clear_lods()
+		{
+			if constexpr (free)
+				mapLOD.clear_and_free();
+			else
+				mapLOD.clear();
+		}
+
+		template<bool free = true>
+		IC void clear()
+		{
+			clear_dynamic<free>();
+			clear_static<free>();
+			clear_hud<free>();
+			clear_lods<free>();
+			if constexpr (free)
+				mapWater.clear_and_free();
+			else
+				mapWater.clear();
+		}
+	};
 };

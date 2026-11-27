@@ -2,15 +2,15 @@
 
 struct HUD_SOUND_ITEM
 {
-	HUD_SOUND_ITEM() : m_activeSnd(nullptr), m_b_exclusive(false)
+	HUD_SOUND_ITEM() : m_activeSnd(NULL), m_b_exclusive(false)
 	{
 	}
 
 	static void LoadSound(LPCSTR section, LPCSTR line,
 	                      ref_sound& hud_snd,
 	                      int type = sg_SourceType,
-	                      float* volume = nullptr,
-	                      float* delay = nullptr);
+	                      float* volume = NULL,
+	                      float* delay = NULL);
 
 	static void LoadSound(LPCSTR section,
 	                      LPCSTR line,
@@ -25,7 +25,9 @@ struct HUD_SOUND_ITEM
 	                      bool hud_mode,
 	                      bool looped = false,
 	                      u8 index = u8(-1),
-						  float volume_mult = 1.f);
+						  float volume_mult = 1.f,
+						  float frequency = 1.f,
+						  float delay_mult = 1.f);
 
 	static void StopSound(HUD_SOUND_ITEM& snd);
 
@@ -41,7 +43,7 @@ struct HUD_SOUND_ITEM
 		{
 			if (m_activeSnd->snd._feedback() && !m_activeSnd->snd._feedback()->is_2D())
 				m_activeSnd->snd.set_position(pos);
-			else m_activeSnd = nullptr;
+			else m_activeSnd = NULL;
 		}
 	}
 
@@ -73,7 +75,7 @@ public:
 
 	HUD_SOUND_ITEM* FindSoundItem(LPCSTR alias, bool b_assert); //AVO: made public to check if sound is loaded
 	void PlaySound(LPCSTR alias, const Fvector& position, const CObject* parent, bool hud_mode, bool looped = false,
-	               u8 index = u8(-1), float volume_mult = 1.f);
+	               u8 index = u8(-1), float volume_mult = 1.f, float frequency = 1.f, float delay_mult = 1.f);
 
 	void StopSound(LPCSTR alias);
 
@@ -91,7 +93,7 @@ public:
 	~HUD_SOUND_COLLECTION_LAYERED();
 	HUD_SOUND_ITEM* FindSoundItem(LPCSTR alias, bool b_assert);
 	void PlaySound(LPCSTR alias, const Fvector& position, const CObject* parent, bool hud_mode, bool looped = false,
-	               u8 index = u8(-1), float volume_mult = 1.f);
+	               u8 index = u8(-1), float volume_mult = 1.f, float frequency = 1.f, float delay_mult = 1.f);
 	void StopSound(LPCSTR alias);
 	void StopAllSounds();
 	void LoadSound(LPCSTR section, LPCSTR line, LPCSTR alias, bool exclusive = false, int type = sg_SourceType);

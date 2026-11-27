@@ -16,7 +16,7 @@ class CScriptStackTracker
 protected:
 	enum consts
 	{
-		max_stack_size = u32(256),
+		max_stack_size = u32(512),
 	};
 
 protected:

@@ -25,6 +25,8 @@ public:
 	virtual void shedule_Update(u32 dt);
 	virtual void UpdateCL();
 
+	virtual CCustomDevice* cast_custom_device() { return this; }
+
 	enum EDeviceStates
 	{
 		eIdleZoom = 5,
@@ -39,6 +41,7 @@ public:
 
 	virtual void OnMoveToRuck(const SInvItemPlace& prev);
 	virtual void on_a_hud_attach();
+	virtual void on_b_hud_detach();
 
 	virtual void OnActiveItem();
 	virtual void OnHiddenItem();

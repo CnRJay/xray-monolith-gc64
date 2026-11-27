@@ -21,6 +21,9 @@ public:
 	void OnBtnNo();
 	void OnBtnCancel();
 	void SetVoting(LPCSTR txt);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	CUITextWnd* msg;
 	CUITextWnd* cap[3];

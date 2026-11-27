@@ -71,6 +71,8 @@ public:
 	virtual CGameObject* cast_game_object() { return this; }
 	virtual IInputReceiver* cast_input_receiver() { return this; }
 
+	virtual CSpectator* cast_spectator() { return this; }
+
 	virtual void net_Relcase(CObject* O);
 	void GetSpectatorString(string1024& pStr);
 

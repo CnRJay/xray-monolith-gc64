@@ -173,6 +173,11 @@ void CPostprocessAnimator::SetDesiredFactor(float f, float sp)
 	VERIFY(_valid(m_dest_factor));
 };
 
+float CPostprocessAnimator::GetCurrentFactor()
+{
+    return m_factor;
+};
+
 void CPostprocessAnimator::SetCurrentFactor(float f)
 {
 	m_factor = f;
@@ -491,12 +496,12 @@ CPostprocessAnimatorControlled::CPostprocessAnimatorControlled(CEffectorControll
 	: m_controller(c)
 {
 	m_controller->SetPP(this);
-	SetFactorFunc(fastdelegate::FastDelegate0<float>(m_controller, &CEffectorController::GetFactor));
+	SetFactorFunc(xr_make_delegate(m_controller, &CEffectorController::GetFactor));
 }
 
 CPostprocessAnimatorControlled::~CPostprocessAnimatorControlled()
 {
-	m_controller->SetPP(nullptr);
+	m_controller->SetPP(NULL);
 }
 
 BOOL CPostprocessAnimatorControlled::Valid()

@@ -83,6 +83,8 @@ public:
 	IC void UpdateNews() { m_need_reload = true; }
 	void xr_stdcall PerformWork();
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	void ReLoadNews();
 	void AddNewsItem(GAME_NEWS_DATA& news_data);

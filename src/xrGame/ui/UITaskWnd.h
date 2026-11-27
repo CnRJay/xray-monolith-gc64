@@ -100,6 +100,8 @@ public:
 
 	void Show_TaskListWnd(bool status);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 private:
 	void TaskSetTargetMap(CGameTask* task);
 	void TaskShowMapSpot(CGameTask* task, bool show);
@@ -136,6 +138,8 @@ public:
 	void Init(CUIXml& uiXml, LPCSTR path);
 	void InitTask(CGameTask* task);
 	CGameTask* OwnerTask() { return m_owner; }
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 public:
 	bool show_hint_can;

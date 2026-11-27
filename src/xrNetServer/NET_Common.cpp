@@ -164,7 +164,7 @@ MultipacketSender::_FlushSendBuffer(u32 timeout, Buffer* buf)
            );
 #endif // NET_LOG_PACKETS
 
-		if (strstr(Core.Params, "-dump_traffic"))
+		if (Core.ParamsData.test(ECoreParams::dump_traffic))
 		{
 			static bool first_time = true;
 			FILE* dump = fopen("raw-out-traffic.bins", (first_time) ? "wb" : "ab");
@@ -210,7 +210,7 @@ MultipacketReciever::RecievePacket(const void* packet_data, u32 packet_sz, u32 p
     Msg( "#receive multi-packet %u", packet_sz );
 #endif
 
-	if (strstr(Core.Params, "-dump_traffic"))
+	if (Core.ParamsData.test(ECoreParams::dump_traffic))
 	{
 		static bool first_time = true;
 		FILE* dump = fopen("raw-in-traffic.bins", (first_time) ? "wb" : "ab");

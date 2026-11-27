@@ -355,13 +355,13 @@ void CStats::Show()
 		//////////////////////////////////////////////////////////////////////////
 		// Renderer specific
 		F.SetHeightI(f_base_size);
-		F.OutSet(200, 0);
+		F.OutSet(500, 0);
 		Render->Statistics(&F);
 
 		//////////////////////////////////////////////////////////////////////////
 		// Game specific
 		F.SetHeightI(f_base_size);
-		F.OutSet(400, 0);
+		F.OutSet(800, 0);
 		g_pGamePersistent->Statistics(&F);
 
 		//////////////////////////////////////////////////////////////////////////
@@ -492,9 +492,8 @@ void _LogCallback(LPCSTR string)
 
 void CStats::OnDeviceCreate()
 {
-	g_bDisableRedText = strstr(Core.Params, "-xclsx") ? TRUE : FALSE;
+	g_bDisableRedText = Core.ParamsData.test(ECoreParams::xclsx);
 
-	// if (!strstr(Core.Params, "-dedicated"))
 #ifndef DEDICATED_SERVER
 	pFont = xr_new<CGameFont>("stat_font", CGameFont::fsDeviceIndependent);
 #endif
@@ -511,13 +510,13 @@ void CStats::OnDeviceCreate()
 
 	//
 #ifdef DEBUG
-    if (!g_bDisableRedText)   SetLogCB(_LogCallback);
+    if (!g_bDisableRedText)   xrLogger::AddLogCallback(_LogCallback);
 #endif
 }
 
 void CStats::OnDeviceDestroy()
 {
-	SetLogCB(0);
+	xrLogger::RemoveLogCallback(_LogCallback);
 	xr_delete(pFont);
 }
 

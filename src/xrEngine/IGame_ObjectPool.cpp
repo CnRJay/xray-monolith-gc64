@@ -3,7 +3,6 @@
 #include "IGame_Persistent.h"
 #include "igame_objectpool.h"
 #include "xr_object.h"
-#include "../xrCore/profiler.h"
 
 IGame_ObjectPool::IGame_ObjectPool(void)
 {
@@ -52,14 +51,15 @@ void IGame_ObjectPool::clear()
 
 CObject* IGame_ObjectPool::create(LPCSTR name)
 {
-	PROF_EVENT("IGame_ObjectPool::create");
 	CLASS_ID CLS = pSettings->r_clsid(name, "class");
 	CObject* O = (CObject*)NEW_INSTANCE(CLS);
-	O->cNameSect_set(name);
-	{
-		PROF_EVENT("CObject::Load");
-		O->Load(name);
-	}
+
+    if (O)
+    {
+        O->cNameSect_set(name);
+        O->Load(name);
+    }
+	
 	return O;
 }
 

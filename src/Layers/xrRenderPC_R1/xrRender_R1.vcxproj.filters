@@ -180,9 +180,6 @@
     <ClInclude Include="..\xrRender\PSLibrary.h">
       <Filter>Core</Filter>
     </ClInclude>
-    <ClInclude Include="..\xrRender\r__dsgraph_structure.h">
-      <Filter>Core</Filter>
-    </ClInclude>
     <ClInclude Include="..\xrRender\r__dsgraph_types.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -624,6 +621,10 @@
     <ClInclude Include="..\xrRender\gifPlayer.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="..\xrRender\CHudInitializer.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\xrRender\r__dsgraph_manager.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -639,9 +640,6 @@
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="FStaticRender_Blenders.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="FStaticRender_DetectSector.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="FStaticRender_Loader.cpp">
@@ -663,9 +661,6 @@
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\r__screenshot.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="..\xrRender\Texture.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\tga.cpp">
@@ -765,9 +760,6 @@
       <Filter>Shading templates</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\r__sector.cpp">
-      <Filter>Visibility\Sector/Portal</Filter>
-    </ClCompile>
-    <ClCompile Include="..\xrRender\r__sector_traversal.cpp">
       <Filter>Visibility\Sector/Portal</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\HOM.cpp">
@@ -1034,5 +1026,13 @@
     <ClCompile Include="..\xrRender\gifPlayer.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="..\xrRenderDX9\dx9Texture.cpp" />
+    <ClCompile Include="..\xrRender\CHudInitializer.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\r__sector_detect.cpp">
+      <Filter>Visibility\Sector/Portal</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\r__dsgraph_manager.cpp" />
   </ItemGroup>
 </Project>

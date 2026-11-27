@@ -5,7 +5,7 @@
 
 UITeamHeader::UITeamHeader(UITeamState const* const parent) :
 	m_parent(parent),
-	m_team_header_root(nullptr)
+	m_team_header_root(NULL)
 {
 }
 

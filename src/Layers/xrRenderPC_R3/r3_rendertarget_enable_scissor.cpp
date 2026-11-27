@@ -16,14 +16,14 @@ void CRenderTarget::enable_dbt_bounds(light* L)
 	if (!ps_r2_ls_flags.test(R2FLAG_USE_NVDBT)) return;
 
 	u32 mask = 0xffffffff;
-	EFC_Visible vis = RImplementation.ViewBase.testSphere(L->spatial.sphere.P, L->spatial.sphere.R * 1.01f, mask);
+	EFC_Visible vis = RImplementation.ViewBase.testSphere(L->SpatialComponent->spatial.sphere.P, L->SpatialComponent->spatial.sphere.R * 1.01f, mask);
 	if (vis != fcvFully) return;
 
 	// xform BB
 	Fbox BB;
 	Fvector rr;
-	rr.set(L->spatial.sphere.R, L->spatial.sphere.R, L->spatial.sphere.R);
-	BB.setb(L->spatial.sphere.P, rr);
+	rr.set(L->SpatialComponent->spatial.sphere.R, L->SpatialComponent->spatial.sphere.R, L->SpatialComponent->spatial.sphere.R);
+	BB.setb(L->SpatialComponent->spatial.sphere.P, rr);
 
 	Fbox bbp;
 	bbp.invalidate();
@@ -79,13 +79,13 @@ BOOL CRenderTarget::enable_scissor(light* L) // true if intersects near plane
 		Fplane P;
 		P.n.set(plane.x, plane.y, plane.z);
 		P.d = plane.w;
-		float p_dist = P.classify(L->spatial.sphere.P) - L->spatial.sphere.R;
+		float p_dist = P.classify(L->SpatialComponent->spatial.sphere.P) - L->SpatialComponent->spatial.sphere.R;
 		near_intersect = (p_dist <= 0);
 	}
 #ifdef DEBUG
 	if (1)
 	{
-		Fsphere		S;	S.set	(L->spatial.sphere.P,L->spatial.sphere.R);
+		Fsphere		S;	S.set	(L->SpatialComponent->spatial.sphere.P,L->SpatialComponent->spatial.sphere.R);
 		dbg_spheres.push_back	(mk_pair(S,L->color));
 	}
 #endif
@@ -148,7 +148,7 @@ BOOL CRenderTarget::enable_scissor(light* L) // true if intersects near plane
 			//CHK_DX		(HW.pDevice->SetScissorRect(&R));
 		} else {
 			// __asm int 3;
-			RCache.set_Scissor(nullptr);
+			RCache.set_Scissor(NULL);
 		}
 	}
 

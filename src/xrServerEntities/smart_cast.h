@@ -2,349 +2,313 @@
 
 #include <fast_dynamic_cast/fast_dynamic_cast.hpp>
 
-#define smart_cast fast_dynamic_cast
+// demonized: smart_cast with specializations modern c++ way
+// Fallback uses fast_dynamic_cast library
 
-// Original code
+// Helper to detect if a type has a dedicated cast method
+// Specializations will be provided for known dcast methods
+template<typename _To, typename _From, typename = void>
+struct has_dcast : std::false_type {};
 
-////////////////////////////////////////////////////////////////////////////
-//	Module 		: smart_cast.h
-//	Created 	: 17.09.2004
-//  Modified 	: 17.09.2004
-//	Author		: Dmitriy Iassenev
-//	Description : Smart dynamic cast
-////////////////////////////////////////////////////////////////////////////
+#define DECLARE_SPECIALIZATION(TO, FROM, METHOD) \
+template<> struct has_dcast<TO*, FROM*> : std::true_type { \
+    static_assert(std::is_convertible_v<decltype(std::declval<FROM*>()->METHOD()), TO*>, \
+        "Specialization Error: " #METHOD " does not return " #TO "*"); \
+    static TO* cast(FROM* ptr) { return ptr ? ptr->METHOD() : nullptr; } \
+};
 
-//#ifndef SMART_CAST_H
-//#define SMART_CAST_H
-//
-//#ifdef DEBUG
-//#	define PURE_DYNAMIC_CAST
-//#endif // DEBUG
-//
-//#ifdef PURE_DYNAMIC_CAST
-//#	define smart_cast dynamic_cast
-//#else
-//#define  TL_FAST_COMPILATION
-//#undef   STATIC_CHECK
-//#include <loki/Typelist.h>
-//#	define PURE_DYNAMIC_CAST_COMPATIBILITY_CHECK
-//
-//#	ifdef DEBUG
-////#		define SMART_CAST_STATS_ALL
-//#	endif
-//
-//#	ifndef DECLARE_SPECIALIZATION
-//#		include "smart_cast_impl0.h"
-//#	else
-//#		include "smart_cast_impl2.h"
-//#		define DO_NOT_DECLARE_TYPE_LIST
-//#	endif
-//
-//#	ifdef XRGAME_EXPORTS
-//
-//DECLARE_SPECIALIZATION(IKinematics, IRenderVisual, dcast_PKinematics);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IKinematics,		IRenderVisual)
-//
-//DECLARE_SPECIALIZATION(IKinematicsAnimated, IRenderVisual, dcast_PKinematicsAnimated);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IKinematicsAnimated,	IRenderVisual)
-//
-//DECLARE_SPECIALIZATION(IParticleCustom, IRenderVisual, dcast_ParticleCustom);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IParticleCustom,	IRenderVisual)
-//
-//DECLARE_SPECIALIZATION(IKinematics, IKinematicsAnimated, dcast_PKinematics);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IKinematics,		IKinematicsAnimated)
-//
-//DECLARE_SPECIALIZATION(IKinematicsAnimated, IKinematics, dcast_PKinematicsAnimated);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IKinematicsAnimated,	IKinematics)
-//
-//DECLARE_SPECIALIZATION(IRenderVisual, IKinematicsAnimated, dcast_RenderVisual);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IRenderVisual,		IKinematicsAnimated)
-//
-//DECLARE_SPECIALIZATION(IRenderVisual, IKinematics, dcast_RenderVisual);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IRenderVisual,		IKinematics)
-//
-//#		ifndef DO_NOT_DECLARE_TYPE_LIST
-//class ENGINE_API ISpatial;
-//
-//namespace Feel
-//{
-//	class ENGINE_API Sound;
-//}
-//
-//typedef Feel::Sound Feel__Sound;
-//template <>
-//extern
-//Feel::Sound* SmartDynamicCast::smart_cast<Feel::Sound, ISpatial>(ISpatial* p);
-//add_to_cast_list(Feel__Sound, ISpatial);
-//#			undef cast_type_list
-//#			define cast_type_list save_cast_list	(Feel__Sound,		ISpatial)
-//#		endif
-//
-//DECLARE_SPECIALIZATION(IRenderable, ISpatial, dcast_Renderable);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IRenderable,		ISpatial)
-//
-//DECLARE_SPECIALIZATION(IRender_Light, ISpatial, dcast_Light);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IRender_Light,		ISpatial)
-//
-//DECLARE_SPECIALIZATION(CObject, ISpatial, dcast_CObject);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CObject,			ISpatial)
-//
-//#		ifndef DO_NOT_DECLARE_TYPE_LIST
-//class CObject;
-//class CGameObject;
-//add_to_cast_list(CGameObject, CObject);
-//#			undef cast_type_list
-//#			define cast_type_list save_cast_list	(CGameObject,		CObject)
-//#		endif
-//
-//DECLARE_SPECIALIZATION(CEntity, CGameObject, cast_entity);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CEntity,			CGameObject)
-//
-//DECLARE_SPECIALIZATION(CEntityAlive, CGameObject, cast_entity_alive);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CEntityAlive,		CGameObject)
-//
-//DECLARE_SPECIALIZATION(CInventoryItem, CGameObject, cast_inventory_item);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CInventoryItem,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CInventoryOwner, CGameObject, cast_inventory_owner);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CInventoryOwner,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CActor, CGameObject, cast_actor);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CActor,			CGameObject)
-//
-//DECLARE_SPECIALIZATION(CGameObject, CInventoryOwner, cast_game_object);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CGameObject,		CInventoryOwner)
-//
-//DECLARE_SPECIALIZATION(CWeapon, CInventoryItem, cast_weapon);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CWeapon,			CInventoryItem)
-//
-//DECLARE_SPECIALIZATION(CWeapon, CGameObject, cast_weapon);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CWeapon,			CGameObject)
-//
-//DECLARE_SPECIALIZATION(CFoodItem, CInventoryItem, cast_food_item);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CFoodItem,			CInventoryItem)
-//
-//DECLARE_SPECIALIZATION(CMissile, CInventoryItem, cast_missile);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CMissile,			CInventoryItem)
-//
-//DECLARE_SPECIALIZATION(CFlashlight, CInventoryItem, cast_flashlight);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CFlashlight,		CInventoryItem)
-//
-//DECLARE_SPECIALIZATION(CCustomZone, CGameObject, cast_custom_zone);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CCustomZone,		CGameObject)
-//
-//DECLARE_SPECIALIZATION(CWeaponMagazined, CWeapon, cast_weapon_magazined);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CWeaponMagazined,	CWeapon)
-//
-//DECLARE_SPECIALIZATION(CHudItem, CInventoryItem, cast_hud_item);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CHudItem,			CInventoryItem)
-//
-//DECLARE_SPECIALIZATION(CPhysicsShellHolder, CGameObject, cast_physics_shell_holder);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CPhysicsShellHolder,CGameObject)
-//
-//DECLARE_SPECIALIZATION(IInputReceiver, CGameObject, cast_input_receiver);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(IInputReceiver,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CWeaponAmmo, CInventoryItem, cast_weapon_ammo);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CWeaponAmmo,		CInventoryItem)
-///*
-//		DECLARE_SPECIALIZATION	(CCameraShotEffector, CCameraEffector,		cast_effector_shot);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CCameraShotEffector,		CCameraEffector)
-//
-//		DECLARE_SPECIALIZATION	(CEffectorZoomInertion,	CCameraEffector,	cast_effector_zoom_inertion);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CEffectorZoomInertion,	CCameraEffector)
-//*/
-//DECLARE_SPECIALIZATION(CParticlesPlayer, CGameObject, cast_particles_player);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CParticlesPlayer,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CArtefact, CGameObject, cast_artefact);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CArtefact,			CGameObject)
-//
-//DECLARE_SPECIALIZATION(CCustomMonster, CGameObject, cast_custom_monster);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CCustomMonster,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CAI_Stalker, CGameObject, cast_stalker);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CAI_Stalker,		CGameObject)
-//
-//DECLARE_SPECIALIZATION(CScriptEntity, CGameObject, cast_script_entity);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CScriptEntity,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CSpaceRestrictor, CGameObject, cast_restrictor);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CSpaceRestrictor,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CExplosive, CGameObject, cast_explosive);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CExplosive,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CGameObject, CAttachmentOwner, cast_game_object);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CGameObject,	CAttachmentOwner)
-//
-//DECLARE_SPECIALIZATION(CGameObject, CInventoryItem, cast_game_object);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CGameObject,	CInventoryItem)
-//
-//DECLARE_SPECIALIZATION(CAttachableItem, CGameObject, cast_attachable_item);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CAttachableItem,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CHolderCustom, CGameObject, cast_holder_custom);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CHolderCustom,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CAttachmentOwner, CGameObject, cast_attachment_owner);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CAttachmentOwner,	CGameObject)
-//
-//DECLARE_SPECIALIZATION(CEatableItem, CInventoryItem, cast_eatable_item);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CEatableItem,		CInventoryItem)
-//
-//DECLARE_SPECIALIZATION(CBaseMonster, CGameObject, cast_base_monster);
-//#		undef cast_type_list
-//#		define cast_type_list save_cast_list	(CBaseMonster,		CGameObject)
-//
-//#	endif
-//
-//DECLARE_SPECIALIZATION(CSE_Abstract, CSE_ALifeInventoryItem, cast_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_Abstract,		CSE_ALifeInventoryItem)
-//
-//DECLARE_SPECIALIZATION(CSE_Abstract, CSE_ALifeTraderAbstract, cast_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_Abstract,		CSE_ALifeTraderAbstract)
-//
-//DECLARE_SPECIALIZATION(CSE_Abstract, CSE_ALifeGroupAbstract, cast_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_Abstract, CSE_ALifeGroupAbstract)
-//
-//DECLARE_SPECIALIZATION(CSE_Abstract, CSE_ALifeSchedulable, cast_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_Abstract,	CSE_ALifeSchedulable)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeGroupAbstract, CSE_Abstract, cast_group_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeGroupAbstract, CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeSchedulable, CSE_Abstract, cast_schedulable);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeSchedulable,	 CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeInventoryItem, CSE_Abstract, cast_inventory_item);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeInventoryItem,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeTraderAbstract, CSE_Abstract, cast_trader_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeTraderAbstract,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_Visual, CSE_Abstract, visual);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_Visual,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_Motion, CSE_Abstract, motion);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_Motion,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(ISE_Shape, CSE_Abstract, shape);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(ISE_Shape,		CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_Abstract, CSE_PHSkeleton, cast_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_Abstract,	CSE_PHSkeleton)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeObject, CSE_Abstract, cast_alife_object);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeObject,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeDynamicObject, CSE_Abstract, cast_alife_dynamic_object);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeDynamicObject,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeItemAmmo, CSE_Abstract, cast_item_ammo);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeItemAmmo, CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeItemWeapon, CSE_Abstract, cast_item_weapon);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeItemWeapon, CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeItemDetector, CSE_Abstract, cast_item_detector);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeItemDetector, CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeMonsterAbstract, CSE_Abstract, cast_monster_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeMonsterAbstract,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeHumanAbstract, CSE_Abstract, cast_human_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeHumanAbstract,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeAnomalousZone, CSE_Abstract, cast_anomalous_zone);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeAnomalousZone,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeTrader, CSE_Abstract, cast_trader);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeTrader,			CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeCreatureAbstract, CSE_Abstract, cast_creature_abstract);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeCreatureAbstract,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeSmartZone, CSE_Abstract, cast_smart_zone);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeSmartZone,		CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeOnlineOfflineGroup, CSE_Abstract, cast_online_offline_group);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeOnlineOfflineGroup,	CSE_Abstract)
-//
-//DECLARE_SPECIALIZATION(CSE_ALifeItemPDA, CSE_Abstract, cast_item_pda);
-//#	undef cast_type_list
-//#	define cast_type_list save_cast_list	(CSE_ALifeItemPDA,			CSE_Abstract)
-//
-//#	ifndef DO_NOT_DECLARE_TYPE_LIST
-//#		include "smart_cast_impl1.h"
-//#	endif
-//#endif
-//
-//#endif //SMART_CAST_H
+#include "../include/xrRender/RenderVisual.h"
+#include "../include/xrRender/Kinematics.h"
+#include "../include/xrRender/KinematicsAnimated.h"
+#include "../include/xrRender/ParticleCustom.h"
 
+DECLARE_SPECIALIZATION(IKinematics, IRenderVisual, dcast_PKinematics)
+DECLARE_SPECIALIZATION(IKinematicsAnimated, IRenderVisual, dcast_PKinematicsAnimated)
+DECLARE_SPECIALIZATION(IKinematics, IKinematicsAnimated, dcast_PKinematics)
+DECLARE_SPECIALIZATION(IKinematicsAnimated, IKinematics, dcast_PKinematicsAnimated)
+DECLARE_SPECIALIZATION(IRenderVisual, IKinematics, dcast_RenderVisual)
+DECLARE_SPECIALIZATION(IRenderVisual, IKinematicsAnimated, dcast_RenderVisual)
+DECLARE_SPECIALIZATION(IParticleCustom, IRenderVisual, dcast_ParticleCustom)
+
+// Project-specific specializations
+#ifdef XRGAME_EXPORTS
+#include "../xrGame/GameObject.h"
+#include "../xrGame/InventoryOwner.h"
+#include "../xrGame/inventory_item.h"
+#include "../xrGame/Weapon.h"
+#include "../xrGame/WeaponStatMgun.h"
+#include "../xrGame/CustomRocket.h"
+#include "xrServer_Objects_ALife.h"
+#include "xrServer_Objects_ALife_Monsters.h"
+
+class CObject;
+class CGameObject;
+class CEntity;
+class CEntityAlive;
+class CInventoryItem;
+class CInventoryOwner;
+class CHudItem;
+class CFoodItem;
+class CWeapon;
+class CWeaponMagazined;
+class CWeaponAmmo;
+class CSE_ALifeTraderAbstract;
+class CWeaponStatMgun;
+class CHangingLamp;
+class CCustomRocket;
+
+// Original specializations
+DECLARE_SPECIALIZATION(IRenderable, ISpatial, dcast_Renderable)
+DECLARE_SPECIALIZATION(IRender_Light, ISpatial, dcast_Light)
+DECLARE_SPECIALIZATION(CObject, ISpatial, dcast_CObject)
+DECLARE_SPECIALIZATION(Feel::Sound, ISpatial, dcast_FeelSound)
+DECLARE_SPECIALIZATION(CEntity, CGameObject, cast_entity)
+DECLARE_SPECIALIZATION(CEntityAlive, CGameObject, cast_entity_alive)
+DECLARE_SPECIALIZATION(CInventoryItem, CGameObject, cast_inventory_item)
+DECLARE_SPECIALIZATION(CInventoryOwner, CGameObject, cast_inventory_owner)
+DECLARE_SPECIALIZATION(CActor, CGameObject, cast_actor)
+DECLARE_SPECIALIZATION(CGameObject, CInventoryOwner, cast_game_object)
+DECLARE_SPECIALIZATION(CWeapon, CInventoryItem, cast_weapon)
+DECLARE_SPECIALIZATION(CWeapon, CGameObject, cast_weapon)
+DECLARE_SPECIALIZATION(CFoodItem, CInventoryItem, cast_food_item)
+DECLARE_SPECIALIZATION(CMissile, CInventoryItem, cast_missile)
+DECLARE_SPECIALIZATION(CFlashlight, CInventoryItem, cast_flashlight)
+DECLARE_SPECIALIZATION(CCustomZone, CGameObject, cast_custom_zone)
+DECLARE_SPECIALIZATION(CWeaponMagazined, CWeapon, cast_weapon_magazined)
+DECLARE_SPECIALIZATION(CHudItem, CInventoryItem, cast_hud_item)
+DECLARE_SPECIALIZATION(CPhysicsShellHolder, CGameObject, cast_physics_shell_holder)
+DECLARE_SPECIALIZATION(IInputReceiver, CGameObject, cast_input_receiver)
+DECLARE_SPECIALIZATION(CWeaponAmmo, CInventoryItem, cast_weapon_ammo)
+DECLARE_SPECIALIZATION(CParticlesPlayer, CGameObject, cast_particles_player)
+DECLARE_SPECIALIZATION(CArtefact, CGameObject, cast_artefact)
+DECLARE_SPECIALIZATION(CCustomMonster, CGameObject, cast_custom_monster)
+DECLARE_SPECIALIZATION(CAI_Stalker, CGameObject, cast_stalker)
+DECLARE_SPECIALIZATION(CScriptEntity, CGameObject, cast_script_entity)
+DECLARE_SPECIALIZATION(CSpaceRestrictor, CGameObject, cast_restrictor)
+DECLARE_SPECIALIZATION(CExplosive, CGameObject, cast_explosive)
+DECLARE_SPECIALIZATION(CGameObject, CAttachmentOwner, cast_game_object)
+DECLARE_SPECIALIZATION(CGameObject, CInventoryItem, cast_game_object)
+DECLARE_SPECIALIZATION(CAttachableItem, CGameObject, cast_attachable_item)
+DECLARE_SPECIALIZATION(CHolderCustom, CGameObject, cast_holder_custom)
+DECLARE_SPECIALIZATION(CAttachmentOwner, CGameObject, cast_attachment_owner)
+DECLARE_SPECIALIZATION(CEatableItem, CInventoryItem, cast_eatable_item)
+DECLARE_SPECIALIZATION(CBaseMonster, CGameObject, cast_base_monster)
+DECLARE_SPECIALIZATION(CSE_Abstract, CSE_ALifeInventoryItem, cast_abstract)
+DECLARE_SPECIALIZATION(CSE_Abstract, CSE_ALifeTraderAbstract, cast_abstract)
+DECLARE_SPECIALIZATION(CSE_Abstract, CSE_ALifeGroupAbstract, cast_abstract)
+DECLARE_SPECIALIZATION(CSE_Abstract, CSE_ALifeSchedulable, cast_abstract)
+DECLARE_SPECIALIZATION(CSE_ALifeGroupAbstract, CSE_Abstract, cast_group_abstract)
+DECLARE_SPECIALIZATION(CSE_ALifeSchedulable, CSE_Abstract, cast_schedulable)
+DECLARE_SPECIALIZATION(CSE_ALifeInventoryItem, CSE_Abstract, cast_inventory_item)
+DECLARE_SPECIALIZATION(CSE_ALifeTraderAbstract, CSE_Abstract, cast_trader_abstract)
+DECLARE_SPECIALIZATION(CSE_Visual, CSE_Abstract, visual)
+DECLARE_SPECIALIZATION(CSE_Motion, CSE_Abstract, motion)
+DECLARE_SPECIALIZATION(ISE_Shape, CSE_Abstract, shape)
+DECLARE_SPECIALIZATION(CSE_Abstract, CSE_PHSkeleton, cast_abstract)
+DECLARE_SPECIALIZATION(CSE_ALifeObject, CSE_Abstract, cast_alife_object)
+DECLARE_SPECIALIZATION(CSE_ALifeDynamicObject, CSE_Abstract, cast_alife_dynamic_object)
+DECLARE_SPECIALIZATION(CSE_ALifeItemAmmo, CSE_Abstract, cast_item_ammo)
+DECLARE_SPECIALIZATION(CSE_ALifeItemWeapon, CSE_Abstract, cast_item_weapon)
+DECLARE_SPECIALIZATION(CSE_ALifeItemDetector, CSE_Abstract, cast_item_detector)
+DECLARE_SPECIALIZATION(CSE_ALifeMonsterAbstract, CSE_Abstract, cast_monster_abstract)
+DECLARE_SPECIALIZATION(CSE_ALifeHumanAbstract, CSE_Abstract, cast_human_abstract)
+DECLARE_SPECIALIZATION(CSE_ALifeAnomalousZone, CSE_Abstract, cast_anomalous_zone)
+DECLARE_SPECIALIZATION(CSE_ALifeTrader, CSE_Abstract, cast_trader)
+DECLARE_SPECIALIZATION(CSE_ALifeCreatureAbstract, CSE_Abstract, cast_creature_abstract)
+DECLARE_SPECIALIZATION(CSE_ALifeSmartZone, CSE_Abstract, cast_smart_zone)
+DECLARE_SPECIALIZATION(CSE_ALifeOnlineOfflineGroup, CSE_Abstract, cast_online_offline_group)
+DECLARE_SPECIALIZATION(CSE_ALifeItemPDA, CSE_Abstract, cast_item_pda)
+
+template<> 
+struct has_dcast<CGameObject*, CObject*> : std::true_type {
+    static CGameObject* cast(CObject* ptr) {
+		return static_cast<CGameObject*>(ptr);
+    } 
+};
+
+// Additional specializations
+DECLARE_SPECIALIZATION(CGrenade, CInventoryItem, cast_grenade)
+DECLARE_SPECIALIZATION(CCustomOutfit, CInventoryItem, cast_outfit)
+DECLARE_SPECIALIZATION(CArtefact, CInventoryItem, cast_artefact)
+DECLARE_SPECIALIZATION(CHelmet, CInventoryItem, cast_helmet)
+DECLARE_SPECIALIZATION(CTorch, CInventoryItem, cast_torch)
+DECLARE_SPECIALIZATION(CAttachableItem, CInventoryItem, cast_attachable_item)
+DECLARE_SPECIALIZATION(CPda, CInventoryItem, cast_pda)
+DECLARE_SPECIALIZATION(CCustomDevice, CInventoryItem, cast_custom_device)
+DECLARE_SPECIALIZATION(CCustomDetector, CInventoryItem, cast_custom_detector)
+DECLARE_SPECIALIZATION(CFlare, CInventoryItem, cast_flare)
+DECLARE_SPECIALIZATION(CWeaponMagazined, CInventoryItem, cast_weapon_magazined)
+DECLARE_SPECIALIZATION(CWeaponKnife, CInventoryItem, cast_weapon_knife)
+DECLARE_SPECIALIZATION(CWeaponBinoculars, CInventoryItem, cast_weapon_binoculars)
+DECLARE_SPECIALIZATION(CWeaponMagazinedWGrenade, CInventoryItem, cast_weapon_magazined_w_grenade)
+DECLARE_SPECIALIZATION(CWeaponBM16, CInventoryItem, cast_weapon_bm16)
+DECLARE_SPECIALIZATION(CWeaponRG6, CInventoryItem, cast_weapon_rg6)
+DECLARE_SPECIALIZATION(CWeaponRPG7, CInventoryItem, cast_weapon_rpg7)
+DECLARE_SPECIALIZATION(CBolt, CInventoryItem, cast_bolt)
+DECLARE_SPECIALIZATION(CSilencer, CInventoryItem, cast_addon_silencer)
+DECLARE_SPECIALIZATION(CScope, CInventoryItem, cast_addon_scope)
+DECLARE_SPECIALIZATION(CGrenadeLauncher, CInventoryItem, cast_addon_grenade_launcher)
+
+DECLARE_SPECIALIZATION(CEntityAlive, CInventoryOwner, cast_entity_alive)
+DECLARE_SPECIALIZATION(CActor, CInventoryOwner, cast_actor)
+
+DECLARE_SPECIALIZATION(CInventoryOwner, CEntityAlive, cast_inventory_owner)
+
+DECLARE_SPECIALIZATION(CWeaponKnife, CWeapon, cast_weapon_knife)
+DECLARE_SPECIALIZATION(CWeaponBinoculars, CWeapon, cast_weapon_binoculars)
+DECLARE_SPECIALIZATION(CWeaponMagazinedWGrenade, CWeapon, cast_weapon_magazined_w_grenade)
+DECLARE_SPECIALIZATION(CWeaponBM16, CWeapon, cast_weapon_bm16)
+DECLARE_SPECIALIZATION(CWeaponRG6, CWeapon, cast_weapon_rg6)
+DECLARE_SPECIALIZATION(CWeaponRPG7, CWeapon, cast_weapon_rpg7)
+
+DECLARE_SPECIALIZATION(CGameObject, CActor, cast_game_object)
+
+DECLARE_SPECIALIZATION(CWeaponStatMgun, CHolderCustom, cast_weapon_stat_mgun)
+DECLARE_SPECIALIZATION(CCar, CHolderCustom, cast_car)
+DECLARE_SPECIALIZATION(CGameObject, CHolderCustom, cast_game_object)
+
+DECLARE_SPECIALIZATION(CHolderCustom, CObject, cast_holder_custom)
+DECLARE_SPECIALIZATION(CPhysicsShellHolder, CObject, cast_physics_shell_holder)
+DECLARE_SPECIALIZATION(CActor, CObject, cast_actor)
+DECLARE_SPECIALIZATION(CInventoryOwner, CObject, cast_inventory_owner)
+DECLARE_SPECIALIZATION(CCar, CObject, cast_car)
+DECLARE_SPECIALIZATION(CSpectator, CObject, cast_spectator)
+
+DECLARE_SPECIALIZATION(CHolderCustom, CPhysicsShellHolder, cast_holder_custom)
+DECLARE_SPECIALIZATION(CExplosiveRocket, CPhysicsShellHolder, cast_explosive_rocket)
+DECLARE_SPECIALIZATION(CGrenade, CPhysicsShellHolder, cast_grenade)
+
+DECLARE_SPECIALIZATION(CInventoryBox, CGameObject, cast_inventory_box)
+DECLARE_SPECIALIZATION(CHangingLamp, CGameObject, cast_hanging_lamp)
+DECLARE_SPECIALIZATION(CHelicopter, CGameObject, cast_helicopter)
+DECLARE_SPECIALIZATION(CPhantom, CGameObject, cast_phantom)
+DECLARE_SPECIALIZATION(CScriptZone, CGameObject, cast_script_zone)
+DECLARE_SPECIALIZATION(CHudItem, CGameObject, cast_hud_item)
+DECLARE_SPECIALIZATION(CLevelChanger, CGameObject, cast_level_changer)
+DECLARE_SPECIALIZATION(CPhysicObject, CGameObject, cast_physics_object)
+DECLARE_SPECIALIZATION(CPda, CGameObject, cast_pda)
+DECLARE_SPECIALIZATION(CCustomDevice, CGameObject, cast_custom_device)
+DECLARE_SPECIALIZATION(CWeaponAmmo, CGameObject, cast_weapon_ammo)
+DECLARE_SPECIALIZATION(CUsableScriptObject, CGameObject, cast_usable_script_object)
+DECLARE_SPECIALIZATION(CProjector, CGameObject, cast_projector)
+DECLARE_SPECIALIZATION(CAI_Trader, CGameObject, cast_trader)
+
+DECLARE_SPECIALIZATION(CBolt, CMissile, cast_bolt)
+DECLARE_SPECIALIZATION(CGrenade, CMissile, cast_grenade)
+
+DECLARE_SPECIALIZATION(CExplosiveRocket, CCustomRocket, cast_explosive_rocket)
+
+#endif
+
+#ifdef XRPHYSICS_EXPORTS
+#include "../xrCDB/ISpatial.h"
+
+DECLARE_SPECIALIZATION(IRenderable, ISpatial, dcast_Renderable)
+DECLARE_SPECIALIZATION(IRender_Light, ISpatial, dcast_Light)
+DECLARE_SPECIALIZATION(CObject, ISpatial, dcast_CObject)
+#endif
+
+#if defined(XRRENDER_R1_EXPORTS) || defined(XRRENDER_R2_EXPORTS) || defined(XRRENDER_R3_EXPORTS) || defined(XRRENDER_R4_EXPORTS)
+#include "../xrCDB/ISpatial.h"
+
+DECLARE_SPECIALIZATION(IRenderable, ISpatial, dcast_Renderable)
+DECLARE_SPECIALIZATION(IRender_Light, ISpatial, dcast_Light)
+DECLARE_SPECIALIZATION(CObject, ISpatial, dcast_CObject)
+#endif
+
+#undef DECLARE_SPECIALIZATION
+
+template < typename _Ty >
+using clean_type_t = typename std::remove_cv_t<std::remove_reference_t<std::remove_pointer_t< _Ty >>>;
+
+template <typename T, typename = void>
+struct is_smart_ptr : std::false_type {};
+
+template <typename T>
+struct is_smart_ptr<intrusive_ptr<T>> : std::true_type {};
+
+template <typename T>
+struct is_smart_ptr<xr_shared_ptr<T>> : std::true_type {};
+
+template <typename T>
+struct is_smart_ptr<xr_unique_ptr<T>> : std::true_type {};
+
+// Helper variable template
+template <typename T>
+inline constexpr bool is_smart_ptr_v = is_smart_ptr<std::remove_cv_t<std::remove_reference_t<T>>>::value;
+
+#pragma warning(push)
+#pragma warning(disable : 4702)
+template < typename _To, typename _From >
+__forceinline _To smart_cast(_From* ptr)
+{
+    // Try dedicated cast function if available
+    if constexpr (has_dcast<_To, _From*>::value)
+        return has_dcast<_To, _From*>::cast(ptr);
+    else
+	    return fast_dynamic_cast<_To>(ptr);
+};
+#pragma warning(pop)
+
+// const T*
+template < typename _To, typename _From >
+__forceinline const _To smart_cast(const _From* ptr)
+{
+    _From* nonconst_ptr = const_cast<_From*>(ptr);
+    _To casted_ptr = smart_cast<_To>(nonconst_ptr);
+    return const_cast<const _To>(casted_ptr);
+};
+
+// T&
+template < typename _To, typename _From, typename = std::enable_if_t<!std::is_same<clean_type_t<_To>, clean_type_t<_From&>>::value>>
+__forceinline _To smart_cast(_From& ref)
+{
+    using _ToPtr = std::add_pointer_t<std::remove_reference_t<_To>>;
+    if constexpr (is_smart_ptr_v<_From>)
+    {
+        auto casted_ptr = smart_cast<_ToPtr>(ref.get());
+        if (!casted_ptr) throw std::bad_cast{};
+        return *casted_ptr;
+    }
+    else // It's just a regular object/engine-class
+    {
+        auto casted_ptr = smart_cast<_ToPtr>(&ref);
+        if (!casted_ptr) throw std::bad_cast{};
+        return *casted_ptr;
+    }
+};
+
+// const T&
+template < typename _To, typename _From, typename = std::enable_if_t<!std::is_same<clean_type_t<_To>, clean_type_t<_From&>>::value>>
+__forceinline _To smart_cast(const _From& ref)
+{
+    using _ToPtr = std::add_pointer_t<std::remove_reference_t<_To>>;
+    if constexpr (is_smart_ptr_v<_From>)
+    {
+        auto casted_ptr = smart_cast<_ToPtr>(const_cast<_From*>(ref.get()));
+        if (!casted_ptr) throw std::bad_cast{};
+        return *casted_ptr;
+    }
+    else // It's just a regular object/engine-class
+    {
+        auto casted_ptr = smart_cast<_ToPtr>(const_cast<_From*>(&ref));
+        if (!casted_ptr) throw std::bad_cast{};
+        return *casted_ptr;
+    }
+};
+
+// intrusive_ptr -> intrusive_ptr
+template <typename _To, typename _From>
+__forceinline intrusive_ptr<_To> smart_cast(intrusive_ptr<_From>& ptr)
+{
+    return intrusive_ptr<_To>(smart_cast<_To*>(ptr.get()));
+}
+template <typename _To, typename _From>
+__forceinline intrusive_ptr<_To> smart_cast(const intrusive_ptr<_From>& ptr)
+{
+    return intrusive_ptr<_To>(smart_cast<_To*>(ptr.get()));
+}
+
+// T -> T
+template < typename _To >
+__forceinline _To smart_cast(_To ptr) { return ptr; }

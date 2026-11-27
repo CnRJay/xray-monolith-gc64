@@ -63,64 +63,26 @@ MODEL::~MODEL()
 	verts_count = 0;
 }
 
-struct BTHREAD_params
-{
-	MODEL* M;
-	Fvector* V;
-	int Vcnt;
-	TRI* T;
-	int Tcnt;
-	build_callback* BC;
-	void* BCP;
-};
-
-void MODEL::build_thread(void* params)
-{
-	PROF_EVENT();
-
-	_initialize_cpu_thread();
-	FPU::m64r();
-	BTHREAD_params P = *((BTHREAD_params*)params);
-	P.M->cs.Enter();
-	P.M->build_internal(P.V, P.Vcnt, P.T, P.Tcnt, P.BC, P.BCP);
-	P.M->status = S_READY;
-	P.M->cs.Leave();
-	//Msg						("* xrCDB: cform build completed, memory usage: %d K",P.M->memory()/1024);
-}
-
 void MODEL::build(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callback* bc, void* bcp)
 {
-	R_ASSERT(S_INIT == status);
-	R_ASSERT((Vcnt>=4)&&(Tcnt>=2));
-
-	_initialize_cpu_thread();
-#ifdef _EDITOR
-	build_internal				(V,Vcnt,T,Tcnt,bc,bcp);
-#else
-	if (!strstr(Core.Params, "-mt_cdb"))
-	{
-		build_internal(V, Vcnt, T, Tcnt, bc, bcp);
-		status = S_READY;
-	}
-	else
-	{
-		BTHREAD_params P = {this, V, Vcnt, T, Tcnt, bc, bcp};
-		thread_spawn(build_thread, "CDB-construction", 0, &P);
-		while (S_INIT == status)
-		{
-			if (status != S_INIT)
-				break;
-			Sleep(5);
-		}
-	}
-#endif
+	build_internal(V, Vcnt, T, Tcnt, bc, bcp);
 }
 
 void MODEL::build_internal(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callback* bc, void* bcp)
 {
-	PROF_EVENT();
+	build_arrays(V, Vcnt, T, Tcnt, bc, bcp);
+	build_tree();
+}
+
+void MODEL::build_arrays(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callback* bc, void* bcp)
+{
+	PROF_EVENT(PROF_CAT(Physics));
+
+	R_ASSERT(S_INIT == status);
+	R_ASSERT((Vcnt>=4)&&(Tcnt>=2));
 
 	// verts
+	status = S_BUILD;
 	verts_count = Vcnt;
 	verts = CALLOC(Fvector, verts_count);
 	CopyMemory(verts, V, verts_count*sizeof(Fvector));
@@ -132,18 +94,16 @@ void MODEL::build_internal(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callbac
 
 	// callback
 	if (bc) bc(verts, Vcnt, tris, Tcnt, bcp);
+}
 
-	// Release data pointers
-	status = S_BUILD;
+void MODEL::build_tree()
+{
+	PROF_EVENT(PROF_CAT(Physics));
 
 	// Allocate temporary "OPCODE" tris + convert tris to 'pointer' form
 	u32* temp_tris = CALLOC(u32, tris_count*3);
 	if (0 == temp_tris)
-	{
-		CFREE(verts);
-		CFREE(tris);
 		return;
-	}
 	u32* temp_ptr = temp_tris;
 	for (int i = 0; i < tris_count; i++)
 	{
@@ -166,15 +126,17 @@ void MODEL::build_internal(Fvector* V, int Vcnt, TRI* T, int Tcnt, build_callbac
 	tree = CNEW(OPCODE_Model)();
 	if (!tree->Build(OPCC))
 	{
-		CFREE(verts);
-		CFREE(tris);
+		// Do not free verts/tris here. build_arrays already handed them out and
+		// callers may hold pointers into them. status stays S_BUILD, so the query
+		// paths still refuse to use the tree.
 		CFREE(temp_tris);
 		return;
 	};
 
 	// Free temporary tris
 	CFREE(temp_tris);
-	return;
+
+	status = S_READY;
 }
 
 u32 MODEL::memory()
@@ -196,6 +158,7 @@ COLLIDER::COLLIDER()
 	ray_mode = 0;
 	box_mode = 0;
 	frustum_mode = 0;
+	obb_mode = 0;
 }
 
 COLLIDER::~COLLIDER()

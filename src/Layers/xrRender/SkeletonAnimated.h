@@ -5,7 +5,6 @@
 #include		"skeletoncustom.h"
 #include		"animation.h"
 #include		"../../xrEngine/SkeletonMotions.h"
-#include		"../../xrCore/xrSyncronize.h"
 
 #include		"../../Include/xrRender/KinematicsAnimated.h"
 
@@ -17,10 +16,10 @@ public:
 	typedef svector<CBlend*, MAX_BLENDED> BlendSVec;
 	typedef BlendSVec::iterator BlendSVecIt;
 	typedef BlendSVec::const_iterator BlendSVecCIt;
+	xrSRWLock blend_lock;
 private:
 	BlendSVec Blend;
 public:
-	xrSRWLock blend_lock;
 
 	// methods
 	IC BlendSVec& blend_vector() { return Blend; }
@@ -30,9 +29,10 @@ public:
 
 	u32 mem_usage()
 	{
+		xrSRWLockGuard guard(&blend_lock, true);
 		u32 sz = sizeof(*this);
-		for (BlendSVecIt it = Blend.begin(); it != Blend.end(); it++)
-			sz += (*it)->mem_usage();
+		for (CBlend* B : Blend)
+			sz += B->mem_usage();
 		return sz;
 	}
 };
@@ -117,6 +117,7 @@ public:
 	u32 LL_PartBlendsCount(u32 bone_part_id);
 	CBlend* LL_PartBlend(u32 bone_part_id, u32 n);
 	void LL_IterateBlends(IterateBlendsCallback& callback);
+	bool LL_IsBlendInPool(const CBlend* blend) const override;
 
 	void SetUpdateTracksCalback(IUpdateTracksCallback* callback);
 	IUpdateTracksCallback* GetUpdateTracksCalback() { return m_update_tracks_callback; }
@@ -177,7 +178,8 @@ public:
 	MotionID ID_FX(LPCSTR N);
 	MotionID ID_FX_Safe(LPCSTR N);
 	CBlend* PlayFX(LPCSTR N, float power_scale);
-	CBlend* PlayFX(MotionID M, float power_scale);
+	CBlend* PlayFX(MotionID M, float power_scale) override;
+	CBlend* PlayFX_Safe (LPCSTR N, float power_scale) override;
 
 	const CPartition& partitions() const { return *m_Partition; };
 

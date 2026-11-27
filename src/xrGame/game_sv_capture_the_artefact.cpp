@@ -96,7 +96,7 @@ game_sv_CaptureTheArtefact::game_sv_CaptureTheArtefact()
 	m_dwSM_SwitchDelta = 0;
 	m_dwSM_LastSwitchTime = 0;
 	m_dwSM_CurViewEntity = 0;
-	m_pSM_CurViewEntity = nullptr;
+	m_pSM_CurViewEntity = NULL;
 }
 
 game_sv_CaptureTheArtefact::~game_sv_CaptureTheArtefact()
@@ -261,7 +261,7 @@ void game_sv_CaptureTheArtefact::SM_SwitchOnNextActivePlayer()
 	m_server->ForEachClientDo(tmp_functor);
 
 
-	CObject* pNewObject = nullptr;
+	CObject* pNewObject = NULL;
 	if (!tmp_functor.PPlayersCount)
 	{
 		xrClientData* C = (xrClientData*)m_server->GetServerClient();
@@ -600,7 +600,7 @@ void game_sv_CaptureTheArtefact::OnRoundStart()
 
 	m_dwSM_LastSwitchTime = 0;
 	m_dwSM_CurViewEntity = 0;
-	m_pSM_CurViewEntity = nullptr;
+	m_pSM_CurViewEntity = NULL;
 
 	//warmap times
 	m_dwWarmUp_CurTime = 0;
@@ -772,7 +772,7 @@ void game_sv_CaptureTheArtefact::BalanceTeams()
 
 			lowest_player_searcher()
 			{
-				LowestPlayer = nullptr;
+				LowestPlayer = NULL;
 				LowestScore = 32767;
 			}
 
@@ -2288,7 +2288,7 @@ void game_sv_CaptureTheArtefact::ActorDeliverArtefactOnBase(CSE_ActorMP* actor, 
 
 void game_sv_CaptureTheArtefact::StartNewRound()
 {
-	fastdelegate::FastDelegate1<IClient*, void> tmp_functor;
+	xr_delegate<void(IClient*)> tmp_functor;
 	tmp_functor.bind(this, &game_sv_CaptureTheArtefact::PrepareClientForNewRound);
 	m_server->ForEachClientDoSender(tmp_functor);
 	MoveLifeActors();

@@ -19,6 +19,9 @@ public:
 	//можно ли использовать объект стандартным (не скриптовым) образом
 	bool nonscript_usable();
 	void set_nonscript_usable(bool usable);
+
+	virtual CUsableScriptObject* cast_usable_script_object() {return this;}
+	virtual CGameObject* cast_game_object() { return nullptr; }
 private:
 	shared_str m_sTipText;
 	bool m_bNonscriptUsable;

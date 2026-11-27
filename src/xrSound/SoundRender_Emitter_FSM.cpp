@@ -8,7 +8,7 @@
 //#define MEASURE_PROCESSING_TIME
 
 #ifdef MEASURE_PROCESSING_TIME
-CTimer Timer;
+	CTimer Timer;
 #endif
 
 XRSOUND_API extern float psSoundCull;
@@ -17,7 +17,7 @@ inline u32 calc_cursor(const float& fTimeStarted, float& fTime, const float& fTi
 {
 	if (fTime < fTimeStarted)
 		fTime = fTimeStarted; // Андрюха посоветовал, ассерт что ниже вылетел из за паузы как то хитро
-	R_ASSERT((fTime - fTimeStarted) >= 0.0f);
+	R_ASSERT((fTime-fTimeStarted)>=0.0f);
 	while ((fTime - fTimeStarted) > fTimeTotal) //looped
 	{
 		fTime -= fTimeTotal;
@@ -28,11 +28,12 @@ inline u32 calc_cursor(const float& fTimeStarted, float& fTime, const float& fTi
 
 void CSoundRender_Emitter::update(float dt)
 {
+	PROF_EVENT("CSoundRender_Emitter::update", PROF_CAT(Audio));
 	float fTime = SoundRender->fTimer_Value;
 	float fDeltaTime = SoundRender->fTimer_Delta;
 
-	VERIFY2(!!(owner_data) || (!(owner_data) && (m_current_state == stStopped)), "owner");
-	VERIFY2(owner_data ? *(int*)(&owner_data->feedback) : 1, "owner");
+	VERIFY2(!!(owner_data) || (!(owner_data)&&(m_current_state==stStopped)), "owner");
+	VERIFY2(owner_data?*(int*)(&owner_data->feedback):1, "owner");
 
 #ifdef MEASURE_PROCESSING_TIME
 	float time1 = Timer.GetElapsed_ms_f();
@@ -46,6 +47,8 @@ void CSoundRender_Emitter::update(float dt)
 
 	if (m_current_state != stStopped && !_valid(p_source.position))
 	{
+		// release the target, the stopped emitter gets deleted this frame
+		if (target) SoundRender->i_stop(this);
 		m_current_state = stStopped;
 	}
 
@@ -57,24 +60,25 @@ void CSoundRender_Emitter::update(float dt)
 	// Don't apply delay to already delayed sounds, they are most likely already handled in respective parts of code and scripts
 	if (need_preplay_update && m_current_state < stPlaying && starting_delay == 0.f)
 	{
+		PROF_EVENT("Sound: distance delay", PROF_CAT(Audio));
 		if (_valid(p_source.position) && !p_source.position.similar(Fvector().set(0.f, 0.f, 0.f)) && owner_data && source() && source()->channels_num() == 1)
 		{
 			//Smooth Ramp Using Hermite(Smootherstep)
 			static auto CalculateSmoothSoundDelay = [](float distance, float speedOfSound, float rampStart, float rampRange)
-				{
-					if (distance <= rampStart)
-						return 0.0f;
+			{
+				if (distance <= rampStart)
+					return 0.0f;
 
-					float delay = distance / speedOfSound;
+				float delay = distance / speedOfSound;
 
-					// Ramp factor from 0 to 1 between rampStart and rampStart + rampRange
-					float t = std::clamp((distance - rampStart) / rampRange, 0.0f, 1.0f);
+				// Ramp factor from 0 to 1 between rampStart and rampStart + rampRange
+				float t = std::clamp((distance - rampStart) / rampRange, 0.0f, 1.0f);
 
-					// Smootherstep for smooth transition
-					float smoothT = t * t * t * (t * (t * 6 - 15) + 10);
+				// Smootherstep for smooth transition
+				float smoothT = t * t * t * (t * (t * 6 - 15) + 10);
 
-					return delay * smoothT;
-				};
+				return delay * smoothT;
+			};
 
 			float speedOfSound = 343.f;
 			float oldDelay = starting_delay;
@@ -92,6 +96,8 @@ void CSoundRender_Emitter::update(float dt)
 				{
 					starting_delay = delay;
 					m_current_state = m_current_state == stStarting ? stStartingDelayed : stStartingLoopedDelayed;
+					// Match explicit delays: start AI propagation from now, not from zero.
+					fTimeToPropagade = fTime;
 				}
 				else
 				{
@@ -118,21 +124,24 @@ void CSoundRender_Emitter::update(float dt)
 	case stStopped:
 		break;
 	case stStartingDelayed:
+	{
+		PROF_EVENT("Sound: delayed start", PROF_CAT(Audio));
 		if (iPaused) break;
 		starting_delay -= dt;
 		if (starting_delay <= 0)
 			m_current_state = stStarting;
 		break;
+	}
 	case stStarting:
 		if (iPaused) break;
 		fTimeStarted = fTime;
-		fTimeToStop = fTime + (get_length_sec() / psSpeedOfSound);
+		fTimeToStop = fTime + (get_length_sec() / psSpeedOfSound); 
 		fTimeToPropagade = fTime;
 		fade_volume = 1.f;
 		occluder_volume = SoundRender->get_occlusion(p_source.position, .2f, occluder);
 		smooth_volume = p_source.base_volume * p_source.volume * (owner_data->s_type == st_Effect
-			? psSoundVEffects * psSoundVFactor
-			: psSoundVMusic * psSoundVMusicFactor) * (b2D ? 1.f : occluder_volume);
+			                                                          ? psSoundVEffects * psSoundVFactor
+			                                                          : psSoundVMusic * psSoundVMusicFactor) * (b2D ? 1.f : occluder_volume);
 		if (update_culling(dt))
 		{
 			m_current_state = stPlaying;
@@ -143,11 +152,14 @@ void CSoundRender_Emitter::update(float dt)
 			m_current_state = stSimulating;
 		break;
 	case stStartingLoopedDelayed:
+	{
+		PROF_EVENT("Sound: delayed looped start", PROF_CAT(Audio));
 		if (iPaused) break;
 		starting_delay -= dt;
 		if (starting_delay <= 0)
 			m_current_state = stStartingLooped;
 		break;
+	}
 	case stStartingLooped:
 		if (iPaused) break;
 		fTimeStarted = fTime;
@@ -156,8 +168,8 @@ void CSoundRender_Emitter::update(float dt)
 		fade_volume = 1.f;
 		occluder_volume = SoundRender->get_occlusion(p_source.position, .2f, occluder);
 		smooth_volume = p_source.base_volume * p_source.volume * (owner_data->s_type == st_Effect
-			? psSoundVEffects * psSoundVFactor
-			: psSoundVMusic * psSoundVMusicFactor) * (b2D ? 1.f : occluder_volume);
+			                                                          ? psSoundVEffects * psSoundVFactor
+			                                                          : psSoundVMusic * psSoundVMusicFactor) * (b2D ? 1.f : occluder_volume);
 		if (update_culling(dt))
 		{
 			m_current_state = stPlayingLooped;
@@ -217,9 +229,9 @@ void CSoundRender_Emitter::update(float dt)
 		else
 		{
 			u32 ptr = calc_cursor(fTimeStarted,
-				fTime,
-				get_length_sec(),
-				source()->m_wformat);
+			                      fTime,
+			                      get_length_sec(),
+			                      source()->m_wformat);
 			set_cursor(ptr);
 
 			if (update_culling(dt))
@@ -227,10 +239,10 @@ void CSoundRender_Emitter::update(float dt)
 				// switch to: PLAY
 				m_current_state = stPlaying;
 				/*
-								u32 ptr						= calc_cursor(	fTimeStarted,
-																			fTime,
-																			get_length_sec(),
-																			source()->m_wformat);
+								u32 ptr						= calc_cursor(	fTimeStarted, 
+																			fTime, 
+																			get_length_sec(), 
+																			source()->m_wformat); 
 								set_cursor					(ptr);
 				*/
 				SoundRender->i_start(this);
@@ -273,9 +285,9 @@ void CSoundRender_Emitter::update(float dt)
 			// switch to: PLAY
 			m_current_state = stPlayingLooped; // switch state
 			u32 ptr = calc_cursor(fTimeStarted,
-				fTime,
-				get_length_sec(),
-				source()->m_wformat);
+			                      fTime,
+			                      get_length_sec(),
+			                      source()->m_wformat);
 			set_cursor(ptr);
 
 			SoundRender->i_start(this);
@@ -291,8 +303,8 @@ void CSoundRender_Emitter::update(float dt)
 	if (bStopping && fis_zero(fade_volume))
 		i_stop();
 
-	VERIFY2(!!(owner_data) || (!(owner_data) && (m_current_state == stStopped)), "owner");
-	VERIFY2(owner_data ? *(int*)(owner_data->feedback) : 1, "owner");
+	VERIFY2(!!(owner_data) || (!(owner_data)&&(m_current_state==stStopped)), "owner");
+	VERIFY2(owner_data?*(int*)(owner_data->feedback):1, "owner");
 
 	// footer
 	bMoved = FALSE;
@@ -303,11 +315,11 @@ void CSoundRender_Emitter::update(float dt)
 	}
 	else if (owner_data)
 	{
-		VERIFY(this == owner_data->feedback);
+		VERIFY(this==owner_data->feedback);
 		owner_data->feedback = 0;
 		owner_data = 0;
 	}
-
+	
 #ifdef MEASURE_PROCESSING_TIME
 	float time3 = Timer.GetElapsed_ms_f();
 	const char* name = "?";
@@ -338,6 +350,7 @@ IC void volume_lerp(float& c, float t, float s, float dt)
 
 BOOL CSoundRender_Emitter::update_culling(float dt)
 {
+	PROF_EVENT("CSoundRender_Emitter::update_culling", PROF_CAT(Audio));
 	float volume_att = 1.f;
 
 	if (b2D)

@@ -14,6 +14,7 @@ class CSpaceRestrictionBase;
 
 class CSpaceRestrictionBridge : public RestrictionSpace::CTimeIntrusiveBase
 {
+	friend class CSpaceRestrictionHolder;
 protected:
 	CSpaceRestrictionBase* m_object;
 

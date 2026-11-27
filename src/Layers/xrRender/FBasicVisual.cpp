@@ -28,11 +28,11 @@ dxRender_Visual::dxRender_Visual()
 	Type = 0;
 	shader = 0;
 	vis.clear();
+    dbg_id = 1;
+    skinning = 1;
 }
 
-dxRender_Visual::~dxRender_Visual()
-{
-}
+dxRender_Visual::~dxRender_Visual() {}
 
 void dxRender_Visual::Release()
 {
@@ -44,8 +44,8 @@ void dxRender_Visual::Load(const char* N, IReader* data, u32)
 {
 	dbg_name = N;
 	dbg_id = 1;
-	skinning = ::Render->m_skinning;
-    hud = ::Render->hud_loading;
+	skinning = Engine.External.GetSkinningMode();
+	hud = ::Render->hud_loading;
 
 	// header
 	VERIFY(data);
@@ -145,11 +145,11 @@ void dxRender_Visual::SetShaderTexture(LPCSTR s_shader, LPCSTR s_texture)
 		dbg_texture = s_texture;
 	}
 
-	::Render->m_skinning = skinning;
-    bool prev_hud = ::Render->hud_loading;
-    ::Render->hud_loading = hud;
-    shader.create(*dbg_shader, *dbg_texture);
-    ::Render->hud_loading = prev_hud;
+	Engine.External.SetSkinningMode(skinning);
+    	bool prev_hud = ::Render->hud_loading;
+    	::Render->hud_loading = hud;
+    	shader.create(*dbg_shader, *dbg_texture);
+    	::Render->hud_loading = prev_hud;
 }
 
 void dxRender_Visual::ResetShaderTexture()

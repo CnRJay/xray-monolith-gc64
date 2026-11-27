@@ -22,7 +22,7 @@ void dxDebugRender::Render()
 		for (auto& m_vert : m_line_vertices_hud)
 		{
 			const u32& color = m_vert.first;
-			std::vector<FVF::L>& vert_vec = m_vert.second;
+			xr_vector<FVF::L>& vert_vec = m_vert.second;
 			auto& ind_vec = m_line_indices_hud.at(color);
 
 #if defined(USE_DX10) || defined(USE_DX11)
@@ -48,7 +48,7 @@ void dxDebugRender::Render()
 	for (auto& m_vert : m_line_vertices)
 	{
 		const u32& color = m_vert.first;
-		std::vector<FVF::L>& vert_vec = m_vert.second;
+		xr_vector<FVF::L>& vert_vec = m_vert.second;
 		auto& ind_vec = m_line_indices.at(color);
 
 #if defined(USE_DX10) || defined(USE_DX11)
@@ -68,7 +68,7 @@ void dxDebugRender::add_lines(Fvector const* vertices, u32 const& vertex_count, 
 	for (auto& m_vert : m_line_vertices)
 	{
 		const u32& color = m_vert.first;
-		const std::vector<FVF::L>& vert_vec = m_vert.second;
+		const xr_vector<FVF::L>& vert_vec = m_vert.second;
 		all_verts_count += vert_vec.size();
 		all_inds_count += m_line_indices.at(color).size();
 	}
@@ -76,7 +76,7 @@ void dxDebugRender::add_lines(Fvector const* vertices, u32 const& vertex_count, 
 	for (auto& m_vert : m_line_vertices_hud)
 	{
 		const u32& color = m_vert.first;
-		const std::vector<FVF::L>& vert_vec = m_vert.second;
+		const xr_vector<FVF::L>& vert_vec = m_vert.second;
 		all_verts_count += vert_vec.size();
 		all_inds_count += m_line_indices_hud.at(color).size();
 	}

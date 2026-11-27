@@ -133,7 +133,7 @@ public:
 	virtual float evaluate(const CItemManager* manager, const CGameObject* object) const;
 
 	virtual void OnEvent(NET_Packet& P, u16 type);
-	virtual void OnHUDDraw(CCustomHUD* hud) { return inherited::OnHUDDraw(hud); }
+	virtual void OnHUDDraw(CCustomHUD* hud, IDSGraphManager* DM) { return inherited::OnHUDDraw(hud, DM); }
 	virtual u16 PHGetSyncItemsNumber() { return inherited::PHGetSyncItemsNumber(); }
 	virtual CPHSynchronize* PHGetSyncItem(u16 item) { return inherited::PHGetSyncItem(item); }
 	virtual void PHUnFreeze() { return inherited::PHUnFreeze(); }
@@ -141,7 +141,7 @@ public:
 	virtual BOOL UsedAI_Locations() { return inherited::UsedAI_Locations(); }
 
 	virtual const SRotation Orientation() const { return inherited::Orientation(); }
-	virtual void renderable_Render() { return inherited::renderable_Render(); }
+	virtual void renderable_Render(IDSGraphManager* DM) { return inherited::renderable_Render(DM); }
 
 	virtual void on_restrictions_change();
 
@@ -283,7 +283,7 @@ public:
 	void settings_load(LPCSTR section);
 	void settings_overrides();
 
-	SMonsterSettings& db() { return *(*m_current_settings); }
+	const SMonsterSettings& db() const { return *(*m_current_settings); }
 	// --------------------------------------------------------------------------------------
 
 	CCharacterPhysicsSupport* m_pPhysics_support;
@@ -308,7 +308,7 @@ public:
 	const CEntityAlive* EatedCorpse;
 	// Lain: added
 	bool check_eated_corpse_draggable();
-	virtual bool is_base_monster_with_enemy() { return EnemyMan.get_enemy() != nullptr; }
+	virtual bool is_base_monster_with_enemy() { return EnemyMan.get_enemy() != NULL; }
 
 
 	bool hear_dangerous_sound;
@@ -403,6 +403,15 @@ public:
 
 
 	void set_aggressive(bool val = true) { m_bAggressive = val; }
+
+	// rear-strike facing threshold (radians): the melee spin-strike fires when the enemy sits
+	// beyond this angle off the front. 2.8798 = the GSC 165 deg default (a ~30 deg dead-rear wedge)
+	float m_melee_face_eps = 2.8798f;
+	float get_melee_face_eps() const { return m_melee_face_eps; }
+	void set_melee_face_eps(float eps_rad)
+	{
+		if (eps_rad > 0.f) m_melee_face_eps = eps_rad;
+	}
 
 	//---------------------------------------------------------------------------------------
 
@@ -526,6 +535,16 @@ public:
 	bool is_jumping();
 	virtual bool can_be_seen() const { return true; }
 
+	// ask Lua for a proposed combat state; u32(-1) = no subscriber or no proposal.
+	// Memoized per frame so nested selectors (state manager + attack tree) share one Lua call.
+	u32 script_combat_substate();
+
+private:
+	u32 m_script_substate_frame = u32(-1);
+	u32 m_script_substate_cache = u32(-1);
+
+public:
+
 #ifdef DEBUG
 	bool							is_paused		() const;
 #endif
@@ -580,6 +599,25 @@ public:
 	float get_attack_on_move_prepare_radius();
 	float get_attack_on_move_prepare_time();
 
+	// geometry only, the enabled switch stays config-owned; negative argument keeps the current value
+	void set_attack_on_move_params(float max_go_close_time, float far_radius, float prepare_radius,
+	                               float prepare_time, float attack_radius, float update_side_period,
+	                               float prediction_factor)
+	{
+		if (max_go_close_time >= 0.f) m_attack_on_move_params.max_go_close_time = max_go_close_time;
+		if (far_radius >= 0.f) m_attack_on_move_params.far_radius = far_radius;
+		if (prepare_radius >= 0.f) m_attack_on_move_params.prepare_radius = prepare_radius;
+		if (prepare_time >= 0.f) m_attack_on_move_params.prepare_time = prepare_time;
+		if (attack_radius >= 0.f) m_attack_on_move_params.attack_radius = attack_radius;
+		if (update_side_period >= 0.f) m_attack_on_move_params.update_side_period = update_side_period;
+		if (prediction_factor >= 0.f) m_attack_on_move_params.prediction_factor = prediction_factor;
+	}
+
+	// script-set multiplier on the base-path heading speed (CControlDirectionBase::update_frame); 1 = vanilla, <= 0 keeps the current value
+	float m_turn_speed_factor = 1.f;
+	float get_turn_speed_factor() const { return m_turn_speed_factor; }
+	void set_turn_speed_factor(float v) { if (v > 0.f) m_turn_speed_factor = v; }
+
 	bool enemy_accessible();
 	bool at_home();
 
@@ -597,6 +635,8 @@ public:
 	float get_psy_influence();
 	float get_radiation_influence();
 	float get_fire_influence();
+	// aura_name: psy / radiation / fire / base; false on an unknown name
+	bool set_aura_params(LPCSTR aura_name, float linear, float quadratic, float max_power, float max_distance);
 	void play_detector_sound();
 
 private:

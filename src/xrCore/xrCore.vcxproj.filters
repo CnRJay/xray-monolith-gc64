@@ -291,6 +291,10 @@
     <ClCompile Include="mezz_stringbuffer.cpp">
       <Filter>shared memory/string library</Filter>
     </ClCompile>
+    <ClCompile Include="DateTime.cpp">
+      <Filter>FS</Filter>
+    </ClCompile>
+    <ClCompile Include="xrParams.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="FTimer.h">
@@ -608,14 +612,28 @@
     <ClInclude Include="profiler.h">
       <Filter>Profiling</Filter>
     </ClInclude>
-    <ClInclude Include="..\3rd party\robin_hood\robin_hood.h" />
-    <ClInclude Include="..\3rd party\fastdelegate\fastdelegate.h" />
-    <ClInclude Include="_noncopyable.h">
-      <Filter>Kernel</Filter>
-    </ClInclude>
     <ClInclude Include="_thread_types.h">
       <Filter>Kernel</Filter>
     </ClInclude>
+    <ClInclude Include="DateTime.hpp">
+      <Filter>FS</Filter>
+    </ClInclude>
+    <ClInclude Include="RingBuffer.h">
+      <Filter>FS</Filter>
+    </ClInclude>
+    <ClInclude Include="TimeUtils.h" />
+    <ClInclude Include="xrParams.h" />
+    <ClInclude Include="xr_delegate.h">
+      <Filter>Kernel</Filter>
+    </ClInclude>
+    <ClInclude Include="_global_functions.h">
+      <Filter>Kernel</Filter>
+    </ClInclude>
+    <ClInclude Include="_noncopyable.h">
+      <Filter>Kernel</Filter>
+    </ClInclude>
+    <ClInclude Include="..\3rd party\fastdelegate\fastdelegate.h" />
+    <ClInclude Include="..\3rd party\robin_hood\robin_hood.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="xrCore.rc" />

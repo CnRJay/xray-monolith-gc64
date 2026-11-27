@@ -12,4 +12,7 @@ public:
 	CUIStats();
 	virtual ~CUIStats();
 	CUIWindow* InitStats(CUIXml& xml_doc, LPCSTR path, int team);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIScrollView* ui_cast_scroll_view() { return this; }
 };

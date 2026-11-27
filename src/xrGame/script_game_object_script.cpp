@@ -11,12 +11,23 @@
 #include "game_object_space.h"
 #include "script_ini_file.h"
 #include "sight_manager_space.h"
+#include "ai/monsters/state_defs.h"
+#include "inventory_space.h"
 
 using namespace luabind;
 
 extern class_<CScriptGameObject> script_register_game_object1(class_<CScriptGameObject> &&);
 extern class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject> &&);
 extern class_<CScriptGameObject> script_register_game_object_trader(class_<CScriptGameObject> &&);
+
+// Name tags for the mutant-reader enum exports; each value is a literal with its engine source beside it.
+namespace
+{
+	struct chimera_attack_phase_tag {};
+	struct monster_jump_flags_tag {};
+	struct bloodsucker_visibility_tag {};
+	struct poltergeist_subtype_tag {};
+}
 
 #pragma optimize("s",on)
 void CScriptGameObject::script_register(lua_State* L)
@@ -52,6 +63,33 @@ void CScriptGameObject::script_register(lua_State* L)
 				script_register_game_object_trader(std::move(instance))
 			)
 		),
+
+		class_<enum_exporter<EInventorySlots>>("inventory")
+		.enum_("slot")
+		[
+			value("no_active", int(NO_ACTIVE_SLOT)),
+			value("knife", int(KNIFE_SLOT)),
+			value("slot_2", int(INV_SLOT_2)),
+			value("slot_3", int(INV_SLOT_3)),
+			value("grenade", int(GRENADE_SLOT)),
+			value("binocular", int(BINOCULAR_SLOT)),
+			value("bolt", int(BOLT_SLOT)),
+			value("outfit", int(OUTFIT_SLOT)),
+			value("pda", int(PDA_SLOT)),
+			value("detector", int(DETECTOR_SLOT)),
+			value("torch", int(TORCH_SLOT)),
+			value("artefact", int(ARTEFACT_SLOT)),
+			value("helmet", int(HELMET_SLOT)),
+			value("backpack", int(BACKPACK_SLOT)),
+#ifdef MORE_INVENTORY_SLOTS
+			value("custom_1", int(CUSTOM_SLOT_1)),
+			value("custom_2", int(CUSTOM_SLOT_2)),
+			value("custom_3", int(CUSTOM_SLOT_3)),
+			value("custom_4", int(CUSTOM_SLOT_4)),
+			value("custom_5", int(CUSTOM_SLOT_5)),
+#endif
+			value("last", int(LAST_SLOT))
+		],
 
 		class_<enum_exporter<GameObject::ECallbackType>>("callback")
 		.enum_("callback_types")
@@ -138,6 +176,77 @@ void CScriptGameObject::script_register(lua_State* L)
 			value("on_foot_step", int(GameObject::eOnFootStep)),
 
 			value("map_location_added", int(GameObject::eMapLocationAdded))
+		],
+
+		// States the monster_on_combat_action callback can propose in flags.substate.
+		// Attack substates reach the shared monster and group attack selectors
+		// (monster_state_attack_inline.h, group_state_attack_inline.h); the top-level ids
+		// (eStatePanic, eStateHitted, eStateThreaten, eStateAttack_Psy) reach each species
+		// state manager. A proposal is honored only where that species registers the state and
+		// its own start conditions pass; any other value is ignored and the vanilla selection runs.
+		class_<enum_exporter<EMonsterState>>("monster_state")
+		.enum_("substate")
+		[
+			value("eStateAttack_Run", int(eStateAttack_Run)),
+			value("eStateAttack_Melee", int(eStateAttack_Melee)),
+			value("eStateAttack_RunAttack", int(eStateAttack_RunAttack)),
+			value("eStateAttack_RunAway", int(eStateAttack_RunAway)),
+			value("eStateAttack_FindEnemy", int(eStateAttack_FindEnemy)),
+			value("eStateAttack_Steal", int(eStateAttack_Steal)),
+			value("eStateAttack_AttackHidden", int(eStateAttack_AttackHidden)),
+			value("eStateAttack_ControlFire", int(eStateAttack_ControlFire)),
+			value("eStateAttackCamp", int(eStateAttackCamp)),
+			value("eStateAttack_MoveToHomePoint", int(eStateAttack_MoveToHomePoint)),
+			value("eStateAttack_Attack_On_Run", int(eStateAttack_Attack_On_Run)),
+			value("eStateCustom", int(eStateCustom)),
+			value("eStatePanic", int(eStatePanic)),
+			value("eStateHitted", int(eStateHitted)),
+			value("eStateThreaten", int(eStateThreaten)),
+			value("eStateAttack_Psy", int(eStateAttack_Psy)),
+			value("eStateBurerAttack_Gravi", int(eStateBurerAttack_Gravi)),
+			value("eStateBurerAttack_Shield", int(eStateBurerAttack_Shield)),
+			value("eStateBurerAttack_AntiAim", int(eStateBurerAttack_AntiAim)),
+			value("eStateBurerAttack_Tele", int(eStateBurerAttack_Tele)),
+			value("eStateBurerAttack_Melee", int(eStateBurerAttack_Melee)),
+			value("eStateBurerAttack_RunAround", int(eStateBurerAttack_RunAround)),
+			value("eStateBurerAttack_FaceEnemy", int(eStateBurerAttack_FaceEnemy))
+		],
+
+		// The active jump's flag bits (SControlJumpData::EFlags, control_jump.h:11), the two the leap
+		// variant reads; get_monster_jump_flags returns the raw mask to test against these.
+		class_<enum_exporter<monster_jump_flags_tag>>("monster_jump_flags")
+		.enum_("flag")
+		[
+			value("ePrepareSkip", 2),   // 1 << 1: sudden, no telegraphed wind-up
+			value("eUseAutoAim", 256)   // 1 << 8: steered glide
+		],
+
+		// ChimeraAttackState::enum_state (chimera_attack_state.h:43); get_chimera_attack_phase returns it.
+		class_<enum_exporter<chimera_attack_phase_tag>>("chimera_attack_phase")
+		.enum_("phase")
+		[
+			value("state_undefined", 0),
+			value("state_rotate", 1),
+			value("state_prepare_jump", 2)
+		],
+
+		// CAI_Bloodsucker::visibility_t (bloodsucker.h:203); the vanilla get_visibility_state returns it.
+		class_<enum_exporter<bloodsucker_visibility_tag>>("bloodsucker_visibility")
+		.enum_("state")
+		[
+			value("unset", -1),
+			value("no_visibility", 0),
+			value("partial_visibility", 1),
+			value("full_visibility", 2)
+		],
+
+		// CPoltergeist::subtype_code (poltergeist.h:112); get_poltergeist_subtype returns it.
+		class_<enum_exporter<poltergeist_subtype_tag>>("poltergeist_subtype")
+		.enum_("subtype")
+		[
+			value("none", 0),
+			value("flame", 1),
+			value("tele", 2)
 		],
 
 		def("buy_condition", (void (*)(CScriptIniFile*, LPCSTR))(&::buy_condition)),

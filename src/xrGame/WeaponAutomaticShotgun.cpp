@@ -1,7 +1,6 @@
 #include "stdafx.h"
 #include "WeaponAutomaticShotgun.h"
 #include "entity.h"
-#include "ParticlesObject.h"
 #include "xr_level_controller.h"
 #include "inventory.h"
 #include "level.h"
@@ -277,14 +276,14 @@ bool CWeaponAutomaticShotgun::HaveCartridgeInInventory(u8 cnt)
 }
 
 
-void CWeaponAutomaticShotgun::OnMotionMark(u32 state, const motion_marks& M)
+void CWeaponAutomaticShotgun::OnMotionMark(u32 state, const motion_marks& M, float mark_start, float mark_end)
 {
     // edited by Verdatim 18.4.2026
     // changed to allow motion marks on automatic shotgun reloads
     // what the fuckkkk
 
     //Msg("motion mark detected on reload!");
-    inherited::OnMotionMark(state, M);
+    inherited::OnMotionMark(state, M, mark_start, mark_end);
     
     if (state == eIdle)
     {
@@ -309,7 +308,7 @@ void CWeaponAutomaticShotgun::OnMotionMark(u32 state, const motion_marks& M)
 
 u8 CWeaponAutomaticShotgun::AddCartridge(u8 cnt)
 {
-	//if (IsMisfire()) bMisfire = false;
+	if (IsMisfire()) bMisfire = false;
 
 	if (m_set_next_ammoType_on_reload != undefined_ammo_type)
 	{

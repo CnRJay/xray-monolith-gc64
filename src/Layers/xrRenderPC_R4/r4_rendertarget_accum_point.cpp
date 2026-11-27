@@ -2,6 +2,7 @@
 
 void CRenderTarget::accum_point(light* L)
 {
+	PROF_EVENT("CRenderTarget::accum_point", PROF_CAT(Rendering));
 	phase_accumulator();
 	RImplementation.stats.l_visible ++;
 
@@ -24,7 +25,6 @@ void CRenderTarget::accum_point(light* L)
 	Device.mView.transform_tiny(L_pos, L->position);
 
 	// Xforms
-	L->xform_calc();
 	RCache.set_xform_world(L->m_xform);
 	RCache.set_xform_view(Device.mView);
 	RCache.set_xform_project(Device.mProject);

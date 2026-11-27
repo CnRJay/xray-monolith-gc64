@@ -32,7 +32,7 @@ namespace text_editor
 	class callback_base : public base
 	{
 	private:
-		typedef fastdelegate::FastDelegate0<void> Callback;
+		typedef xr_delegate<void()> Callback;
 
 	public:
 		callback_base(Callback const& callback, u32 const dik, key_state state);

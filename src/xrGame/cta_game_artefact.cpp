@@ -17,7 +17,7 @@ CtaGameArtefact::CtaGameArtefact()
 {
 	// game object must present...
 	m_game = smart_cast<game_cl_CaptureTheArtefact*>(&Game());
-	m_artefact_rpoint = nullptr;
+	m_artefact_rpoint = NULL;
 	m_my_team = etSpectatorsTeam;
 }
 
@@ -31,7 +31,7 @@ bool CtaGameArtefact::IsMyTeamArtefact()
 
 	R_ASSERT(H_Parent());
 	game_PlayerState* ps = m_game->GetPlayerByGameID(H_Parent()->ID());
-	R_ASSERT(ps != nullptr);
+	R_ASSERT(ps != NULL);
 	if (ps->team == etGreenTeam)
 	{
 		if (m_game->GetGreenArtefactID() == this->ID())
@@ -90,7 +90,7 @@ void CtaGameArtefact::OnAnimationEnd(u32 state)
 void CtaGameArtefact::UpdateCLChild()
 {
 	inherited::UpdateCLChild();
-	if (H_Parent())
+	if (H_Parent() && IsHidden())
 		XFORM().set(H_Parent()->XFORM());
 
 	if (!m_artefact_rpoint)
@@ -139,7 +139,7 @@ void CtaGameArtefact::CreateArtefactActivation()
 		CGameObject::u_EventGen(P, GE_OWNERSHIP_REJECT, H_Parent()->ID());
 		P.w_u16(ID());
 		P.w_u8(0);
-		P.w_vec3(*m_artefact_rpoint);
+		P.w_vec3(m_artefact_rpoint ? *m_artefact_rpoint : Position());
 		CGameObject::u_EventSend(P);
 		MoveTo(*m_artefact_rpoint); //for server net_Import
 	}
@@ -197,7 +197,7 @@ void CtaGameArtefact::net_Export(NET_Packet& P)
 		P.w_u8				(0);
 		return;
 	}
-	CPHSynchronize* pSyncObj		= nullptr;
+	CPHSynchronize* pSyncObj		= NULL;
 	SPHNetState						State;
 	pSyncObj = PHGetSyncItem		(0);
 

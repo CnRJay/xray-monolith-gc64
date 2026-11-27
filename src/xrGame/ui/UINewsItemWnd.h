@@ -29,4 +29,6 @@ public:
 	virtual void Update()
 	{
 	};
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 };

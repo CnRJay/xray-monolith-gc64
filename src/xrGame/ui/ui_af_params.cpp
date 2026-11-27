@@ -17,13 +17,13 @@ CUIArtefactParams::CUIArtefactParams()
 {
 	for (u32 i = 0; i < 9; ++i)
 	{
-		m_immunity_item[i] = nullptr;
+		m_immunity_item[i] = NULL;
 	}
 	for (u32 i = 0; i < ALife::eRestoreTypeMax; ++i)
 	{
-		m_restore_item[i] = nullptr;
+		m_restore_item[i] = NULL;
 	}
-	m_additional_weight = nullptr;
+	m_additional_weight = NULL;
 }
 
 CUIArtefactParams::~CUIArtefactParams()
@@ -252,8 +252,8 @@ void CUIArtefactParams::SetInfo(CInventoryItem& pInvItem)
 
 UIArtefactParamItem::UIArtefactParamItem()
 {
-	m_caption = nullptr;
-	m_value = nullptr;
+	m_caption = NULL;
+	m_value = NULL;
 	m_magnitude = 1.0f;
 	m_sign_inverse = false;
 

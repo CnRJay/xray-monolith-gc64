@@ -19,6 +19,9 @@ public:
 public:
 	float m_stage;
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIStatic* ui_cast_static() { return this; }
+
 protected:
 	bool m_bClockwise;
 	u32 m_sectorCount;

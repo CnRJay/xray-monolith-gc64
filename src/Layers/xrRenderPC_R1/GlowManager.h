@@ -9,7 +9,9 @@
 #include "../../xrcdb/ispatial.h"
 #include "../../xrcdb/xr_collide_defs.h"
 
-class CGlow : public IRender_Glow, public ISpatial
+class CGlow:
+	public IRender_Glow,
+	public ISpatialOwner
 {
 public:
 	struct
@@ -43,7 +45,9 @@ public:
 	virtual void set_texture(LPCSTR name);
 	virtual void set_color(const Fcolor& C);
 	virtual void set_color(float r, float g, float b);
-	virtual void spatial_move();
+	virtual void spatial_move() override;
+
+	virtual CGlow* dcast_CGlow() override { return this; };
 };
 
 #define MAX_GlowsPerFrame	64

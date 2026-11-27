@@ -30,11 +30,11 @@ IDirect3DStateBlock9*	dwDebugSB = 0;
 #endif
 
 CHW::CHW() :
-	hD3D(nullptr),
-	pD3D(nullptr),
-	pDevice(nullptr),
-	pBaseRT(nullptr),
-	pBaseZB(nullptr),
+	hD3D(NULL),
+	pD3D(NULL),
+	pDevice(NULL),
+	pBaseRT(NULL),
+	pBaseZB(NULL),
 	m_move_window(true),
 	maxRefreshRate(265) //ECO_RENDER
 {
@@ -106,10 +106,10 @@ void CHW::Reset(HWND hwnd)
 #endif
 }
 
-//xr_token*				vid_mode_token = nullptr;
+//xr_token*				vid_mode_token = NULL;
 //extern xr_token*		vid_mode_token;
 #include "../../Include/xrAPI/xrAPI.h"
-//xr_token*				vid_quality_token = nullptr;
+//xr_token*				vid_quality_token = NULL;
 
 void CHW::CreateD3D()
 {
@@ -366,7 +366,7 @@ void CHW::CreateDevice(HWND m_hWnd, bool move_window)
 			"Please try to restart the game.\n"
 			"Can not find matching format for back buffer."
 		);
-		FlushLog();
+		xrLogger::FlushLog();
 		MessageBox(NULL, "Failed to initialize graphics hardware.\nPlease try to restart the game.", "Error!",
 		           MB_OK | MB_ICONERROR);
 		TerminateProcess(GetCurrentProcess(), 0);
@@ -437,7 +437,7 @@ void CHW::CreateDevice(HWND m_hWnd, bool move_window)
 		Msg("Failed to initialize graphics hardware.\n"
 		    "Please try to restart the game.\n"
 		    "CreateDevice returned 0x%08x(D3DERR_DEVICELOST)", R);
-		FlushLog();
+		xrLogger::FlushLog();
 		MessageBox(NULL, "Failed to initialize graphics hardware.\nPlease try to restart the game.", "Error!",
 		           MB_OK | MB_ICONERROR);
 		TerminateProcess(GetCurrentProcess(), 0);
@@ -563,7 +563,7 @@ u32 CHW::selectGPU()
 
 u32 CHW::selectRefresh(u32 dwWidth, u32 dwHeight, D3DFORMAT fmt)
 {
-	if (psDeviceFlags.is(rsRefresh60hz) || strstr(Core.Params, "-60hz"))
+	if (psDeviceFlags.is(rsRefresh60hz) || Core.ParamsData.test(ECoreParams::_60hz))
 	{
 		refresh_rate = 1.f / 60.f;
 		return D3DPRESENT_RATE_DEFAULT;
@@ -596,13 +596,6 @@ BOOL CHW::support(D3DFORMAT fmt, DWORD type, DWORD usage)
 
 void CHW::updateWindowProps(HWND m_hWnd)
 {
-	//	BOOL	bWindowed				= strstr(Core.Params,"-dedicated") ? TRUE : !psDeviceFlags.is	(rsFullscreen);
-	//#ifndef DEDICATED_SERVER
-	//	BOOL	bWindowed				= !psDeviceFlags.is	(rsFullscreen);
-	//#else
-	//	BOOL	bWindowed				= TRUE;
-	//#endif
-
 	BOOL bWindowed = TRUE;
 #ifndef _EDITOR
 	if (!g_dedicated_server)
@@ -622,7 +615,7 @@ void CHW::updateWindowProps(HWND m_hWnd)
 			else
 			{
 				dwWindowStyle |= WS_BORDER | WS_OVERLAPPEDWINDOW;
-				if (!strstr(Core.Params, "-no_dialog_header"))
+				if (!Core.ParamsData.test(ECoreParams::no_dialog_header))
 					dwWindowStyle |= WS_DLGFRAME | WS_SYSMENU | WS_MINIMIZEBOX;
 			}
 
@@ -704,13 +697,13 @@ void free_render_mode_list()
         xr_free					(vid_quality_token[i].name);
     }
     xr_free						(vid_quality_token);
-    vid_quality_token			= nullptr;
+    vid_quality_token			= NULL;
 }
 */
 /*
 void	fill_render_mode_list()
 {
-    if(vid_quality_token != nullptr)		return;
+    if(vid_quality_token != NULL)		return;
 
     D3DCAPS9					caps;
     CHW							_HW;
@@ -738,8 +731,8 @@ void	fill_render_mode_list()
 
         if (bBreakLoop) break;
 
-        _tmp.push_back				(nullptr);
-        LPCSTR val					= nullptr;
+        _tmp.push_back				(NULL);
+        LPCSTR val					= NULL;
         switch (i)
         {
             case 0: val ="renderer_r1";			break;
@@ -754,7 +747,7 @@ void	fill_render_mode_list()
     vid_quality_token						= xr_alloc<xr_token>(_cnt);
 
     vid_quality_token[_cnt-1].id			= -1;
-    vid_quality_token[_cnt-1].name			= nullptr;
+    vid_quality_token[_cnt-1].name			= NULL;
 
 #ifdef DEBUG
     Msg("Available render modes[%d]:",_tmp.size());
@@ -776,12 +769,12 @@ void free_vid_mode_list()
 		xr_free(vid_mode_token[i].name);
 	}
 	xr_free(vid_mode_token);
-	vid_mode_token = nullptr;
+	vid_mode_token = NULL;
 }
 
 void fill_vid_mode_list(CHW* _hw)
 {
-	if (vid_mode_token != nullptr) return;
+	if (vid_mode_token != NULL) return;
 	xr_vector<LPCSTR> _tmp;
 	u32 cnt = _hw->pD3D->GetAdapterModeCount(_hw->DevAdapter, _hw->Caps.fTarget);
 
@@ -799,7 +792,7 @@ void fill_vid_mode_list(CHW* _hw)
 		if (_tmp.end() != std::find_if(_tmp.begin(), _tmp.end(), _uniq_mode(str)))
 			continue;
 
-		_tmp.push_back(nullptr);
+		_tmp.push_back(NULL);
 		_tmp.back() = xr_strdup(str);
 	}
 
@@ -808,7 +801,7 @@ void fill_vid_mode_list(CHW* _hw)
 	vid_mode_token = xr_alloc<xr_token>(_cnt);
 
 	vid_mode_token[_cnt - 1].id = -1;
-	vid_mode_token[_cnt - 1].name = nullptr;
+	vid_mode_token[_cnt - 1].name = NULL;
 
 #ifdef DEBUG
     Msg("Available video modes[%d]:",_tmp.size());

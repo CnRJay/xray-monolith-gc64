@@ -130,4 +130,6 @@ public:
 
 	bool GetSelected() const { return m_bSelected; }
 	virtual void SetSelected(bool b) { m_bSelected = b; };
+
+	virtual CUISelectable* ui_cast_selectable() { return this; }
 };

@@ -272,7 +272,7 @@ static void* lua_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 	if (nsize == 0)
 	{
 		xr_free(ptr);
-		return nullptr;
+		return NULL;
 	}
 	else
 #ifdef DEBUG_MEMORY_NAME
@@ -332,7 +332,7 @@ extern int luaopen_lua_extensions(lua_State* L, bool IsDebug = false);
 void CResourceManager::LS_Load()
 {
 #ifdef USE_GSC_MEM_ALLOC
-	LSVM = lua_newstate(lua_alloc, nullptr);
+	LSVM = lua_newstate(lua_alloc, NULL);
 #else
 	LSVM = luaL_newstate();
 #endif //-USE_GSC_MEM_ALLOC
@@ -493,7 +493,7 @@ void CResourceManager::LS_Load()
 void CResourceManager::LS_Unload()
 {
 	lua_close(LSVM);
-	LSVM = nullptr;
+	LSVM = NULL;
 }
 
 BOOL CResourceManager::_lua_HasShader(LPCSTR s_shader)
@@ -524,14 +524,14 @@ Shader* CResourceManager::_lua_Create(LPCSTR d_shader, LPCSTR s_textures)
 	LPCSTR s_shader = undercorated;
 
 	// Access to template
-	C.BT = nullptr;
+	C.BT = NULL;
 	C.bEditor = FALSE;
 	C.bDetail = FALSE;
 
 	// Prepare
 	_ParseList(C.L_textures, s_textures);
-	C.detail_texture = nullptr;
-	C.detail_scaler = nullptr;
+	C.detail_texture = NULL;
+	C.detail_scaler = NULL;
 
 	// Compile element	(LOD0 - HQ)
 	if (Script::bfIsObjectPresent(LSVM, s_shader, "normal_hq",LUA_TFUNCTION))
@@ -610,6 +610,7 @@ Shader* CResourceManager::_lua_Create(LPCSTR d_shader, LPCSTR s_textures)
 
 	// Create _new_ entry
 	Shader* N = xr_new<Shader>(S);
+	//N->_copy(S);
 	N->dwFlags |= xr_resource_flagged::RF_REGISTERED;
 	v_shaders.push_back(N);
 	return N;

@@ -37,11 +37,13 @@ bool CUISequenceSimpleItem::IsPlaying()
 
 CUIWindow* find_child_window(CUIWindow* parent, const shared_str& _name)
 {
+	xrCriticalSectionGuard guard(parent->csUi);
+
 	CUIWindow::WINDOW_LIST& wl = parent->GetChildWndList();
 	CUIWindow::WINDOW_LIST_it _I = wl.begin();
 	CUIWindow::WINDOW_LIST_it _E = wl.end();
 	for (; _I != _E; ++_I) if ((*_I)->WindowName() == _name) return (*_I);
-	return nullptr;
+	return NULL;
 }
 
 void CUISequenceSimpleItem::Load(CUIXml* xml, int idx)
@@ -55,7 +57,7 @@ void CUISequenceSimpleItem::Load(CUIXml* xml, int idx)
 	if (m_snd_name && m_snd_name[0])
 	{
 		m_sound.create(m_snd_name, st_Effect, sg_Undefined);
-		VERIFY(m_sound._handle() || strstr(Core.Params,"-nosound"));
+		VERIFY(m_sound._handle() || Core.ParamsData.test(ECoreParams::nosound));
 	}
 	m_time_length = xml->ReadFlt("length_sec", 0, 0);
 	m_desired_cursor_pos.x = xml->ReadAttribFlt("cursor_pos", 0, "x", 0);
@@ -67,12 +69,12 @@ void CUISequenceSimpleItem::Load(CUIXml* xml, int idx)
 	m_flags.set(etiNeedPauseOff, 0 == _stricmp(str, "off"));
 	m_flags.set(etiNeedPauseSound, 0 == _stricmp(str, "on"));
 
-	str = xml->Read("guard_key", 0,nullptr);
+	str = xml->Read("guard_key", 0,NULL);
 	m_continue_dik_guard = -1;
 	if (str && !_stricmp(str, "any"))
 	{
 		m_continue_dik_guard = 9999;
-		str = nullptr;
+		str = NULL;
 	}
 	if (str)
 	{

@@ -47,11 +47,19 @@ void CRenderTarget::phase_combine()
 	Fvector2 p0, p1;
 
 	//*** exposure-pipeline
-	u32			gpu_id	= Device.dwFrame%HW.Caps.iGPUNum;
-
+	if (Device.m_SecondViewport.IsSVPActive())	//--#SM+#-- +SecondVP+ Fix for screen flickering
 	{
-		t_LUM_src->surface_set		(rt_LUM_pool[gpu_id*2+0]->pSurface);
-		t_LUM_dest->surface_set		(rt_LUM_pool[gpu_id*2+1]->pSurface);
+		if (t_LUM_src != rt_LUM_pool[0]->pTexture)
+			t_LUM_src->surface_set(rt_LUM_pool[0]->pSurface);
+		if (t_LUM_dest != rt_LUM_pool[1]->pTexture)
+			t_LUM_dest->surface_set(rt_LUM_pool[1]->pSurface);
+	}
+	else
+	{
+		if (t_LUM_src != rt_LUM_pool[0]->pTexture)
+			t_LUM_src->surface_set(rt_LUM_pool[0]->pSurface);
+		if (t_LUM_dest != rt_LUM_pool[1]->pTexture)
+			t_LUM_dest->surface_set(rt_LUM_pool[1]->pSurface);
 	}
 
 	if (RImplementation.o.ssao_hdao)
@@ -319,8 +327,13 @@ void CRenderTarget::phase_combine()
 	// Distortion filter
 	BOOL bDistort = RImplementation.o.distortion_enabled; // This can be modified
 	{
-		if ((0 == RImplementation.mapDistort.size()) && !_menu_pp)
-			bDistort = FALSE;
+		if ((
+			0 == RImplementation.GMBase.RGraph.mapStaticSorted.Distort.size() &&
+			0 == RImplementation.GMBase.RGraph.mapDynamicSorted.Distort.size() &&
+			0 == RImplementation.GMBase.RGraph.mapHUDSorted.Distort.size()
+			) && !_menu_pp
+			)
+			bDistort = FALSE; 
 		if (bDistort)
 		{
 			PIX_EVENT(render_distort_objects);
@@ -339,8 +352,8 @@ void CRenderTarget::phase_combine()
 			RCache.set_CullMode(CULL_CCW);
 			RCache.set_Stencil(FALSE);
 			RCache.set_ColorWriteEnable();
-			//CHK_DX(HW.pDevice->Clear	( 0L, nullptr, D3DCLEAR_TARGET, color_rgba(127,127,0,127), 1.0f, 0L));
-			RImplementation.r_dsgraph_render_distort();
+			//CHK_DX(HW.pDevice->Clear	( 0L, NULL, D3DCLEAR_TARGET, color_rgba(127,127,0,127), 1.0f, 0L));
+			RImplementation.GMBase.r_dsgraph_render_distort();
 			if (g_pGamePersistent) g_pGamePersistent->OnRenderPPUI_PP(); // PP-UI
 		}
 	}
@@ -555,9 +568,9 @@ void CRenderTarget::phase_combine()
 
 	//*** exposure-pipeline-clear
 	{
-		std::swap(rt_LUM_pool[gpu_id * 2 + 0], rt_LUM_pool[gpu_id * 2 + 1]);
-		t_LUM_src->surface_set(nullptr);
-		t_LUM_dest->surface_set(nullptr);
+		std::swap(rt_LUM_pool[0], rt_LUM_pool[1]);
+		t_LUM_src->surface_set(NULL);
+		t_LUM_dest->surface_set(NULL);
 	}
 
 #ifdef DEBUG

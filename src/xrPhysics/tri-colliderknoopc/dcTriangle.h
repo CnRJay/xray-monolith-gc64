@@ -14,7 +14,7 @@ struct Triangle
 
 	Triangle()
 	{
-		T = nullptr;
+		T = NULL;
 #ifdef DEBUG
 		depth	=-dInfinity;
 		dist	=-dInfinity;

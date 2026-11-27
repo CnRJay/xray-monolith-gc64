@@ -1,5 +1,6 @@
 #include "pch_script.h"
 #include "UIGameCustom.h"
+#include "UIGameSP.h"
 #include "level.h"
 #include "ui/UIXmlInit.h"
 #include "ui/UIStatic.h"
@@ -44,6 +45,7 @@ CUIGameCustom::CUIGameCustom()
 	m_pMessagesWnd = nullptr;
 	ShowGameIndicators(true);
 	ShowCrosshair(true);
+    CustomStatics.reserve(64);
 }
 
 bool g_b_ClearGameCaptions = false;
@@ -56,23 +58,27 @@ CUIGameCustom::~CUIGameCustom()
 
 void CUIGameCustom::OnFrame()
 {
+	PROF_EVENT("CUIGameCustom::OnFrame", PROF_CAT(UI));
 	CDialogHolder::OnFrame();
-	for (auto item : CustomStatics)
-		item->Update();
-	auto comparer = [](const StaticDrawableWrapper* s1, const StaticDrawableWrapper* s2)
 	{
-		return s1->IsActual() > s2->IsActual();
-	};
-	std::sort(CustomStatics.begin(), CustomStatics.end(), comparer);
-	while (!CustomStatics.empty() && !CustomStatics.back()->IsActual())
-	{
-		delete_data(CustomStatics.back());
-		CustomStatics.pop_back();
-	}
-	if (g_b_ClearGameCaptions)
-	{
-		delete_data(CustomStatics);
-		g_b_ClearGameCaptions = false;
+		xrCriticalSectionGuard lock(m_customs_lock);
+		for (auto item : CustomStatics)
+			item->Update();
+		auto comparer = [](const StaticDrawableWrapper* s1, const StaticDrawableWrapper* s2)
+		{
+			return s1->IsActual() > s2->IsActual();
+		};
+		std::sort(CustomStatics.begin(), CustomStatics.end(), comparer);
+		while (!CustomStatics.empty() && !CustomStatics.back()->IsActual())
+		{
+			delete_data(CustomStatics.back());
+			CustomStatics.pop_back();
+		}
+		if (g_b_ClearGameCaptions)
+		{
+			delete_data(CustomStatics);
+			g_b_ClearGameCaptions = false;
+		}
 	}
 	Window->Update();
 	//update windows
@@ -83,8 +89,12 @@ void CUIGameCustom::OnFrame()
 
 void CUIGameCustom::Render()
 {
-	for (StaticDrawableWrapper* item : CustomStatics)
-		item->Draw();
+	PROF_EVENT("CUIGameCustom::Render", PROF_CAT(UI));
+	{
+		xrCriticalSectionGuard lock(m_customs_lock);
+		for (StaticDrawableWrapper* item : CustomStatics)
+			item->Draw();
+	}
 	Window->Draw();
 	CEntity* pEntity = smart_cast<CEntity*>(Level().CurrentEntity());
 	if (pEntity)
@@ -111,6 +121,7 @@ void CUIGameCustom::Render()
 
 StaticDrawableWrapper* CUIGameCustom::AddCustomStatic(const char* id, bool singleInstance)
 {
+	xrCriticalSectionGuard lock(m_customs_lock);
 	if (singleInstance)
 	{
 		auto it = std::find_if(CustomStatics.begin(), CustomStatics.end(), predicate_find_stat(id));
@@ -131,6 +142,7 @@ StaticDrawableWrapper* CUIGameCustom::AddCustomStatic(const char* id, bool singl
 
 StaticDrawableWrapper* CUIGameCustom::GetCustomStatic(const char* id)
 {
+	xrCriticalSectionGuard lock(m_customs_lock);
 	auto it = std::find_if(CustomStatics.begin(), CustomStatics.end(), predicate_find_stat(id));
 	if (it != CustomStatics.end())
 		return *it;
@@ -139,6 +151,7 @@ StaticDrawableWrapper* CUIGameCustom::GetCustomStatic(const char* id)
 
 void CUIGameCustom::RemoveCustomStatic(const char* id)
 {
+	xrCriticalSectionGuard lock(m_customs_lock);
 	auto it = std::find_if(CustomStatics.begin(), CustomStatics.end(), predicate_find_stat(id));
 	if (it != CustomStatics.end())
 	{
@@ -322,6 +335,13 @@ void CUIGameCustom::update_fake_indicators(u8 type, float power)
 void CUIGameCustom::enable_fake_indicators(bool enable)
 {
 	UIMainIngameWnd->get_hud_states()->EnableFakeIndicators(enable);
+}
+
+void CUIGameCustom::TalkMenuSetVisible(bool vis)
+{
+	CUIGameSP* pGameSP = smart_cast<CUIGameSP*>(CurrentGameUI());
+	if (pGameSP)
+		pGameSP->TalkMenuSetVisible(vis);
 }
 
 StaticDrawableWrapper::StaticDrawableWrapper()

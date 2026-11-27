@@ -5,12 +5,12 @@
 #include "isheduled.h"
 #include "irenderable.h"
 
-class ENGINE_API CPS_Instance :
-	public ISpatial,
-	public ISheduled,
-	public IRenderable
+class ENGINE_API CPS_Instance	:
+	public IRenderable,
+	public intrusive_base
 {
 	friend class IGame_Persistent;
+	friend class CParticlesAsync;
 
 	template <bool _is_pm, typename T>
 	friend struct xr_special_free;
@@ -19,9 +19,11 @@ private:
 	bool m_destroy_on_game_load;
 
 protected:
+	u32 dwLastTime;
 	int m_iLifeTime;
 	BOOL m_bAutoRemove;
 	BOOL m_bDead;
+	volatile bool m_NeedDestroy = false;
 
 protected:
 	virtual ~CPS_Instance();
@@ -38,6 +40,7 @@ public:
 
 	virtual void Play(bool bHudMode) = 0;
 	virtual BOOL Locked() { return FALSE; }
+	virtual void Update(u32 dt) {};
 
 	virtual shared_str shedule_Name() const { return shared_str("particle_instance"); };
 

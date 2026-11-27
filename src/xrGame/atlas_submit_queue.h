@@ -2,7 +2,7 @@
 #define ATLAS_SUBMIT_QUEUE_INCLUDED
 
 
-#include <fastdelegate/fastdelegate.h>
+#include "../xrCore/xr_delegate.h"
 #include "profile_data_types.h"
 
 namespace gamespy_profile

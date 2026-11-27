@@ -132,7 +132,7 @@ struct lowest_player_functor //for autoteam balance
 	lowest_player_functor()
 	{
 		lowest_score = 32767;
-		lowest_player = nullptr;
+		lowest_player = NULL;
 	}
 
 	void operator()(IClient* client)

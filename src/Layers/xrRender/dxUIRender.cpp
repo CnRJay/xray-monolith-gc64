@@ -2,6 +2,7 @@
 #include "dxUIRender.h"
 
 #include "dxUIShader.h"
+#include "dxRenderDeviceRender.h"
 
 dxUIRender UIRenderImpl;
 
@@ -159,12 +160,26 @@ void dxUIRender::GetActiveTextureResolution(Fvector2& res)
 	res.set(float(T->get_Width()), float(T->get_Height()));
 }
 
+bool dxUIRender::GetTextureResolution(LPCSTR name, Fvector2& res)
+{
+	res.set(0.f, 0.f);
+
+	CTexture* T = DEV->_FindTexture(name);
+	if (!T || !T->flags.bLoaded) return false;
+
+	u32 w = T->get_Width();
+	u32 h = T->get_Height();
+	if (!w || !h) return false;
+
+	res.set(float(w), float(h));
+	return true;
+}
+
 LPCSTR dxUIRender::UpdateShaderName(LPCSTR tex_name, LPCSTR sh_name)
 {
 	string_path buff;
 	u32 v_dev = CAP_VERSION(HW.Caps.raster_major, HW.Caps.raster_minor);
 	u32 v_need = CAP_VERSION(2, 0);
-	//strstr(Core.Params,"-ps_movie") &&
 	if ((v_dev >= v_need) && FS.exist(buff, "$game_textures$", tex_name, ".ogm"))
 		return "hud\\movie";
 	else

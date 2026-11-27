@@ -53,8 +53,8 @@ namespace luabind
 	template<size_t N, bool HasArg = true>
 	struct conversion_policy : detail::conversion_policy_base
 	{
-        static constexpr int index = N;
-        static constexpr bool has_arg = HasArg;
+		static constexpr int index = N;
+		static constexpr bool has_arg = HasArg;
 	};
 
 	class index_map
@@ -104,7 +104,7 @@ namespace luabind
 		template<class T>
 		struct is_user_defined
 		{
-            static constexpr bool value = std::is_same_v<decltype(converters::is_user_defined(LUABIND_DECORATE_TYPE(T))), std::true_type>;
+			static constexpr bool value = std::is_same_v<decltype(converters::is_user_defined(LUABIND_DECORATE_TYPE(T))), std::true_type>;
 		};
 	}
 
@@ -122,12 +122,12 @@ namespace luabind { namespace detail
 	std::true_type is_lua_functor_test(const functor<T>&);
 
 	template<class T>
-    std::false_type is_lua_functor_test(const T&);
+	std::false_type is_lua_functor_test(const T&);
 
 	template<class T>
 	struct is_lua_functor
 	{
-        static constexpr bool value = decltype(is_lua_functor_test(std::declval<T>()))::value;
+		static constexpr bool value = decltype(is_lua_functor_test(std::declval<T>()))::value;
 	};
 
 	namespace
@@ -157,7 +157,7 @@ namespace luabind { namespace detail
 	template<class T>
 	struct is_primitive
 	{
-        static constexpr bool value = std::is_array_v<T> && std::is_convertible_v<T, const char*>;
+		static constexpr bool value = std::is_array_v<T> && std::is_convertible_v<T, const char*>;
 	};
 
 #define LUABIND_INTEGER_TYPE(type) \
@@ -172,6 +172,7 @@ namespace luabind { namespace detail
 	LUABIND_INTEGER_TYPE(short)
 	LUABIND_INTEGER_TYPE(int)
 	LUABIND_INTEGER_TYPE(long)
+	LUABIND_INTEGER_TYPE(long long)
 
 	template<> struct is_primitive<signed char> : std::true_type {}; \
 	template<> struct is_primitive<signed char const> : std::true_type {}; \
@@ -239,6 +240,7 @@ namespace luabind { namespace detail
 		void apply(lua_State* L, unsigned char v) { lua_pushnumber(L, (lua_Number)v); }
 		void apply(lua_State* L, unsigned long v) { lua_pushnumber(L, (lua_Number)v); }
 		void apply(lua_State* L, unsigned long long v) { lua_pushnumber(L, (lua_Number)v); }
+		void apply(lua_State* L, long long v) { lua_pushnumber(L, (lua_Number)v); }
 		void apply(lua_State* L, float v) { lua_pushnumber(L, (lua_Number)v); }
 		void apply(lua_State* L, double v) { lua_pushnumber(L, (lua_Number)v); }
 		void apply(lua_State* L, long double v) { lua_pushnumber(L, (lua_Number)v); }
@@ -322,6 +324,29 @@ namespace luabind { namespace detail
 				return -1;
 		}
 
+		PRIMITIVE_CONVERTER(long long)
+		{
+			if (lua_isnil(L, index))
+			{
+				return 0;
+			}
+
+			return static_cast<long long>(lua_tonumber(L, index));
+		}
+
+		PRIMITIVE_MATCHER(long long)
+		{
+			if (lua_isnil(L, index))
+			{
+				return 0;
+			}
+
+			if (lua_type(L, index) == LUA_TNUMBER)
+				return 0;
+
+			return -1;
+		}
+
 		PRIMITIVE_CONVERTER(char)
 		{
 			if (lua_isnil(L, index))
@@ -361,7 +386,7 @@ namespace luabind { namespace detail
 			else
 				return -1;
 		}
-
+		
 		PRIMITIVE_CONVERTER(unsigned char)
 		{
 			if (lua_isnil(L, index))
@@ -450,8 +475,7 @@ namespace luabind { namespace detail
 			}
 			return static_cast<unsigned long>(lua_tonumber(L, index));
 		}
-		PRIMITIVE_MATCHER(unsigned long)
-		{
+		PRIMITIVE_MATCHER(unsigned long) {
 			if (lua_isnil(L, index))
 			{
 				return 0;
@@ -460,17 +484,15 @@ namespace luabind { namespace detail
 			else
 				return -1;
 		}
-
-		PRIMITIVE_CONVERTER(unsigned long long)
-		{
+		
+		PRIMITIVE_CONVERTER(unsigned long long) {
 			if (lua_isnil(L, index))
 			{
 				return 0;
 			}
 			return static_cast<unsigned long long>(lua_tonumber(L, index));
 		}
-		PRIMITIVE_MATCHER(unsigned long long)
-		{
+		PRIMITIVE_MATCHER(unsigned long long) {
 			if (lua_isnil(L, index))
 			{
 				return 0;
@@ -486,8 +508,7 @@ namespace luabind { namespace detail
 			{
 				return 0;
 			}
-			return static_cast<float>(lua_tonumber(L, index));
-		}
+			return static_cast<float>(lua_tonumber(L, index)); }
 		PRIMITIVE_MATCHER(float)
 		{
 			if (lua_isnil(L, index))
@@ -500,16 +521,13 @@ namespace luabind { namespace detail
 				return -1;
 		}
 
-		PRIMITIVE_CONVERTER(double)
-		{
+		PRIMITIVE_CONVERTER(double) {
 			if (lua_isnil(L, index))
 			{
 				return 0;
 			}
-			return static_cast<double>(lua_tonumber(L, index));
-		}
-		PRIMITIVE_MATCHER(double)
-		{
+			return static_cast<double>(lua_tonumber(L, index)); }
+		PRIMITIVE_MATCHER(double) {
 			if (lua_isnil(L, index))
 			{
 				return 0;
@@ -521,9 +539,7 @@ namespace luabind { namespace detail
 		}
 
 		PRIMITIVE_CONVERTER(string_class)
-		{
-			return string_class(lua_tostring(L, index), lua_strlen(L, index));
-		}
+		{ return string_class(lua_tostring(L, index), lua_strlen(L, index)); }
 		PRIMITIVE_MATCHER(string_class) { if (lua_type(L, index) == LUA_TSTRING) return 0; else return -1; }
 
 		PRIMITIVE_CONVERTER(luabind::object)
@@ -539,8 +555,8 @@ namespace luabind { namespace detail
 			(void)index;
 			(void)L;
 			//return std::numeric_limits<int>::max() / LUABIND_MAX_ARITY;
-            constexpr const int kMaxArity = 1000;
-            return std::numeric_limits<int>::max() / kMaxArity;
+			constexpr const int kMaxArity = 1000;
+			return std::numeric_limits<int>::max() / kMaxArity;
 		}
 
 		PRIMITIVE_CONVERTER(luabind::weak_ref)
@@ -927,7 +943,7 @@ namespace luabind { namespace detail
 			if (LUABIND_TYPE_INFO_EQUAL(obj->crep()->const_holder_type(), LUABIND_TYPEID(T)))
 				return (obj->flags() & object_rep::constant)?0:1;
 
-            bool const_ = obj->flags() & object_rep::constant;
+			bool const_ = obj->flags() & object_rep::constant;
 			ptrdiff_t d;
 			return implicit_cast(obj->crep(), LUABIND_TYPEID(T), d) + !const_;
 		}
@@ -1085,7 +1101,7 @@ namespace luabind { namespace detail
 			if (LUABIND_TYPE_INFO_EQUAL(obj->crep()->const_holder_type(), LUABIND_TYPEID(T)))
 				return (obj->flags() & object_rep::constant)?0:1;
 
-            bool const_ = obj->flags() & object_rep::constant;
+			bool const_ = obj->flags() & object_rep::constant;
 			ptrdiff_t d;
 			return implicit_cast(obj->crep(), LUABIND_TYPEID(T), d) + !const_;
 		}
@@ -1186,111 +1202,114 @@ namespace luabind { namespace detail
 
 	struct default_policy : converter_policy_tag
 	{
-        static constexpr bool has_arg = true;
+		static constexpr bool has_arg = true;
 
 		template<typename T>
 		static void precall(lua_State*, T, int) {}
 
-        template<typename T, Direction Dir>
-        struct generate_converter
-        {
-            using type = std::conditional_t<
-                is_user_defined<T>::value,
-                user_defined_converter<Dir>,
-                std::conditional_t<
-                    is_primitive<T>::value,
-                    primitive_converter<Dir>,
-                    std::conditional_t<
-                        is_lua_functor<T>::value,
-                        functor_converter<Dir>,
-                        std::conditional_t<
-                            std::is_enum_v<T>,
-                            enum_converter<Dir>,
-                            std::conditional_t<
-                                is_nonconst_pointer<T>::value,
-                                pointer_converter<Dir>,
-                                std::conditional_t<
-                                    is_const_pointer<T>::value,
-                                    const_pointer_converter<Dir>,
-                                    std::conditional_t<
-                                        is_nonconst_reference<T>::value,
-                                        ref_converter<Dir>,
-                                        std::conditional_t<
-                                            is_const_reference<T>::value,
-                                            const_ref_converter<Dir>,
-                                            value_converter<Dir>
-                                        >
-                                    >
-                                >
-                            >
-                        >
-                    >
-                >
-            >;
-        };
+		template<typename T, Direction Dir>
+		struct generate_converter
+		{
+			using type = std::conditional_t<
+				is_user_defined<T>::value,
+				user_defined_converter<Dir>,
+				std::conditional_t<
+					is_primitive<T>::value,
+					primitive_converter<Dir>,
+					std::conditional_t<
+						is_lua_functor<T>::value,
+						functor_converter<Dir>,
+						std::conditional_t<
+							std::is_enum_v<T>,
+							enum_converter<Dir>,
+							std::conditional_t<
+								is_nonconst_pointer<T>::value,
+								pointer_converter<Dir>,
+								std::conditional_t<
+									is_const_pointer<T>::value,
+									const_pointer_converter<Dir>,
+									std::conditional_t<
+										is_nonconst_reference<T>::value,
+										ref_converter<Dir>,
+										std::conditional_t<
+											is_const_reference<T>::value,
+											const_ref_converter<Dir>,
+											value_converter<Dir>
+										>
+									>
+								>
+							>
+						>
+					>
+				>
+			>;
+		};
 	};
 
 // ============== new policy system =================
 
-    template <bool IsConversionPolicy, typename Policy, size_t Index>
-    struct is_conversion_policy_with_index_impl : public std::false_type
-    {
-    };
+	template <bool IsConversionPolicy, typename Policy, size_t Index>
+	struct is_conversion_policy_with_index_impl : public std::false_type
+	{
+	};
 
-    template <typename Policy, size_t Index>
-    struct is_conversion_policy_with_index_impl<true, Policy ,Index> : public std::bool_constant<Policy::index == Index>
-    {
-    };
+	template <typename Policy, size_t Index>
+	struct is_conversion_policy_with_index_impl<true, Policy ,Index> : public std::bool_constant<Policy::index == Index>
+	{
+	};
 
-    template <typename Policy, size_t Index>
-    struct is_conversion_policy_with_index : public is_conversion_policy_with_index_impl<std::is_base_of_v<conversion_policy_base, Policy>, Policy, Index>
-    {
-    };
+	template <typename Policy, size_t Index>
+	struct is_conversion_policy_with_index : public is_conversion_policy_with_index_impl<std::is_base_of_v<conversion_policy_base, Policy>, Policy, Index>
+	{
+	};
 
-    template<size_t, typename...>
+	template<size_t, typename...>
 	struct find_conversion_policy;
 
 	template<size_t Index, typename Policy, typename... Policies>
 	struct find_conversion_policy<Index, Policy, Policies...>
 	{
-        using type = std::conditional_t<
-            is_conversion_policy_with_index<Policy, Index>::value,
-            Policy,
-            typename find_conversion_policy<Index, Policies...>::type
-        >;
+		using type = std::conditional_t<
+			is_conversion_policy_with_index<Policy, Index>::value,
+			Policy,
+			typename find_conversion_policy<Index, Policies...>::type
+		>;
 	};
 
-    template<size_t Index>
-    struct find_conversion_policy<Index>
-    {
-        using type = default_policy;
-    };
+	template<size_t Index>
+	struct find_conversion_policy<Index>
+	{
+		using type = default_policy;
+	};
 
-    template<typename...>
-    struct policy_list_postcall;
+	template<typename...>
+	struct policy_list_postcall;
 
-    template<typename Policy, typename... Policies>
-    struct policy_list_postcall<Policy, Policies...>
-    {
-        static void apply(lua_State* L, const index_map& i)
-        {
-            Policy::postcall(L, i);
-            policy_list_postcall<Policies...>::apply(L, i);
-        }
-    };
+	template<typename Policy, typename... Policies>
+	struct policy_list_postcall<Policy, Policies...>
+	{
+		static void apply(lua_State* L, const index_map& i)
+		{
+			Policy::postcall(L, i);
+			policy_list_postcall<Policies...>::apply(L, i);
+		}
+	};
 
-    template<>
-    struct policy_list_postcall<>
-    {
-        static void apply(lua_State*, const index_map&) noexcept {}
-    };
+	template<>
+	struct policy_list_postcall<>
+	{
+		static void apply(lua_State*, const index_map&) noexcept {}
+	};
 }
 }
 
-namespace luabind {	 namespace
+namespace luabind
 {
-	constexpr size_t return_value = 0;
-    constexpr size_t result = return_value;
-}}
+	namespace
+	{
+		constexpr size_t return_value = 0;
+		constexpr size_t result = return_value;
+	}
+}
 
 #include <luabind/detail/object_funs.hpp>

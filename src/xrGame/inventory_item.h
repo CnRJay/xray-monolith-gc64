@@ -41,6 +41,27 @@ class CFlashlight;
 
 class CInventoryOwner;
 
+class CArtefact;
+class CCustomOutfit;
+class CHelmet;
+class CCustomDetector;
+class CCustomDevice;
+class CWeaponMagazined;
+class CWeaponMagazinedWGrenade;
+class CWeaponBinoculars;
+class CWeaponKnife;
+class CWeaponBM16;
+class CWeaponRPG7;
+class CWeaponRG6;
+class CTorch;
+class CBolt;
+class CPda;
+class CGrenade;
+class CSilencer;
+class CScope;
+class CGrenadeLauncher;
+class CFlare;
+
 struct SHit;
 
 class CSE_ALifeInventoryItem;
@@ -219,6 +240,9 @@ protected:
 
 	float m_fControlInertionFactor;
 	shared_str m_icon_name;
+	// Negative components use the base config; x2/y2 store width/height.
+	Irect m_inv_grid_rect = Irect().set(-1, -1, -1, -1);
+	Irect m_upgr_icon_rect = Irect().set(-1, -1, -1, -1);
 
 public:
 	virtual void make_Interpolation()
@@ -299,15 +323,37 @@ private:
 public:
 	virtual CInventoryItem* cast_inventory_item() { return this; }
 	virtual CAttachableItem* cast_attachable_item() { return this; }
-	virtual CPhysicsShellHolder* cast_physics_shell_holder() { return 0; }
-	virtual CEatableItem* cast_eatable_item() { return 0; }
-	virtual CWeapon* cast_weapon() { return 0; }
-	virtual CFoodItem* cast_food_item() { return 0; }
-	virtual CMissile* cast_missile() { return 0; }
-	virtual CFlashlight* cast_flashlight() { return 0; }
-	virtual CHudItem* cast_hud_item() { return 0; }
-	virtual CWeaponAmmo* cast_weapon_ammo() { return 0; }
-	virtual CGameObject* cast_game_object() { return 0; }
+	virtual CFlashlight* cast_flashlight() { return nullptr; }
+	virtual CPhysicsShellHolder* cast_physics_shell_holder() { return nullptr; }
+	virtual CEatableItem* cast_eatable_item() { return nullptr; }
+	virtual CWeapon* cast_weapon() { return nullptr; }
+	virtual CFoodItem* cast_food_item() { return nullptr; }
+	virtual CMissile* cast_missile() { return nullptr; }
+	virtual CHudItem* cast_hud_item() { return nullptr; }
+	virtual CWeaponAmmo* cast_weapon_ammo() { return nullptr; }
+	virtual CGameObject* cast_game_object() { return nullptr; }
+	virtual CArtefact* cast_artefact() { return nullptr; }
+	virtual CCustomOutfit* cast_outfit() { return nullptr; }
+	virtual CHelmet* cast_helmet() { return nullptr; }
+	virtual CCustomDetector* cast_custom_detector() { return nullptr; }
+	virtual CCustomDevice* cast_custom_device() { return nullptr; }
+	virtual CWeaponBinoculars* cast_weapon_binoculars() { return nullptr; }
+	virtual CWeaponKnife* cast_weapon_knife() { return nullptr; }
+	virtual CWeaponMagazined* cast_weapon_magazined() { return nullptr; }
+	virtual CWeaponMagazinedWGrenade* cast_weapon_magazined_w_grenade() { return nullptr; }
+	virtual CWeaponBM16* cast_weapon_bm16() { return nullptr; }
+	virtual CTorch* cast_torch() { return nullptr; }
+	virtual CWeaponRPG7* cast_weapon_rpg7() { return nullptr; }
+	virtual CWeaponRG6* cast_weapon_rg6() { return nullptr; }
+	virtual CBolt* cast_bolt() { return nullptr; }
+	virtual CPda* cast_pda() { return nullptr; }
+	virtual CGrenade* cast_grenade() { return nullptr; }
+	virtual CSilencer* cast_addon_silencer() { return nullptr; }
+	virtual CScope* cast_addon_scope() { return nullptr; }
+	virtual CGrenadeLauncher* cast_addon_grenade_launcher() { return nullptr; }
+	virtual CPhysicItem* cast_physics_item() { return nullptr; }
+	virtual CBackpack* cast_backpack() { return nullptr; }
+	virtual CFlare* cast_flare() { return nullptr; }
 
 	////////// upgrades //////////////////////////////////////////////////
 public:
@@ -343,6 +389,7 @@ public:
 protected:
 	virtual void net_Spawn_install_upgrades(Upgrades_type saved_upgrades);
 	virtual bool install_upgrade_impl(LPCSTR section, bool test);
+	bool install_upgrade_ui(LPCSTR section, bool test);
 
 	template <typename T>
 	IC static bool process_if_exists(LPCSTR section, LPCSTR name, T (CInifile::*method)(LPCSTR, LPCSTR) const, T& value,

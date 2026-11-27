@@ -19,7 +19,7 @@ void xrServer::SLS_Default()
 	}
 
 #ifdef USE_DESIGNER_KEY
-	bool _designer = !!strstr(Core.Params, "-designer");
+	bool _designer = Core.ParamsData.test(ECoreParams::designer);
 	CSE_ALifeCreatureActor* _actor = 0;
 #endif
 

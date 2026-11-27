@@ -29,10 +29,12 @@
 void CBaseMonster::feel_sound_new(CObject* who, int eType, CSound_UserDataPtr user_data, const Fvector& Position,
                                   float power)
 {
+	PROF_EVENT("CBaseMonster::feel_sound_new", PROF_CAT(AI));
 	if (!g_Alive()) return;
 
 	// ignore my sounds
 	if (this == who) return;
+	PROF_EVENT("CBaseMonster::feel_sound_new", PROF_CAT(AI));
 
 	if (user_data)
 		user_data->accept(sound_user_data_visitor());
@@ -64,7 +66,10 @@ void CBaseMonster::feel_sound_new(CObject* who, int eType, CSound_UserDataPtr us
 		HitMemory.add_hit(who, eSideFront);
 
 	// execute callback
-	sound_callback(who, eType, Position, power);
+	{
+		PROF_EVENT("Sound: monster hearing callback", PROF_CAT(AI));
+		sound_callback(who, eType, Position, power);
+	}
 
 	// register in sound memory
 	if (power >= db().m_fSoundThreshold)
@@ -113,7 +118,7 @@ void CBaseMonster::HitEntity(const CEntity* pEntity, float fDamage, float impuls
 
 		if (pEntityNC == Actor() && draw_hit_marks)
 		{
-			START_PROFILE("BaseMonster/Animation/HitEntity")
+			START_PROFILE("BaseMonster/Animation/HitEntity", PROF_CAT(UI))
 				;
 
 				StaticDrawableWrapper* s = CurrentGameUI()->AddCustomStatic("monster_claws", false);
@@ -135,6 +140,8 @@ void CBaseMonster::HitEntity(const CEntity* pEntity, float fDamage, float impuls
 
 			float time_to_lock = fDamage * MAX_LOCK_TIME;
 			clamp(time_to_lock, 0.f, MAX_LOCK_TIME);
+            // verdatim: damage stagger time factor
+            time_to_lock *= Actor()->DamageStaggerTimeFactor;
 			Actor()->lock_accel_for(int(time_to_lock * 1000));
 
 			//////////////////////////////////////////////////////////////////////////
@@ -216,7 +223,7 @@ bool CBaseMonster::feel_vision_isRelevant(CObject* O)
 	if (!g_Alive()) return false;
 	if (0 == smart_cast<CEntity*>(O)) return false;
 
-	if ((O->spatial.type & STYPE_VISIBLEFORAI) != STYPE_VISIBLEFORAI) return false;
+	if ((O->SpatialComponent->spatial.type & STYPE_VISIBLEFORAI) != STYPE_VISIBLEFORAI) return false;
 
 	// если спит, то ничего не видит
 	if (m_bSleep) return false;
@@ -263,12 +270,11 @@ void CBaseMonster::HitSignal(float amount, Fvector& vLocalDir, CObject* who, s16
 
 	Morale.on_hit();
 
-	const CGameObject* who_object = smart_cast<const CGameObject*>(who);
 	callback(GameObject::eHit)(
 		lua_game_object(),
 		amount,
 		vLocalDir,
-		who_object ? who_object->lua_game_object() : nullptr,
+		smart_cast<const CGameObject*>(who)->lua_game_object(),
 		element
 	);
 

@@ -31,6 +31,8 @@ public:
 	Flags32 m_Flags;
 public:
 	FS_Path(LPCSTR _Root, LPCSTR _Add, LPCSTR _DefExt = 0, LPCSTR _FilterString = 0, u32 flags = 0);
+	FS_Path(const FS_Path&) = delete;
+	FS_Path& operator=(const FS_Path&) = delete;
 	~FS_Path();
 	LPCSTR _update(string_path& dest, LPCSTR src) const;
 	void _set(LPCSTR add);

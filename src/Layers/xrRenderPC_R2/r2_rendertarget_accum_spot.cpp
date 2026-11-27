@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "../xrRender/du_cone.h"
+#include "..\xrRender\CHudInitializer.h"
 
 //extern Fvector du_cone_vertices[DU_CONE_NUMVERTEX];
 
@@ -25,7 +26,6 @@ void CRenderTarget::accum_spot(light* L)
 	BOOL bIntersect = FALSE; //enable_scissor(L);
 	{
 		// setup xform
-		L->xform_calc();
 		RCache.set_xform_world(L->m_xform);
 		RCache.set_xform_view(Device.mView);
 		RCache.set_xform_project(Device.mProject);
@@ -181,6 +181,12 @@ void CRenderTarget::accum_spot(light* L)
 	u_DBT_disable();
 }
 
+// Stub to use vanilla
+void CRenderTarget::accum_volumetric_lv(light* L)
+{
+    accum_volumetric(L);
+}
+
 void CRenderTarget::accum_volumetric(light* L)
 {
 	//if (L->flags.type != IRender_Light::SPOT) return;
@@ -198,7 +204,6 @@ void CRenderTarget::accum_volumetric(light* L)
 	BOOL bIntersect = FALSE; //enable_scissor(L);
 	{
 		// setup xform
-		L->xform_calc();
 		RCache.set_xform_world(L->m_xform);
 		RCache.set_xform_view(Device.mView);
 		RCache.set_xform_project(Device.mProject);
@@ -290,9 +295,9 @@ void CRenderTarget::accum_volumetric(light* L)
 	Fbox aabb;
 
 	//float	scaledRadius = L->spatial.sphere.R * (1+L->m_volumetric_distance)*0.5f;
-	float scaledRadius = L->spatial.sphere.R * L->m_volumetric_distance;
+	float	scaledRadius = L->SpatialComponent->spatial.sphere.R * L->m_volumetric_distance;
 	Fvector rr = Fvector().set(scaledRadius, scaledRadius, scaledRadius);
-	Fvector pt = L->spatial.sphere.P;
+	Fvector pt = L->SpatialComponent->spatial.sphere.P;
 	pt.sub(L->position);
 	pt.mul(L->m_volumetric_distance);
 	pt.add(L->position);

@@ -100,13 +100,14 @@ public:
 public:
 	virtual BOOL AlwaysTheCrow() { return TRUE; }
 
-	virtual float GetUILuminosity();
-
 	virtual CAttachmentOwner* cast_attachment_owner() { return this; }
 	virtual CInventoryOwner* cast_inventory_owner() { return this; }
 	virtual CActor* cast_actor() { return this; }
 	virtual CGameObject* cast_game_object() { return this; }
 	virtual IInputReceiver* cast_input_receiver() { return this; }
+	virtual CEntityAlive* cast_entity_alive() { return this; }
+	virtual CEntity* cast_entity() { return this; }
+	virtual CPhraseDialogManager* cast_phrase_dialog_manager() { return this; }
 	virtual CCharacterPhysicsSupport* character_physics_support() { return m_pPhysics_support; }
 	virtual CCharacterPhysicsSupport* character_physics_support() const { return m_pPhysics_support; }
 	virtual CPHDestroyable* ph_destroyable();
@@ -119,7 +120,7 @@ public:
 public:
 
 	virtual void Load(LPCSTR section);
-	virtual void RenderCamAttached();
+	virtual void RenderCamAttached(IDSGraphManager* DM);
 
 	virtual void shedule_Update(u32 T);
 	virtual void UpdateCL();
@@ -127,7 +128,7 @@ public:
 	virtual void OnEvent(NET_Packet& P, u16 type);
 
 	// Render
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM);
 	virtual BOOL renderable_ShadowGenerate();
 	virtual bool AllowActorShadow();
 	virtual void feel_sound_new(CObject* who, int type, CSound_UserDataPtr user_data, const Fvector& Position,
@@ -213,6 +214,7 @@ public:
 	virtual void g_PerformDrop();
 
 	virtual bool use_default_throw_force();
+	virtual float default_missile_throw_force(CMissile* missile);
 	virtual float missile_throw_force();
 
 	virtual bool unlimited_ammo();
@@ -261,7 +263,7 @@ protected:
 	s32 m_ShotRndSeed;
 
 	bool m_bOutBorder;
-	//сохраняет счетчик объектов в feel_touch, для которых необходимо обновлять размер колижена с актером 
+	//сохраняет счетчик объектов в feel_touch, для которых необходимо обновлять размер колижена с актером
 	u32 m_feel_touch_characters;
 private:
 	void SwitchOutBorder(bool new_border_state);
@@ -336,10 +338,10 @@ public:
 	void g_SetAnimation(u32 mstate_rl);
 	void g_SetSprintAnimation(u32 mstate_rl, MotionID& head, MotionID& torso, MotionID& legs);
 public:
-	virtual void OnHUDDraw(CCustomHUD* hud);
+	virtual void OnHUDDraw(CCustomHUD* hud, IDSGraphManager* DM);
 	BOOL HUDview() const;
 
-	//visiblity 
+	//visiblity
 	virtual float ffGetFov() const { return 90.f; }
 	virtual float ffGetRange() const { return 500.f; }
 
@@ -493,6 +495,9 @@ public:
 	// demonized: lookout modifier
 	float m_fLookoutFactor = 1;
 
+    // verdatim: damage stagger time factor
+    float DamageStaggerTimeFactor = 1;
+
 public:
 	Fvector GetMovementSpeed() { return NET_SavedAccel; };
 	//////////////////////////////////////////////////////////////////////////
@@ -520,7 +525,7 @@ public:
 	virtual float MaxCarryWeight() const;
 	float MaxWalkWeight() const;
 	float get_additional_weight() const;
-	
+
 #ifdef STATIONARYMGUN_NEW
 	float GetWeaponAccuracyStm();
 #endif
@@ -536,7 +541,7 @@ protected:
 	float m_fDispBase;
 	float m_fDispAim;
 	//коэффициенты на сколько процентов увеличится базовая дисперсия
-	//учитывает скорость актера 
+	//учитывает скорость актера
 	float m_fDispVelFactor;
 	//если актер бежит
 	float m_fDispAccelFactor;
@@ -606,7 +611,7 @@ protected:
 	xr_deque<net_update_A> NET_A;
 
 	//---------------------------------------------
-	//	bool					m_bHasUpdate;	
+	//	bool					m_bHasUpdate;
 	/// spline coeff /////////////////////
 	float SCoeff[3][4]; //коэффициэнты для сплайна Бизье
 	float HCoeff[3][4]; //коэффициэнты для сплайна Эрмита
@@ -798,7 +803,7 @@ public:
 private:
 	collide::rq_results RQR;
 	BOOL CanPickItem(const CFrustum& frustum, const Fvector& from, CObject* item);
-	xr_vector<ISpatial*> ISpatialResult;
+	xr_vector<ISpatialShared> ISpatialResult;
 
 private:
 	CLocationManager* m_location_manager;
@@ -877,7 +882,36 @@ public:
 	void RPC_UpdateReputation();
 
 	CNightVisionEffector* m_night_vision;
-DECLARE_SCRIPT_REGISTER_FUNCTION
+
+private:
+    struct npc_visibility
+    {
+        u16 id;
+        float value;
+
+        bool operator ==(const u16& _id)
+        {
+            return id == _id;
+        }
+
+        bool operator <(const npc_visibility& m) const
+        {
+            return (value < m.value);
+        }
+    };
+
+    xr_vector<npc_visibility> m_npc_visibility;
+    float m_visibility_tgt = 0.0f;
+    float m_visibility_cur = 0.0f;
+    bool m_visibility_changed = false;
+
+public:
+    float GetVisibility();
+    void SetVisibilityValue(float value);
+    void SetVisibilityFromObject(u16 who_id, float value);
+
+public:
+    DECLARE_SCRIPT_REGISTER_FUNCTION
 };
 
 extern bool isActorAccelerated(u32 mstate, bool ZoomMode);

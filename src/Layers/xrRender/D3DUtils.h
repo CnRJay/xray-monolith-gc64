@@ -22,7 +22,7 @@ struct SPrimitiveBuffer
 	u32 i_cnt;
 	D3DPRIMITIVETYPE p_type;
 	u32 p_cnt;
-	typedef fastdelegate::FastDelegate0<> TOnRender;
+	typedef xr_delegate<void()> TOnRender;
 	TOnRender OnRender;
 
 	void xr_stdcall RenderDIP()

@@ -14,7 +14,7 @@ class CUIDialogWndEx : public CUIDialogWnd, public DLL_Pure
 
 private:
 	CALLBACKS m_callbacks;
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 	SCallbackInfo* NewCallback();
 protected:
 	bool Load(LPCSTR xml_name);
@@ -28,8 +28,12 @@ public:
 	void AddCallback(LPCSTR control_id, s16 event, const ::luabind::functor<void>& functor,
 	                 const ::luabind::object& object);
 	virtual void Update();
+	virtual bool OnMouseAction(float x, float y, EUIMessages mouse_action);
 	virtual bool OnKeyboardAction(int dik, EUIMessages keyboard_action);
 	virtual bool Dispatch(int cmd, int param) { return true; }
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 	/*
 	template<typename T>
 	IC	T*	GetControl(LPCSTR name);

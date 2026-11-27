@@ -17,4 +17,6 @@ public:
 	virtual ~CUIRankIndicator();
 	void InitFromXml(CUIXml& xml_doc);
 	void SetRank(u8 team, u8 rank);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 };

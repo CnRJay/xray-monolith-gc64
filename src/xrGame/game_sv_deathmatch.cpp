@@ -58,7 +58,7 @@ game_sv_Deathmatch::game_sv_Deathmatch()
 
 	m_bSpectatorMode = false;
 	m_dwSM_CurViewEntity = 0;
-	m_pSM_CurViewEntity = nullptr;
+	m_pSM_CurViewEntity = NULL;
 	m_dwSM_LastSwitchTime = 0;
 
 	//-------------------------------
@@ -166,7 +166,7 @@ void game_sv_Deathmatch::OnRoundStart()
 		m_dwLastRPoints[i] = u32(-1);
 	}
 	//-------------------------------------
-	fastdelegate::FastDelegate1<IClient*, void> tmp_delegate;
+	xr_delegate<void(IClient*)> tmp_delegate;
 	tmp_delegate.bind(this, &game_sv_Deathmatch::RespawnPlayerAsSpectator);
 	m_server->ForEachClientDoSender(tmp_delegate);
 	m_item_respawner.respawn_all_items();
@@ -392,7 +392,7 @@ game_PlayerState* game_sv_Deathmatch::GetWinningPlayer()
 
 		winner_searcher()
 		{
-			res = nullptr;
+			res = NULL;
 			MaxFrags = -10000;
 		}
 
@@ -464,7 +464,7 @@ void game_sv_Deathmatch::Update()
 				if (!m_pSM_CurViewEntity || !smart_cast<CActor*>(m_pSM_CurViewEntity) || m_dwSM_LastSwitchTime < Level()
 					.timeServer())
 					SM_SwitchOnNextActivePlayer();
-				CUIGameDM* GameDM = nullptr;
+				CUIGameDM* GameDM = NULL;
 				if (CurrentGameUI())
 					GameDM = smart_cast<CUIGameDM*>(CurrentGameUI());
 
@@ -564,7 +564,7 @@ bool game_sv_Deathmatch::checkForFragLimit()
 			}
 		};
 		frag_limit_searcher tmp_predicate;
-		if (m_server->FindClient(tmp_predicate) != nullptr)
+		if (m_server->FindClient(tmp_predicate) != NULL)
 		{
 			OnFraglimitExceed();
 			return true;
@@ -612,7 +612,7 @@ void game_sv_Deathmatch::SM_SwitchOnNextActivePlayer()
 	m_server->ForEachClientDo(tmp_functor);
 
 
-	CObject* pNewObject = nullptr;
+	CObject* pNewObject = NULL;
 	if (!tmp_functor.PPlayersCount)
 	{
 		xrClientData* C = (xrClientData*)m_server->GetServerClient();
@@ -636,7 +636,7 @@ void game_sv_Deathmatch::SM_SwitchOnNextActivePlayer()
 void game_sv_Deathmatch::net_Relcase(CObject* O)
 {
 	if (m_pSM_CurViewEntity == O)
-		m_pSM_CurViewEntity = nullptr;
+		m_pSM_CurViewEntity = NULL;
 }
 
 void game_sv_Deathmatch::SM_SwitchOnPlayer(CObject* pNewObject)
@@ -1017,7 +1017,7 @@ void game_sv_Deathmatch::OnPlayerBuyFinished(ClientID id_who, NET_Packet& P)
 	CActor* pActor = smart_cast<CActor*>(Level().Objects.net_Find	(ps->GameID));
 	if (pActor)
 	{
-		PIItem pItem = nullptr;
+		PIItem pItem = NULL;
 		xr_vector<u16>				ItemsToDelete;
 
 		bool ExactMatch	= true;

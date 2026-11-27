@@ -39,6 +39,14 @@ CRenderTarget::CRenderTarget()
 	param_color_gray = color_rgba(85, 85, 85, 0);
 	param_color_add.set(0.0f, 0.0f, 0.0f);
 
+	const s32 saved_skinning = Engine.External.GetSkinningMode();
+	for (s32 skinning = -1; skinning <= 4; ++skinning)
+	{
+		Engine.External.SetSkinningMode(skinning);
+		s_ui_icons[skinning + 1].create("ui_icons");
+	}
+	Engine.External.SetSkinningMode(saved_skinning);
+
 	bAvailable = Create();
 	Msg("* SSample: %s", bAvailable ? "enabled" : "disabled");
 }
@@ -74,7 +82,7 @@ BOOL CRenderTarget::Create()
 
 	if ((rtHeight != Device.dwHeight) || (rtWidth != Device.dwWidth))
 	{
-		R_CHK(HW.pDevice->CreateDepthStencilSurface (rtWidth,rtHeight,HW.Caps.fDepth,D3DMULTISAMPLE_NONE,0,TRUE,&ZB,nullptr));
+		R_CHK(HW.pDevice->CreateDepthStencilSurface (rtWidth,rtHeight,HW.Caps.fDepth,D3DMULTISAMPLE_NONE,0,TRUE,&ZB,NULL));
 	}
 	else
 	{
@@ -83,13 +91,13 @@ BOOL CRenderTarget::Create()
 	}
 
 	// Temp ZB, used by some of the shadowing code
-	R_CHK(HW.pDevice->CreateDepthStencilSurface (512,512,HW.Caps.fDepth,D3DMULTISAMPLE_NONE,0,TRUE,&pTempZB,nullptr));
+	R_CHK(HW.pDevice->CreateDepthStencilSurface (512,512,HW.Caps.fDepth,D3DMULTISAMPLE_NONE,0,TRUE,&pTempZB,NULL));
 
 	//	Igor: TMP
 	//	Create an RT for online screenshot makining
 	//u32		w = Device.dwWidth, h = Device.dwHeight;
-	//HW.pDevice->CreateOffscreenPlainSurface(Device.dwWidth,Device.dwHeight,D3DFMT_A8R8G8B8,D3DPOOL_SYSTEMMEM,&pFB,nullptr);
-	HW.pDevice->CreateOffscreenPlainSurface(rtWidth, rtHeight, HW.Caps.fTarget, D3DPOOL_SYSTEMMEM, &pFB,nullptr);
+	//HW.pDevice->CreateOffscreenPlainSurface(Device.dwWidth,Device.dwHeight,D3DFMT_A8R8G8B8,D3DPOOL_SYSTEMMEM,&pFB,NULL);
+	HW.pDevice->CreateOffscreenPlainSurface(rtWidth, rtHeight, HW.Caps.fTarget, D3DPOOL_SYSTEMMEM, &pFB,NULL);
 
 	// Shaders and stream
 	s_postprocess[0].create("postprocess");
@@ -106,6 +114,7 @@ BOOL CRenderTarget::Create()
 
 CRenderTarget::~CRenderTarget()
 {
+	_RELEASE(ui_icons_depth);
 	_RELEASE(pFB);
 	_RELEASE(pTempZB);
 	_RELEASE(ZB);
@@ -317,12 +326,7 @@ void CRenderTarget::End()
 	BOOL bDistort = RImplementation.o.distortion;
 	BOOL bCMap = NeedColorMapping();
 	bool _menu_pp = g_pGamePersistent ? g_pGamePersistent->OnRenderPPUI_query() : false;
-	u32 count = RImplementation.mapDistort.size() + RImplementation.mapHUDDistort.size();
-
-	if ((0 == count) && !_menu_pp)
-	{
-		bDistort = FALSE;
-	}
+	if ((0==RImplementation.GMBase.RGraph.mapStaticSorted.Distort.size() && 0 == RImplementation.GMBase.RGraph.mapDynamicSorted.Distort.size() && 0 == RImplementation.GMBase.RGraph.mapHUDSorted.Distort.size()) && !_menu_pp)	bDistort	= FALSE;
 	if (bDistort)
 	{
 		phase_distortion();
@@ -408,16 +412,17 @@ void CRenderTarget::phase_distortion()
 	RCache.set_ZB(ZB);
 	RCache.set_CullMode(CULL_CCW);
 	RCache.set_ColorWriteEnable();
-	CHK_DX(HW.pDevice->Clear ( 0L, nullptr, D3DCLEAR_TARGET, color_rgba(127,127,127,127), 1.0f, 0L));
+	CHK_DX(HW.pDevice->Clear ( 0L, NULL, D3DCLEAR_TARGET, color_rgba(127,127,127,127), 1.0f, 0L));
 
 	if (g_pGameLevel && g_pGamePersistent && !g_pGamePersistent->OnRenderPPUI_query())
 	{
-		RImplementation.r_dsgraph_render_distort();
+		RImplementation.GMBase.r_dsgraph_render_distort();
 	}
 	else
 	{
-		RImplementation.mapDistort.clear();
-		RImplementation.mapHUDDistort.clear();
+		RImplementation.GMBase.RGraph.mapStaticSorted.Distort.clear();
+		RImplementation.GMBase.RGraph.mapDynamicSorted.Distort.clear();
+		RImplementation.GMBase.RGraph.mapHUDSorted.Distort.clear();
 	}
 
 	if (g_pGamePersistent) g_pGamePersistent->OnRenderPPUI_PP(); // PP-UI

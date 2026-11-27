@@ -15,30 +15,30 @@
 #include "../../../xrServerEntities/script_export_space.h"
 
 #ifdef DEBUG
-template <typename _object_type>
-class CActionBase;
+	template <typename _object_type>
+	class CActionBase;
 
-template <typename _object_type>
-class CPropertyEvaluator;
+	template <typename _object_type>
+	class CPropertyEvaluator;
 
-template <
-	typename _object_type,
-	bool	 _reverse_search,
-	typename _world_operator,
-	typename _condition_evaluator,
-	typename _world_operator_ptr,
-	typename _condition_evaluator_ptr
->
-class CActionPlanner;
+	template <
+		typename _object_type,
+		bool	 _reverse_search,
+		typename _world_operator,
+		typename _condition_evaluator,
+		typename _world_operator_ptr,
+		typename _condition_evaluator_ptr
+	>
+	class CActionPlanner;
 
-typedef CActionPlanner<
-	CScriptGameObject,
-	false,
-	CActionBase<CScriptGameObject>,
-	CPropertyEvaluator<CScriptGameObject>,
-	CActionBase<CScriptGameObject>*,
-	CPropertyEvaluator<CScriptGameObject>*
->								script_planner;
+	typedef CActionPlanner<
+		CScriptGameObject,
+		false,
+		CActionBase<CScriptGameObject>,
+		CPropertyEvaluator<CScriptGameObject>,
+		CActionBase<CScriptGameObject>*,
+		CPropertyEvaluator<CScriptGameObject>*
+	>								script_planner;
 #endif
 
 namespace MonsterSpace
@@ -106,7 +106,7 @@ private:
 	stalker_movement_manager_smart_cover* m_movement_manager;
 
 #ifdef DEBUG
-	const script_planner* m_debug_planner;
+	const script_planner			*m_debug_planner;
 #endif
 
 	// ALife
@@ -127,10 +127,10 @@ private:
 private:
 	float m_power_fx_factor;
 
-	// LookAtActor feature
-	Fvector savedOrientation;
-	u32 dTimeFSeen;
-	u32 dTimeNfSeen;
+    // LookAtActor feature
+    Fvector savedOrientation;
+    u32 dTimeFSeen;
+    u32 dTimeNfSeen;
 
 private:
 	float m_fRankDisperison;
@@ -185,6 +185,8 @@ public:
 	virtual CAI_Stalker* cast_stalker() { return this; }
 	virtual CCustomMonster* cast_custom_monster() { return this; }
 	virtual CScriptEntity* cast_script_entity() { return this; }
+	virtual CPhraseDialogManager* cast_phrase_dialog_manager() { return this; }
+	virtual CAI_PhraseDialogManager* cast_ai_phrase_dialog_manager() { return this; }
 
 public:
 	void init();
@@ -223,7 +225,7 @@ public:
 	virtual void feel_touch_new(CObject* O);
 	virtual void feel_touch_delete(CObject* O);
 	void on_ownership_reject(CObject* O, bool just_before_destroy);
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM);
 	virtual void Exec_Look(float dt);
 	virtual void Hit(SHit* pHDS);
 	virtual void PHHit(SHit& H);
@@ -237,10 +239,10 @@ public:
 	bool LookAtActorLuaResult = true;
 
 #ifdef DEBUG
-	virtual void						OnHUDDraw(CCustomHUD* hud);
-	virtual void						OnRender();
-	void						debug_text();
-	bool						m_dbg_hud_draw;
+	virtual void						OnHUDDraw							(CCustomHUD* hud, IDSGraphManager* DM);
+	virtual void						OnRender							();
+			void						debug_text							();
+			bool						m_dbg_hud_draw						;
 #endif
 
 	virtual bool useful(const CItemManager* manager, const CGameObject* object) const;
@@ -320,7 +322,7 @@ private:
 
 private:
 	void can_kill_entity(const Fvector& position, const Fvector& direction, float distance,
-		collide::rq_results& rq_storage);
+	                     collide::rq_results& rq_storage);
 	void can_kill_entity_from(const Fvector& position, Fvector direction, float distance);
 	void update_can_kill_info();
 
@@ -330,6 +332,7 @@ public:
 	float pick_distance();
 	IC float start_pick_distance() const;
 	bool fire_make_sense();
+	Fvector known_enemy_position(const CEntityAlive* enemy) const;
 
 	virtual LPCSTR Name() const;
 	virtual bool feel_touch_contact(CObject* O);
@@ -395,7 +398,7 @@ protected:
 	bool non_conflicted(const CInventoryItem* item, const CWeapon* new_weapon) const;
 	bool enough_ammo(const CWeapon* new_weapon) const;
 	bool conflicted(const CInventoryItem* item, const CWeapon* new_weapon, bool new_wepon_enough_ammo,
-		int new_weapon_rank) const;
+	                int new_weapon_rank) const;
 	void update_conflicted(CInventoryItem* item, const CWeapon* new_weapon);
 	void remove_personal_only_ammo(const CInventoryItem* item);
 	void on_after_take(const CGameObject* object);
@@ -451,7 +454,7 @@ public:
 	// because we don't want to use this feature for stalkers
 	virtual bool use_simplified_visual() const { return false; } //(already_dead());};
 #ifdef DEBUG
-	void						debug_planner(const script_planner* planner);
+			void						debug_planner					(const script_planner *planner);
 #endif
 
 private:
@@ -652,8 +655,8 @@ public:
 	IC float auto_queue_fire_dist_med() const;
 	IC float auto_queue_fire_dist_far() const;
 public:
-	typedef fastdelegate::FastDelegate<void(const CCoverPoint*, const CCoverPoint*)> on_best_cover_changed_delegate;
-	typedef fastdelegate::FastDelegate<bool(SHit const*)> HitCallback;
+	typedef xr_delegate<void (const CCoverPoint*, const CCoverPoint*)> on_best_cover_changed_delegate;
+	typedef xr_delegate<bool (SHit const*)> HitCallback;
 
 private:
 	typedef xr_vector<on_best_cover_changed_delegate> cover_delegates;
@@ -757,8 +760,8 @@ public:
 
 #ifdef DEBUG
 public:
-	void						dbg_draw_vision();
-	void						dbg_draw_visibility_rays();
+			void						dbg_draw_vision						();
+			void						dbg_draw_visibility_rays			();
 #endif
 
 
@@ -867,7 +870,7 @@ public:
 	bool use_smart_covers_only() const;
 
 public:
-	typedef fastdelegate::FastDelegate<void(Fmatrix&)> EyeMatrixCallback;
+	typedef xr_delegate<void (Fmatrix&)> EyeMatrixCallback;
 
 private:
 	virtual BOOL AlwaysTheCrow();
@@ -879,9 +882,13 @@ public:
 	IC void death_sound_enabled(bool value);
 	IC bool death_sound_enabled() const;
 
+	IC void movement_hold(bool value);
+	IC bool movement_hold() const;
+
 private:
 	bool m_take_items_enabled;
 	bool m_death_sound_enabled;
+	bool m_movement_hold;
 
 public:
 	smart_cover::cover const* get_current_smart_cover();
@@ -896,22 +903,19 @@ public:
 private:
 	ignored_touched_objects_type m_ignored_touched_objects;
 
-private:
-	u32 m_dwLastThinkTime;
-
 #ifdef HOLDERCUSTOM_NEW
 private:
-	CHolderCustom* m_holder = nullptr;
+	CHolderCustom *m_holder = nullptr;
 
 public:
-	CHolderCustom* Holder() { return m_holder; }
-	bool attach_Holder(CHolderCustom* holder);
+	CHolderCustom *Holder() { return m_holder; }
+	bool attach_Holder(CHolderCustom *holder);
 	void detach_Holder();
-	bool use_HolderEx(CHolderCustom* object);
+	bool use_HolderEx(CHolderCustom *object);
 #endif
 
 public:
-	DECLARE_SCRIPT_REGISTER_FUNCTION
+DECLARE_SCRIPT_REGISTER_FUNCTION
 };
 
 #include "ai_stalker_inline.h"

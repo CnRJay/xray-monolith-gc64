@@ -81,7 +81,7 @@ void CPhysicsShellAnimator::CreateJoint(CPHElement* e)
 	m_bones_data.push_back(PhysicsShellAnimatorBoneDataC);
 }
 
-void CPhysicsShellAnimator::OnFrame()
+void CPhysicsShellAnimator::OnFrame(bool calculate_bones)
 {
 	m_pPhysicsShell->Enable();
 
@@ -94,8 +94,11 @@ void CPhysicsShellAnimator::OnFrame()
 #pragma todo("reset callback?")
 		B.set_callback(B.callback_type(), 0, B.callback_param(),FALSE);
 
-		m_pPhysicsShell->PKinematics()->CalculateBones_Invalidate();
-		m_pPhysicsShell->PKinematics()->CalculateBones(TRUE);
+		if (calculate_bones)
+		{
+			m_pPhysicsShell->PKinematics()->CalculateBones_Invalidate();
+			m_pPhysicsShell->PKinematics()->CalculateBones(TRUE);
+		}
 
 		target_obj_posFmatrixS.mul_43(m_StartXFORM, B.mTransform);
 		dQuaternion target_obj_quat_dQuaternionS;
@@ -104,7 +107,11 @@ void CPhysicsShellAnimator::OnFrame()
 		dQfromR(target_obj_quat_dQuaternionS, ph_mat);
 		Fvector mc;
 		i->m_element->CPHGeometryOwner::get_mc_vs_transform(mc, target_obj_posFmatrixS);
-		dJointSetFixedQuaternionPos(i->m_anim_fixed_dJointID, target_obj_quat_dQuaternionS, &mc.x);
+
+		Fvector4 ODEVect;
+		ODEVect.set(mc.x, mc.y, mc.z);
+
+		dJointSetFixedQuaternionPos(i->m_anim_fixed_dJointID, target_obj_quat_dQuaternionS, &ODEVect.x);
 	}
 	//(*(m_pPhysicsShell->Elements().begin()))->PhysicsRefObject()->XFORM().set(m_pPhysicsShell->mXFORM);
 }

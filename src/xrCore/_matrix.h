@@ -61,6 +61,60 @@ public:
 		T m[4][4]; // Array
 	};
 
+	IC bool has_inited() {
+		if (
+			_11 == 0 &&
+			_12 == 0 &&
+			_13 == 0 &&
+			_14 == 0 &&
+
+			_21 == 0 &&
+			_22 == 0 &&
+			_23 == 0 &&
+			_24 == 0 &&
+
+			_31 == 0 &&
+			_32 == 0 &&
+			_33 == 0 &&
+			_34 == 0 &&
+
+			_41 == 0 &&
+			_42 == 0 &&
+			_43 == 0 &&
+			_44 == 0
+			)
+			return true;
+
+		return false;
+	}
+
+	IC bool has_identity() {
+		if (
+			_11 == 1 &&
+			_12 == 0 &&
+			_13 == 0 &&
+			_14 == 0 &&
+
+			_21 == 0 &&
+			_22 == 1 &&
+			_23 == 0 &&
+			_24 == 0 &&
+
+			_31 == 0 &&
+			_32 == 0 &&
+			_33 == 1 &&
+			_34 == 0 &&
+
+			_41 == 0 &&
+			_42 == 0 &&
+			_43 == 0 &&
+			_44 == 1
+			)
+			return true;
+
+		return false;
+	}
+
 	// Class members
 	ICF SelfRef set(const Self& a)
 	{
@@ -932,9 +986,20 @@ public:
 		return *this;
 	}
 
+	IC SelfRef cam_to_world()
+	{
+		Device.cam_to_world(*this);
+		return *this;
+	}
 	IC SelfRef world_to_hud()
 	{
 		Device.world_to_hud(*this);
+		return *this;
+	}
+
+	IC SelfRef custom_to_world(Self& proj)
+	{
+		Device.hud_to_world(*this, proj);
 		return *this;
 	}
 };

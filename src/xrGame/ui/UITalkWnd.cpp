@@ -22,13 +22,13 @@
 
 CUITalkWnd::CUITalkWnd()
 {
-	m_pActor = nullptr;
+	m_pActor = NULL;
 
-	m_pOurInvOwner = nullptr;
-	m_pOthersInvOwner = nullptr;
+	m_pOurInvOwner = NULL;
+	m_pOthersInvOwner = NULL;
 
-	m_pOurDialogManager = nullptr;
-	m_pOthersDialogManager = nullptr;
+	m_pOurDialogManager = NULL;
+	m_pOthersDialogManager = NULL;
 
 	ToTopicMode();
 
@@ -177,6 +177,7 @@ void CUITalkWnd::SendMessage(CUIWindow* pWnd, s16 msg, void* pData)
 //////////////////////////////////////////////////////////////////////////
 void UpdateCameraDirection(CGameObject* pTo)
 {
+	if (!pTo) return;
 	if (Actor()->cam_freelook != eflDisabled)
 		return;
 
@@ -258,7 +259,7 @@ void CUITalkWnd::Show(bool status)
 			if (m_pActor->IsTalking())
 				m_pActor->StopTalk();
 
-			m_pActor = nullptr;
+			m_pActor = NULL;
 		}
 	}
 }
@@ -270,7 +271,7 @@ bool CUITalkWnd::TopicMode()
 
 void CUITalkWnd::ToTopicMode()
 {
-	m_pCurrentDialog = DIALOG_SHARED_PTR((CPhraseDialog*)nullptr);
+	m_pCurrentDialog = DIALOG_SHARED_PTR((CPhraseDialog*)NULL);
 }
 
 void CUITalkWnd::AskQuestion()

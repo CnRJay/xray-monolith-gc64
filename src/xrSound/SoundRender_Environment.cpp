@@ -108,7 +108,7 @@ bool CSoundRender_Environment::load(IReader* fs)
 
 	fs->r_stringZ(name);
 
-	static auto mB_to_gain = [](float mb) 
+	static auto mB_to_gain = [](float mb) noexcept 
 	{ 
 			return powf(10.0f, mb / 2000.0f); 
 	};

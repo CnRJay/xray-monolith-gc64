@@ -21,6 +21,10 @@ public:
 	// CUIMultiTextureOwner
 	virtual void InitTexture(LPCSTR texture);
 	virtual void InitTextureEx(LPCSTR texture, LPCSTR shader);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIStatic* ui_cast_static() { return this; }
+
 protected:
 	CUIFrameLineWnd* m_frameLine;
 	shared_str m_opt_backup_value;

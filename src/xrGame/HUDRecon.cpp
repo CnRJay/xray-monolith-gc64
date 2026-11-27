@@ -73,8 +73,8 @@ void CHUDRecon::Update(const SPickParam& pp)
 	dist = pp.result.range;
 	power = pp.power;
 	pass = pp.pass;
-	line1 = nullptr;
-	line2 = nullptr;
+	line1 = NULL;
+	line2 = NULL;
 	color = C_DEFAULT;
 
 	CObject* O = pp.result.O;

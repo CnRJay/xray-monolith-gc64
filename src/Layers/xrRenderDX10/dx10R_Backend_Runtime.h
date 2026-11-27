@@ -7,6 +7,8 @@
 #include "R_Backend.h"
 #include "../xrRender/xrRender_console.h"
 
+#include "../../xrCore/profiler.h"
+
 IC void CBackend::set_xform(u32 ID, const Fmatrix& M)
 {
 	stat.xforms ++;
@@ -285,7 +287,7 @@ IC void CBackend::Render(D3DPRIMITIVETYPE T, u32 baseV, u32 startV, u32 countV, 
 	//VERIFY(vs);
 	//HW.pDevice->VSSetShader(vs);
 	//HW.pDevice->GSSetShader(0);
-	
+
 	D3D_PRIMITIVE_TOPOLOGY Topology = TranslateTopology(T);
 	u32 iIndexCount = GetIndexCount(T, PC);
 
@@ -529,6 +531,7 @@ IC void CBackend::set_Constants(R_constant_table* C)
 	ctable = C;
 	xforms.unmap();
 	hemi.unmap();
+	bus_object.unmap();
 	tree.unmap();
 #ifdef USE_DX11
 	LOD.unmap		();
@@ -541,13 +544,13 @@ IC void CBackend::set_Constants(R_constant_table* C)
 
 	//	Setup constant tables
 	{
-		ref_cbuffer aPixelConstants[MaxCBuffers];
-		ref_cbuffer aVertexConstants[MaxCBuffers];
-		ref_cbuffer aGeometryConstants[MaxCBuffers];
+		static ref_cbuffer aPixelConstants[MaxCBuffers];
+		static ref_cbuffer aVertexConstants[MaxCBuffers];
+		static ref_cbuffer aGeometryConstants[MaxCBuffers];
 #ifdef USE_DX11
-		ref_cbuffer	aHullConstants[MaxCBuffers];
-		ref_cbuffer	aDomainConstants[MaxCBuffers];
-		ref_cbuffer	aComputeConstants[MaxCBuffers];
+		static ref_cbuffer aHullConstants[MaxCBuffers];
+		static ref_cbuffer aDomainConstants[MaxCBuffers];
+		static ref_cbuffer aComputeConstants[MaxCBuffers];
 #endif
 
 		for (int i = 0; i < MaxCBuffers; ++i)

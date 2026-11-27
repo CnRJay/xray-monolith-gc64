@@ -161,7 +161,7 @@ void cdkey_ban_list::unban_player_by_index(size_t const index)
 		return;
 	}
 	xr_delete(m_ban_list[index]);
-	m_ban_list.erase(m_ban_list.begin() + index);
+	m_ban_list.erase_fast(m_ban_list.begin() + index);
 	save();
 }
 
@@ -183,7 +183,7 @@ char const* print_time(time_t const& src_time, string64& dest_time)
 
 void cdkey_ban_list::print_ban_list(char const* filter_string)
 {
-	char const* to_filter = nullptr;
+	char const* to_filter = NULL;
 	if (filter_string && xr_strlen(filter_string))
 		to_filter = filter_string;
 	Msg("- ----banned players list begin-------");

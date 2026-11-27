@@ -75,15 +75,17 @@ public:
 	virtual ICollisionDamageReceiver* PHCollisionDamageReceiver() { return nullptr; }
 	virtual CPHSkeleton* PHSkeleton() { return nullptr; }
 	virtual CPhysicsShellHolder* cast_physics_shell_holder() { return this; }
+	virtual CPhysicItem* cast_physics_item() { return nullptr; }
 	virtual CParticlesPlayer* cast_particles_player() { return this; }
+	virtual CGameObject* cast_game_object() { return this; }
 	virtual IDamageSource* cast_IDamageSource() { return nullptr; }
 	virtual CPHSoundPlayer* ph_sound_player() { return nullptr; }
 	virtual CCharacterPhysicsSupport* character_physics_support() { return nullptr; }
 	virtual const CCharacterPhysicsSupport* character_physics_support() const { return nullptr; }
 	virtual CIKLimbsController* character_ik_controller() { return nullptr; }
 	virtual ICollisionHitCallback* get_collision_hit_callback() { return nullptr; }
-	virtual void set_collision_hit_callback(ICollisionHitCallback* cc) { ; }
-	virtual void _BCL enable_notificate() { ; }
+	virtual void set_collision_hit_callback(ICollisionHitCallback* cc) {}
+	virtual void _BCL enable_notificate() {}
 public:
 
 	virtual void PHGetLinearVell(Fvector& velocity);

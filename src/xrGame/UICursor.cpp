@@ -8,7 +8,7 @@
 #define C_DEFAULT	D3DCOLOR_XRGB(0xff,0xff,0xff)
 
 CUICursor::CUICursor()
-	: m_static(nullptr), m_b_use_win_cursor(false)
+	: m_static(NULL), m_b_use_win_cursor(false)
 {
 	bVisible = false;
 	vPrevPos.set(0.0f, 0.0f);
@@ -56,6 +56,7 @@ u32 last_render_frame = 0;
 
 void CUICursor::OnRender()
 {
+	RENDER_SCOPE(ui_cursor);
 	g_btnHint->OnRender();
 	g_statHint->OnRender();
 

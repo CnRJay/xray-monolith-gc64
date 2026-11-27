@@ -31,7 +31,8 @@ void CSE_ALifeMonsterAbstract::add_online(const bool& update_registries)
 void CSE_ALifeMonsterAbstract::add_offline(const xr_vector<ALife::_OBJECT_ID>& saved_children,
                                            const bool& update_registries)
 {
-	inherited1::add_offline(saved_children, update_registries);
+	// a squad member must not register separately, its group owns the graph point
+	inherited1::add_offline(saved_children, update_registries && (m_group_id == 0xffff));
 	brain().on_switch_offline();
 }
 
@@ -237,6 +238,10 @@ Fvector CSE_ALifeMonsterAbstract::draw_level_position() const
 #if 0
 	brain().update				();
 #endif
+	// an object built but never registered has no brain yet
+	if (!m_brain)
+		return (Position());
+
 	return (brain().movement().detail().draw_level_position());
 }
 

@@ -62,13 +62,15 @@ public:
 	CMapSpot* pSelectedMapSpot;
 
 	virtual void Reset();
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 public:
 	CUIPdaWnd();
 	virtual ~CUIPdaWnd();
 
 	virtual void Init();
 
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 
 	virtual void Draw();
 	virtual void Update();
@@ -93,6 +95,8 @@ public:
 	LPCSTR GetPdaXml() { return g_pda_xml_path.c_str(); }
 	void SetPdaXml(LPCSTR xml);
 	CUITabControl* GetTabControl() { return UITabControl; };
+
+	void RebuildExtraTabs();
 
 	void SetActiveSubdialog(const shared_str& section);
 	void SetActiveSubdialog_script(LPCSTR section) { SetActiveSubdialog((const shared_str&)section); };

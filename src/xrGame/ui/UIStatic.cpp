@@ -15,7 +15,7 @@ bool is_in2(const Frect& b1, const Frect& b2);
 
 void lanim_cont::set_defaults()
 {
-	m_lanim = nullptr;
+	m_lanim = NULL;
 	m_lanim_start_time = -1.0f;
 	m_lanim_delay_time = 0.0f;
 	m_lanimFlags.zero();
@@ -33,7 +33,7 @@ CUIStatic::CUIStatic()
 	  m_bHeading(false),
 	  m_bConstHeading(false),
 	  m_fHeading(0.0f),
-	  m_pTextControl(nullptr)
+	  m_pTextControl(NULL)
 {
 	m_TextureOffset.set(0.0f, 0.0f);
 	m_lanim_xform.set_defaults();
@@ -49,7 +49,7 @@ void CUIStatic::SetXformLightAnim(LPCSTR lanim, bool bCyclic)
 	if (lanim && lanim[0] != 0)
 		m_lanim_xform.m_lanim = LALib.FindItem(lanim);
 	else
-		m_lanim_xform.m_lanim = nullptr;
+		m_lanim_xform.m_lanim = NULL;
 
 	m_lanim_xform.m_lanimFlags.zero();
 
@@ -78,8 +78,30 @@ void CUIStatic::InitTextureEx(LPCSTR tex_name, LPCSTR sh_name)
 	m_TextureName = tex_name;
 }
 
+// lines live in the world space pass, which draws headings without the screen aspect
+float CUIStatic::SetLineTo(float x1, float y1, float x2, float y2, float thickness)
+{
+	const float dx = x2 - x1;
+	const float dy = y2 - y1;
+	const float length = _sqrt(dx * dx + dy * dy);
+
+	if (length < EPS_L)
+	{
+		SetWndSize(Fvector2().set(0.0f, thickness));
+		return 0.0f;
+	}
+
+	SetWndSize(Fvector2().set(length, thickness));
+	SetWndPos(Fvector2().set(x1 + dx * 0.5f - length * 0.5f, y1 + dy * 0.5f - thickness * 0.5f));
+	EnableHeading(true);
+	SetHeading(atan2f(-dx, -dy) + PI_DIV_2);
+
+	return length;
+}
+
 void CUIStatic::Draw()
 {
+	PROF_EVENT("CUIStatic::Draw", PROF_CAT(UI));
 	DrawTexture();
 	inherited::Draw();
 	DrawText();
@@ -105,6 +127,30 @@ void CUIStatic::DrawText()
 }
 
 #include "../../Include/xrRender/UIShader.h"
+
+static bool push_draw_clip(CUIWindow* w, C2DFrustum& f)
+{
+	if (!CUIWindow::AnyClipEnabled())
+		return false;
+
+	for (CUIWindow* p = w; p; p = p->GetParent())
+	{
+		if (!p->IsClipEnabled())
+			continue;
+
+		Frect r;
+		p->GetClipRect(r);
+
+		Fvector2 lt, rb;
+		UI().ClientToScreenScaled(lt, r.x1, r.y1);
+		UI().ClientToScreenScaled(rb, r.x2, r.y2);
+		f.CreateFromRect(Frect().set(lt.x, lt.y, rb.x, rb.y));
+		UI().PushClipFrustum(&f);
+		return true;
+	}
+
+	return false;
+}
 
 void CUIStatic::DrawTexture()
 {
@@ -150,12 +196,18 @@ void CUIStatic::DrawTexture()
 			m_UIStaticItem.SetSize(Fvector2().set(rect.width(), rect.height()));
 		}
 
+		C2DFrustum clip;
+		const bool clipped = push_draw_clip(this, clip);
+
 		if (Heading())
 		{
 			m_UIStaticItem.Render(GetHeading());
 		}
 		else
 			m_UIStaticItem.Render();
+
+		if (clipped)
+			UI().PopClipFrustum();
 	}
 }
 
@@ -318,7 +370,7 @@ void CUITextWnd::Draw()
 
 void CUITextWnd::Update()
 {
-	R_ASSERT(GetChildWndList().size()==0);
+	R_ASSERT(GetChildNum() == 0);
 	UpdateColorAnimation();
 	inherited::Update();
 }

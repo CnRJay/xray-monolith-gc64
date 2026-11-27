@@ -2,466 +2,551 @@
 #pragma hdrstop
 
 #include "xrstring.h"
+#include <sstream>
 
 #include "FS_impl.h"
 
-XRCORE_API extern str_container* g_pStringContainer = nullptr;
-#define HEADER (12 + sizeof(void*)) // ref + len + crc + next
+XRCORE_API intrusive_ptr<str_container> g_pStringContainer = nullptr;
 
-#if 1
-
-struct str_container_impl
+str_container::str_container() {}
+str_container::str_container(str_container_constructor_key) 
 {
-	static const u32 buffer_size = 1024 * 256;
-	str_value* buffer[buffer_size];
-	int num_docs;
-
-	str_container_impl()
-	{
-		num_docs = 0;
-		ZeroMemory(buffer, sizeof(buffer));
-	}
-
-	str_value* find(str_value* value, const char* str)
-	{
-		str_value* candidate = buffer[value->dwCRC % buffer_size];
-		while (candidate)
-		{
-			if (candidate->dwCRC == value->dwCRC &&
-				candidate->dwLength == value->dwLength &&
-				!memcmp(candidate->value, str, value->dwLength))
-			{
-				return candidate;
-			}
-
-			candidate = candidate->next;
-		}
-
-		return nullptr;
-	}
-
-	void insert(str_value* value)
-	{
-		str_value** element = &buffer[value->dwCRC % buffer_size];
-		value->next = *element;
-		*element = value;
-	}
-
-	void clean()
-	{
-		for (u32 i = 0; i < buffer_size; ++i)
-		{
-			str_value** current = &buffer[i];
-
-			while (*current != nullptr)
-			{
-				str_value* value = *current;
-				if (!value->dwReference)
-				{
-					*current = value->next;
-					xr_free(value);
-				}
-				else
-				{
-					current = &value->next;
-				}
-			}
-		}
-	}
-
-	void verify()
-	{
-		Msg("strings verify started");
-		for (u32 i = 0; i < buffer_size; ++i)
-		{
-			str_value* value = buffer[i];
-			while (value)
-			{
-				u32 crc = crc32(value->value, value->dwLength);
-				string32 crc_str;
-				R_ASSERT3(crc == value->dwCRC, "CorePanic: read-only memory corruption (shared_strings)",
-				          itoa(value->dwCRC, crc_str, 16));
-				R_ASSERT3(value->dwLength == xr_strlen(value->value),
-				          "CorePanic: read-only memory corruption (shared_strings, internal structures)", value->value);
-				value = value->next;
-			}
-		}
-		Msg("strings verify completed");
-	}
-
-	void dump(FILE* f) const
-	{
-		for (u32 i = 0; i < buffer_size; ++i)
-		{
-			str_value* value = buffer[i];
-			while (value)
-			{
-				fprintf(f, "ref[%4u]-len[%3u]-crc[%8X] : %s\n", value->dwReference, value->dwLength, value->dwCRC,
-				        value->value);
-				value = value->next;
-			}
-		}
-	}
-
-	void dump(IWriter* f) const
-	{
-		for (u32 i = 0; i < buffer_size; ++i)
-		{
-			str_value* value = buffer[i];
-			string4096 temp;
-			while (value)
-			{
-				xr_sprintf(temp, sizeof(temp), "ref[%4u]-len[%3u]-crc[%8X] : %s\n", value->dwReference, value->dwLength,
-				           value->dwCRC, value->value);
-				f->w_string(temp);
-				value = value->next;
-			}
-		}
-	}
-
-	int stat_economy(u32& count)
-	{
-		int counter = 0;
-		for (u32 i = 0; i < buffer_size; ++i)
-		{
-			str_value* value = buffer[i];
-			while (value)
-			{
-				count += 1;
-				counter -= sizeof(str_value);
-				counter += (value->dwReference - 1) * (value->dwLength + 1);
-				value = value->next;
-			}
-		}
-
-		return counter;
-	}
-};
-
-str_container::str_container()
-{
-	impl = xr_new<str_container_impl>();
+	auto p = xr_malloc(block_size);
+	if (!p)
+		Debug.fatal(DEBUG_INFO, "str_container, failed to allocate block size %zu", block_size);
+    storage.reserve(16);
+	storage.emplace_back((char*)p, block_size);
+    buffer.resize(buffer_size);
 }
 
-str_value* str_container::dock(str_c value)
+str_container* str_container::create()
 {
-	if (0 == value) return 0;
+	return xr_new<str_container>(str_container_constructor_key{});
+}
 
-#ifdef DEBUG_MEMORY_MANAGER
-	Memory.stat_strdock++;
-#endif // DEBUG_MEMORY_MANAGER
-
-	// calc len
-	u32 s_len = xr_strlen(value);
-	u32 s_len_with_zero = (u32)s_len + 1;
-	VERIFY(HEADER + s_len_with_zero < 4096);
-
-	// setup find structure
-	char header[sizeof(str_value)];
-	str_value* sv = (str_value*)header;
-	sv->dwReference = 0;
-	sv->dwLength = s_len;
-	sv->dwCRC = crc32(value, s_len);
-
-	str_value* result = 0;
-
-	// Acquire Shared Lock
-	cs.AcquireShared();
-	result = impl->find(sv, value);
-	cs.ReleaseShared();
-
-#ifdef DEBUG
-	bool is_leaked_string = !xr_strcmp(value, "enter leaked string here");
-#endif //DEBUG
-
-	// it may be the case, string is not found or has "non-exact" match
-	if (0 == result
-#ifdef DEBUG
-		|| is_leaked_string
-#endif //DEBUG
-	)
+char* str_container::alloc_in_pool(str_c s, u32 len)
+{
+	if (storage.back().used + len > storage.back().capacity)
 	{
-		// Acquire Exclusive Lock
-		cs.AcquireExclusive();
-
-		// Double-check under Exclusive Lock
-		result = impl->find(sv, value);
-
-		if (0 == result
-#ifdef DEBUG
-			|| is_leaked_string
-#endif //DEBUG
-		)
-		{
-			result = (str_value*)Memory.mem_alloc(HEADER + s_len_with_zero
-#ifdef DEBUG_MEMORY_NAME
-												  , "storage: sstring"
-#endif // DEBUG_MEMORY_NAME
-			);
-
-#ifdef DEBUG
-			static int num_leaked_string = 0;
-			if (is_leaked_string)
-			{
-				++num_leaked_string;
-				Msg("leaked_string: %d 0x%08x", num_leaked_string, result);
-			}
-#endif // DEBUG
-
-			result->dwReference = 0;
-			result->dwLength = sv->dwLength;
-			result->dwCRC = sv->dwCRC;
-			CopyMemory(result->value, value, s_len_with_zero);
-
-			impl->insert(result);
-		}
-		cs.ReleaseExclusive();
+		u32 size = _max(block_size, len);
+		auto p = xr_malloc(size);
+		if (!p)
+			Debug.fatal(DEBUG_INFO, "str_container, failed to allocate block size %zu", size);
+		storage.emplace_back((char*)p, size);
 	}
 
-	return result;
+	pool_block& b = storage.back();
+	char* dest = b.base + b.used;
+
+	// Copy the raw characters
+	std::memcpy(dest, s, len);
+	b.used += len;
+
+	// Round up to 4-byte boundary, more performant but takes more memory, around 300KB more for 200k strings
+	b.used = (b.used + 3) & ~3; 
+
+	return dest;
+}
+
+intrusive_ptr<str_value> str_container::dock(str_c value)
+{
+	if (!value) return nullptr;
+
+	size_t hash = xr_hash<std::string_view>()(value);
+	u32 len = xr_strlen(value);
+	u32 slot = u32(hash % buffer_size);
+
+	// Most of the time, the string already exists. Use shared lock
+	{
+		xrSRWLockGuard guard(&rwlock, true);
+		for (auto& item : buffer[slot])
+		{
+			if (hash == item.hash && len == item.length && std::memcmp(value, item.value, len) == 0)
+				return &item;
+		}
+	}
+
+	// String not found, upgrade to exclusive lock
+	{
+		xrSRWLockGuard guard(&rwlock, false);
+
+		// Double-check: Did another thread create this while we were swapping locks?
+		for (auto& item : buffer[slot])
+		{
+			if (hash == item.hash && len == item.length && std::memcmp(value, item.value, len) == 0)
+				return &item;
+		}
+
+		char* pooled_ptr = alloc_in_pool(value, len + 1);
+		buffer[slot].emplace_front(pooled_ptr, hash, len);
+		return &buffer[slot].front();
+	}
+}
+
+// do nothing for now, persist strings
+void str_container::erase(str_c value)
+{
+	/*if (!value) return;
+
+	size_t hash = xr_hash<std::string_view>()(value);
+	u32 len = xr_strlen(value);
+	u32 slot = u32(hash % buffer_size);
+
+	xrSRWLockGuard guard(&rwlock, false);
+	auto before = buffer[slot].before_begin();
+	for (auto it = buffer[slot].begin(); it != buffer[slot].end(); )
+	{
+		if (hash == it->hash && len == it->length && std::memcmp(value, it->value, len) == 0)
+			it = buffer[slot].erase_after(before);
+		else
+		{
+			before = it;
+			it++;
+		}
+	}*/
 }
 
 void str_container::clean()
 {
-	cs.AcquireExclusive();
-	impl->clean();
-	cs.ReleaseExclusive();
+	xrSRWLockGuard guard(&rwlock, false);
+	for (auto& list : buffer)
+		list.clear();
+
+	for (auto& block : storage)
+	{
+		if (block.base)
+			xr_free(block.base);
+	}
+	storage.clear();
 }
 
 void str_container::verify()
 {
-	cs.AcquireExclusive();
-	impl->verify();
-	cs.ReleaseExclusive();
+	Msg("strings verify started");
+	// do something
+	Msg("strings verify completed");
 }
 
 void str_container::dump()
 {
-	cs.AcquireExclusive();
 	FILE* F = fopen("d:\\$str_dump$.txt", "w");
-	impl->dump(F);
+	xrSRWLockGuard guard(&rwlock, true);
+	for (const auto& list : buffer)
+	{
+		for (const auto& s: list)
+			fprintf(F, "ref[%d]-len[%d] : %s\n", s.intrusive_ref_count(), xr_strlen(s.value), s.value);
+	}
 	fclose(F);
-	cs.ReleaseExclusive();
 }
 
 void str_container::dump(IWriter* W)
 {
-	cs.AcquireExclusive();
-	impl->dump(W);
-	cs.ReleaseExclusive();
+	xrSRWLockGuard guard(&rwlock, true);
+	for (const auto& list : buffer)
+	{
+		for (const auto& s : list)
+		{
+			string4096 temp;
+			xr_sprintf(temp, sizeof(temp), "ref[%d]-len[%d] : %s\n", s.intrusive_ref_count(), xr_strlen(s.value), s.value);
+			W->w_string(temp);
+		}
+	}
 }
 
-u32 str_container::stat_economy(u32& count)
+void str_container::dump_console()
 {
-	cs.AcquireExclusive();
-	int counter = 0;
-	counter -= sizeof(*this);
-	counter += impl->stat_economy(count);
-	cs.ReleaseExclusive();
-	return u32(counter);
+	u32 total_strings = 0;
+	float load_factor = 0.0f;
+	u32 max_collisions = 0;
+
+	xrSRWLockGuard guard(&rwlock, true);
+	for (const auto& list : buffer)
+	{
+		u32 count = 0;
+		for (const auto& s : list)
+		{
+			Msg("ref[%d]-len[%d] : %s\n", s.intrusive_ref_count(), xr_strlen(s.value), s.value);
+			count++;
+		}
+		if (count > max_collisions)
+			max_collisions = count;
+		total_strings += count;
+			
+	}
+	load_factor = (float)total_strings / (float)buffer_size;
+
+	Msg("* [x-ray]: shared strings: pool blocks[%lu], count[%lu], load factor[%.2f], max_collisions[%lu], shared_str objects[%lu]",
+		storage.size(),
+		total_strings,
+		load_factor,
+		max_collisions,
+		intrusive_ref_count() - 1
+	);
+}
+
+u32 str_container::stat_economy(u32& count, u32& unique)
+{
+	float load_factor = 0.0f;
+	u32 max_collisions = 0;
+	count = 0;
+
+	xrSRWLockGuard guard(&rwlock, true);
+	u32 size = sizeof(*this) + sizeof(shared_str) * intrusive_ref_count() - 1;
+	size += buffer_size * sizeof(xr_forward_list<str_value>);
+	for (const auto& block : storage) {
+		size += block.capacity;
+	}
+
+	for (const auto& list : buffer)
+	{
+		u32 c = 0;
+		for (const auto& s : list)
+		{
+			c++;
+			size += sizeof(str_value) + sizeof(void*);
+		}
+		if (c > max_collisions)
+			max_collisions = c;
+		count += c;
+	}
+	unique = count;
+	load_factor = (float)count / (float)buffer_size;
+	Msg("* [x-ray]: shared strings: pool blocks[%lu], count[%lu], load factor[%.2f], max_collisions[%lu], shared_str objects[%lu]",
+		storage.size(),
+		count,
+		load_factor,
+		max_collisions,
+		intrusive_ref_count() - 1
+	);
+	return size;
 }
 
 str_container::~str_container()
 {
-	clean();
-	//dump ();
-	xr_delete(impl);
+	for (auto& list : buffer)
+		list.clear();
+
+	for (auto& block : storage)
+	{
+		if (block.base)
+			xr_free(block.base);
+	}
+	storage.clear();
 }
 
-#else
-
-struct str_container_impl
+//xr_string class
+xr_vector<xr_string> xr_string::Split(char splitCh) const
 {
-    typedef xr_multiset<str_value*, str_value_cmp> cdb;
-    int num_docs;
-    str_container_impl() { num_docs = 0; }
+	xr_vector<xr_string> Result;
+
+	u32 SubStrBeginCursor = 0;
+	u32 Len = 0;
+
+	u32 StrCursor = 0;
+	for (; StrCursor < size(); ++StrCursor)
+	{
+		if (at(StrCursor) == splitCh)
+		{
+			if ((StrCursor - SubStrBeginCursor) > 0)
+			{
+				Len = StrCursor - SubStrBeginCursor;
+				Result.emplace_back(xr_string(&at(SubStrBeginCursor), Len));
+				SubStrBeginCursor = StrCursor + 1;
+			}
+			else
+			{
+				Result.emplace_back("");
+				SubStrBeginCursor = StrCursor + 1;
+			}
+		}
+	}
+
+	if (StrCursor > SubStrBeginCursor)
+	{
+		Len = StrCursor - SubStrBeginCursor;
+		Result.emplace_back(xr_string(&at(SubStrBeginCursor), Len));
+	}
+	return Result;
+}
+
+xr_string::xr_string(LPCSTR Str, u32 Size)
+	: Super(Str, Size)
+{
+}
+
+xr_string::xr_string(Super&& other)
+	: Super(other)
+{
+}
+
+xr_string::xr_string(LPCSTR Str)
+	: Super(Str)
+{
+}
+
+xr_string& xr_string::operator=(LPCSTR Str)
+{
+	Super::operator=(Str);
+	return *this;
+}
+
+xr_string& xr_string::operator=(const Super& other)
+{
+	Super::operator=(other);
+	return *this;
+}
+
+xr_vector<xr_string> xr_string::Split(u32 NumberOfSplits, ...) const
+{
+	xr_vector<xr_string> intermediateTokens;
+	xr_vector<xr_string> Result;
+
+	va_list args;
+	va_start(args, NumberOfSplits);
+
+	for (u32 i = 0; i < NumberOfSplits; ++i)
+	{
+		char splitCh = va_arg(args, char);
+
+		//special case for first try
+		if (i == 0)
+		{
+			Result = Split(splitCh);
+		}
+
+		for (xr_string& str : Result)
+		{
+			xr_vector<xr_string> TokenStrResult = str.Split(splitCh);
+			intermediateTokens.insert(intermediateTokens.end(), TokenStrResult.begin(), TokenStrResult.end());
+		}
+
+		if (!intermediateTokens.empty())
+		{
+			Result.clear();
+			Result.insert(Result.begin(), intermediateTokens.begin(), intermediateTokens.end());
+			intermediateTokens.clear();
+		}
+	}
+
+	va_end(args);
+
+	return Result;
+}
 
 
-    cdb container;
+xr_string xr_string::RemoveWhitespaces() const
+{
+	size_t Size = size();
+	if (Size == 0) return xr_string();
+
+	xr_string Result;
+	Result.reserve(Size);
+
+	const char* OrigStr = data();
+
+	for (size_t i = 0; i < Size; ++i)
+	{
+		if (*OrigStr != ' ')
+		{
+			Result.push_back(OrigStr[i]);
+		}
+	}
+
+	return Result;
+}
+
+bool xr_string::StartWith(const xr_string& Other) const
+{
+	return StartWith(Other.data(), Other.size());
+}
+
+
+bool xr_string::StartWith(LPCSTR Str) const
+{
+	u32 StrLen = xr_strlen(Str);
+	return StartWith(Str, (int)StrLen);
+}
+
+bool xr_string::StartWith(LPCSTR Str, size_t Size) const
+{
+	size_t OurSize = size();
+
+	//String is greater then our, we can't success
+	if (OurSize < Size) return false;
+
+	const char* OurStr = data();
+
+	for (int i = 0; i < Size; ++i)
+	{
+		if (OurStr[i] != Str[i])
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool xr_string::Contains(const xr_string& SubStr) const
+{
+	return find(SubStr) != npos;
+}
+
+xr_string xr_string::ToString(int Value)
+{
+	string64 buf = { 0 };
+	itoa(Value, &buf[0], 10);
+
+	return xr_string(buf);
+}
+
+xr_string xr_string::ToString(unsigned int Value)
+{
+	string64 buf = { 0 };
+	sprintf(buf, "%u", Value);
+
+	return xr_string(buf);
+}
+
+xr_string xr_string::ToString(float Value)
+{
+	string64 buf = { 0 };
+	sprintf(buf, "%f", Value);
+
+	return xr_string(buf);
+}
+
+xr_string xr_string::ToString(double Value)
+{
+	string64 buf = { 0 };
+	sprintf(buf, "%f", Value);
+
+	return xr_string(buf);
+}
+
+xr_string xr_string::Join(xrStringVector::iterator beginIter, xrStringVector::iterator endIter, const char delimeter /*= '\0'*/)
+{
+	xr_string Result;
+	xrStringVector::iterator cursorIter = beginIter;
+
+	while (cursorIter != endIter)
+	{
+		Result.append(*cursorIter);
+		if (delimeter != '\0')
+		{
+			Result.push_back(delimeter);
+		}
+		cursorIter++;
+	}
+
+	if (delimeter != '\0')
+	{
+		Result.erase(Result.end() - 1);
+	}
+
+	return Result;
+}
+
+// String utils
+SStringVec xr_string::SplitStringMulti(xr_string separator, bool includeSeparators, bool trimStrings) const {
+	std::stringstream stringStream(std::string(this->c_str()));
+	xr_string line;
+	SStringVec wordVector;
+
+	while (std::getline(stringStream, line))
+	{
+		std::size_t prev = 0, pos;
+		while ((pos = line.find_first_of(separator, prev)) != xr_string::npos)
+		{
+			if (pos > prev)
+				wordVector.push_back(line.substr(prev, pos - prev));
+
+			if (includeSeparators)
+				wordVector.push_back(line.substr(pos, 1));
+
+			prev = pos + 1;
+		}
+		if (prev < line.length())
+			wordVector.push_back(line.substr(prev, xr_string::npos));
+	}
+	if (trimStrings) {
+		for (auto& s : wordVector) {
+			s = s.Trim();
+		}
+	}
+	return wordVector;
+}
+
+SStringVec xr_string::SplitStringLimit(xr_string separator, int limit, bool trimStrings) const
+{
+	std::stringstream stringStream(std::string(this->c_str()));
+	xr_string line;
+	SStringVec wordVector;
+
+	while (std::getline(stringStream, line))
+	{
+		std::size_t prev = 0, pos;
+		while ((pos = line.find_first_of(separator, prev)) != xr_string::npos)
+		{
+			if (pos > prev)
+				wordVector.push_back(line.substr(prev, pos - prev));
+
+			prev = pos + 1;
+			if (limit > 0) {
+				if (wordVector.size() >= limit) {
+					wordVector.push_back(line.substr(prev, xr_string::npos));
+					return wordVector;
+				}
+			}
+		}
+		if (prev < line.length())
+			wordVector.push_back(line.substr(prev, xr_string::npos));
+	}
+	if (trimStrings) {
+		for (auto& s : wordVector) {
+			s = s.Trim();
+		}
+	}
+	return wordVector;
+}
+
+xr_string xr_string::Trim(const char* t) const
+{
+	xr_string result = *this;
+	result.erase(result.find_last_not_of(t) + 1);
+	result.erase(0, result.find_first_not_of(t));
+	return result;
 };
 
-str_container::str_container()
+void xr_string::TrimInPlace(const char* t)
 {
-    impl = xr_new<str_container_impl>();
+	erase(find_last_not_of(t) + 1);
+	erase(0, find_first_not_of(t));
+};
+
+
+xr_string xr_string::ToLowerCase() const
+{
+	xr_string result = *this;
+	std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c)
+	{
+		return std::tolower(c);
+	});
+	return result;
 }
 
-str_value* str_container::dock(str_c value)
+xr_string xr_string::ReplaceAll(const xr_string& from, const xr_string& to) const
 {
-    if (0 == value) return 0;
+	xr_string result = *this;
+	if (from.empty())
+		return result;
 
-#ifdef DEBUG_MEMORY_MANAGER
-    Memory.stat_strdock++;
-#endif // DEBUG_MEMORY_MANAGER
+	size_t start_pos = 0;
+	while ((start_pos = result.find(from, start_pos)) != xr_string::npos)
+	{
+		result.replace(start_pos, from.length(), to);
+		start_pos += to.length(); // In case 'to' contains 'from', like replacing 'x' with 'yx'
+	}
 
-    // calc len
-    u32 s_len = xr_strlen(value);
-    u32 s_len_with_zero = (u32)s_len + 1;
-    VERIFY(HEADER + s_len_with_zero < 4096);
-
-    // setup find structure
-    char header[sizeof(str_value)];
-    str_value* sv = (str_value*)header;
-    sv->dwReference = 0;
-    sv->dwLength = s_len;
-    sv->dwCRC = crc32(value, s_len);
-    sv->next = nullptr;
-
-    str_value* result = 0;
-
-    // Acquire Shared Lock
-    cs.AcquireShared();
-
-    // search
-    str_container_impl::cdb::iterator I = impl->container.find(sv); // only integer compares :)
-    if (I != impl->container.end())
-    {
-        // something found - verify, it is exactly our string
-        str_container_impl::cdb::iterator save = I;
-        for (; I != impl->container.end() && (*I)->dwCRC == sv->dwCRC; ++I)
-        {
-            str_value* V = (*I);
-            if (V->dwLength != sv->dwLength) continue;
-            if (0 != memcmp(V->value, value, s_len)) continue;
-            result = V; // found
-            break;
-        }
-    }
-
-    cs.ReleaseShared();
-
-    bool is_leaked_string = !xr_strcmp(value, "enter leaked string here");
-
-    // it may be the case, string is not found or has "non-exact" match
-    if (0 == result || is_leaked_string)
-    {
-        // Acquire Exclusive Lock
-        cs.AcquireExclusive();
-
-        // Double-check search under Exclusive Lock
-        I = impl->container.find(sv);
-        if (I != impl->container.end())
-        {
-            for (; I != impl->container.end() && (*I)->dwCRC == sv->dwCRC; ++I)
-            {
-                str_value* V = (*I);
-                if (V->dwLength != sv->dwLength) continue;
-                if (0 != memcmp(V->value, value, s_len)) continue;
-                result = V; // found
-                break;
-            }
-        }
-
-        if (0 == result || is_leaked_string)
-        {
-            // Insert string
-            result = (str_value*)Memory.mem_alloc(HEADER + s_len_with_zero
-#ifdef DEBUG_MEMORY_NAME
-                                                  , "storage: sstring"
-#endif // DEBUG_MEMORY_NAME
-                                                 );
-
-            static int num11 = 0;
-
-            if (is_leaked_string)
-            {
-                ++num11;
-                Msg("leaked_string: %d 0x%08x", num11, result);
-            }
-
-            result->dwReference = 0;
-            result->dwLength = sv->dwLength;
-            result->dwCRC = sv->dwCRC;
-            result->next = nullptr;
-
-            CopyMemory(result->value, value, s_len_with_zero);
-
-            impl->container.insert(result);
-        }
-
-        cs.ReleaseExclusive();
-    }
-
-    return result;
+	return result;
 }
-
-void str_container::clean()
-{
-    cs.AcquireExclusive();
-    str_container_impl::cdb::iterator it = impl->container.begin();
-    str_container_impl::cdb::iterator end = impl->container.end();
-    for (; it != end;)
-    {
-        str_value* sv = *it;
-        if (0 == sv->dwReference)
-        {
-            str_container_impl::cdb::iterator i_current = it;
-            str_container_impl::cdb::iterator i_next = ++it;
-            xr_free(sv);
-            impl->container.erase(i_current);
-            it = i_next;
-        }
-        else
-        {
-            it++;
-        }
-    }
-    if (impl->container.empty()) impl->container.clear();
-    cs.ReleaseExclusive();
-}
-
-void str_container::verify()
-{
-    cs.AcquireExclusive();
-    str_container_impl::cdb::iterator it = impl->container.begin();
-    str_container_impl::cdb::iterator end = impl->container.end();
-    for (; it != end; ++it)
-    {
-        str_value* sv = *it;
-        u32 crc = crc32(sv->value, sv->dwLength);
-        string32 crc_str;
-        R_ASSERT3(crc == sv->dwCRC, "CorePanic: read-only memory corruption (shared_strings)", itoa(sv->dwCRC, crc_str, 16));
-        R_ASSERT3(sv->dwLength == xr_strlen(sv->value), "CorePanic: read-only memory corruption (shared_strings, internal structures)", sv->value);
-    }
-    cs.ReleaseExclusive();
-}
-
-void str_container::dump()
-{
-    cs.AcquireExclusive();
-    str_container_impl::cdb::iterator it = impl->container.begin();
-    str_container_impl::cdb::iterator end = impl->container.end();
-    FILE* F = fopen("d:\\$str_dump$.txt", "w");
-    for (; it != end; it++)
-        fprintf(F, "ref[%4d]-len[%3d]-crc[%8X] : %s\n", (*it)->dwReference, (*it)->dwLength, (*it)->dwCRC, (*it)->value);
-    fclose(F);
-    cs.ReleaseExclusive();
-}
-
-u32 str_container::stat_economy()
-{
-    cs.AcquireExclusive();
-    str_container_impl::cdb::iterator it = impl->container.begin();
-    str_container_impl::cdb::iterator end = impl->container.end();
-    int counter = 0;
-    counter -= sizeof(*this);
-    counter -= sizeof(str_container_impl::cdb::allocator_type);
-    const int node_size = 20;
-    for (; it != end; it++)
-    {
-        counter -= HEADER;
-        counter -= node_size;
-        counter += int((int((*it)->dwReference) - 1)*int((*it)->dwLength + 1));
-    }
-    cs.ReleaseExclusive();
-
-    return u32(counter);
-}
-
-str_container::~str_container()
-{
-    clean();
-    //dump ();
-    xr_delete(impl);
-    //R_ASSERT(impl->container.empty());
-}
-#endif

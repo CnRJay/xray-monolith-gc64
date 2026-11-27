@@ -27,6 +27,8 @@ public:
 	string2048 ls_tip;
 private:
 	FactoryPtr<IApplicationRender> m_pRender;
+	string_path m_loading_logo_level{};
+	string_path m_loading_logo{};
 
 	int max_load_stage;
 
@@ -56,6 +58,7 @@ public:
 
 	// Loading
 	void LoadBegin();
+	void LoadScreenSetLevelLogo(LPCSTR level_name);
 	void LoadEnd();
 	void LoadTitleInt(LPCSTR str1, LPCSTR str2, LPCSTR str3);
 	void LoadStage();
@@ -74,6 +77,7 @@ public:
 };
 
 extern ENGINE_API CApplication* pApp;
+extern ENGINE_API int psLoadingScreenEarly;
 
 //Discord
 struct rpc_info
@@ -94,32 +98,9 @@ struct rpc_info
 	char reputation[128];
 	char level_name[128];
 	char gamemode[128];
-	char currenttime[128];
-	char faction[128];
-	char level[128];
-
-    bool operator==(const rpc_info& other) const
-    {
-        return mainmenu == other.mainmenu &&
-               loadscreen == other.loadscreen &&
-               ingame == other.ingame &&
-               ex_update == other.ex_update &&
-               ironman == other.ironman &&
-               godmode == other.godmode &&
-               possessed_lives == other.possessed_lives &&
-               health == other.health &&
-               lives_left == other.lives_left &&
-               level_icon_index == other.level_icon_index &&
-               strcmp(task_name, other.task_name) == 0 &&
-               strcmp(faction_name, other.faction_name) == 0 &&
-               strcmp(rank_name, other.rank_name) == 0 &&
-               strcmp(reputation, other.reputation) == 0 &&
-               strcmp(level_name, other.level_name) == 0 &&
-               strcmp(gamemode, other.gamemode) == 0 &&
-               strcmp(currenttime, other.currenttime) == 0 &&
-               strcmp(faction, other.faction) == 0 &&
-               strcmp(level, other.level) == 0;
-    }
+	LPCSTR currenttime;
+	LPCSTR faction;
+	LPCSTR level;
 };
 
 struct rpc_strings
@@ -137,8 +118,6 @@ struct rpc_strings
 };
 
 extern ENGINE_API void updateDiscordPresence();
-extern ENGINE_API void Discord_Lock();
-extern ENGINE_API void Discord_Unlock();
 extern ENGINE_API rpc_info discord_gameinfo;
 extern ENGINE_API rpc_strings discord_strings;
 extern ENGINE_API float discord_update_rate;

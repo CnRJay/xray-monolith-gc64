@@ -8,3 +8,9 @@ pure_relcase::~pure_relcase()
 	if (g_pGameLevel)
 		g_pGameLevel->Objects.relcase_unregister(&m_ID);
 }
+
+pure_relcase_visual::~pure_relcase_visual()
+{
+    if (g_pGameLevel)
+        g_pGameLevel->Objects.relcase_visual_unregister(&m_ID);
+}

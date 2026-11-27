@@ -34,11 +34,11 @@ void CAgentExplosiveManager::remove_links(CObject* object)
 {
 	TO_BE_DESTROYED::iterator I = std::find(m_explosives_to_remove.begin(), m_explosives_to_remove.end(), object->ID());
 	if (I != m_explosives_to_remove.end())
-		m_explosives_to_remove.erase(I);
+		m_explosives_to_remove.erase_fast(I);
 
 	EXPLOSIVES::iterator J = std::find(m_explosives.begin(), m_explosives.end(), object->ID());
 	if (J != m_explosives.end())
-		m_explosives.erase(J);
+		m_explosives.erase_fast(J);
 }
 
 void CAgentExplosiveManager::register_explosive(const CExplosive* explosive, const CGameObject* game_object)

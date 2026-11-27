@@ -3,7 +3,7 @@
 #include "../../xrEngine/LightAnimLibrary.h"
 
 color_animation::color_animation()
-	: m_lanim(nullptr), m_lanim_start_time(-1.0f), m_lanim_delay_time(0.0f)
+	: m_lanim(NULL), m_lanim_start_time(-1.0f), m_lanim_delay_time(0.0f)
 {
 	m_lanimFlags.zero();
 }
@@ -21,6 +21,7 @@ void CUIColorAnimConrollerContainer::Update()
 
 void CUIColorAnimConrollerContainer::ColorAnimationSetTextureColor(u32 color, bool only_alpha)
 {
+	xrCriticalSectionGuard guard(csUi);
 	WINDOW_LIST::iterator it = m_ChildWndList.begin();
 	WINDOW_LIST::iterator it_e = m_ChildWndList.end();
 	for (; it != it_e; ++it)
@@ -33,6 +34,7 @@ void CUIColorAnimConrollerContainer::ColorAnimationSetTextureColor(u32 color, bo
 
 void CUIColorAnimConrollerContainer::ColorAnimationSetTextColor(u32 color, bool only_alpha)
 {
+	xrCriticalSectionGuard guard(csUi);
 	WINDOW_LIST::iterator it = m_ChildWndList.begin();
 	WINDOW_LIST::iterator it_e = m_ChildWndList.end();
 	for (; it != it_e; ++it)

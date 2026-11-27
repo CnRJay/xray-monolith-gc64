@@ -21,6 +21,7 @@
 // OR OTHER DEALINGS IN THE SOFTWARE.
 
 #pragma once
+#include <luabind/lua_include.hpp>
 
 #define LUABIND_DONT_COPY_STRINGS
 
@@ -69,7 +70,7 @@
 // for all classes that you have type-info for.
 
 #ifndef LUABIND_TYPE_INFO
-#	define LUABIND_TYPE_INFO const type_info*
+#	define LUABIND_TYPE_INFO const std::type_info*
 #	define LUABIND_TYPEID(t) &typeid(t)
 #	define LUABIND_TYPE_INFO_EQUAL(i1, i2) *i1 == *i2
 #	define LUABIND_INVALID_TYPE_INFO &typeid(std::in_place_t)

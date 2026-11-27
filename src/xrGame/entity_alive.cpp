@@ -25,14 +25,14 @@
 #define BLOOD_MARKS_SECT		"bloody_marks"
 
 //отметки крови на стенах 
-FactoryPtr<IWallMarkArray>* CEntityAlive::m_pBloodMarksVector = nullptr;
+FactoryPtr<IWallMarkArray>* CEntityAlive::m_pBloodMarksVector = NULL;
 float CEntityAlive::m_fBloodMarkSizeMin = 0.f;
 float CEntityAlive::m_fBloodMarkSizeMax = 0.f;
 float CEntityAlive::m_fBloodMarkDistance = 0.f;
 float CEntityAlive::m_fNominalHit = 0.f;
 
 //капание крови
-FactoryPtr<IWallMarkArray>* CEntityAlive::m_pBloodDropsVector = nullptr;
+FactoryPtr<IWallMarkArray>* CEntityAlive::m_pBloodDropsVector = NULL;
 float CEntityAlive::m_fStartBloodWoundSize = 0.3f;
 float CEntityAlive::m_fStopBloodWoundSize = 0.1f;
 float CEntityAlive::m_fBloodDropSize = 0.03f;
@@ -46,7 +46,7 @@ float CEntityAlive::m_fStartBurnWoundSize = 0.3f;
 //размер раны, чтоб остановить партиклы
 float CEntityAlive::m_fStopBurnWoundSize = 0.1f;
 
-STR_VECTOR* CEntityAlive::m_pFireParticlesVector = nullptr;
+STR_VECTOR* CEntityAlive::m_pFireParticlesVector = NULL;
 
 /////////////////////////////////////////////
 // CEntityAlive
@@ -57,7 +57,7 @@ CEntityAlive::CEntityAlive() :
 	m_bMobility = false;
 	m_fAccuracy = 0.0f;
 	m_fIntelligence = 0.0f;
-	m_entity_condition = nullptr;
+	m_entity_condition = NULL;
 	m_ef_creature_type = 0;
 
 	monster_community = xr_new<MONSTER_COMMUNITY>();
@@ -210,6 +210,7 @@ void CEntityAlive::reload(LPCSTR section)
 
 void CEntityAlive::shedule_Update(u32 dt)
 {
+	PROF_EVENT(PROF_CAT(GameLogic));
 	inherited::shedule_Update(dt);
 
 	//condition update with the game time pass
@@ -336,8 +337,7 @@ void CEntityAlive::Die(CObject* who)
 	}
 
 	// disable react to sound
-	ISpatial* self = smart_cast<ISpatial*>(this);
-	if (self) self->spatial.type &= ~STYPE_REACTTOSOUND;
+	SpatialComponent->spatial.type &= ~STYPE_REACTTOSOUND;
 	if (character_physics_support())
 		character_physics_support()->in_Die();
 }
@@ -410,47 +410,51 @@ void CEntityAlive::BloodyWallmarks(float P, const Fvector& dir, s16 element,
 	                   wallmark_size, &**m_pBloodMarksVector);
 }
 
-void CEntityAlive::PlaceBloodWallmark(const Fvector& dir, const Fvector& start_pos,
-                                      float trace_dist, float wallmark_size,
-                                      IWallMarkArray* pwallmarks_vector)
+extern BOOL r_blood_decals_on_objects;
+void CEntityAlive::PlaceBloodWallmark(const Fvector& dir, const Fvector& start_pos, float trace_dist, float wallmark_size, IWallMarkArray* pwallmarks_vector)
 {
 	collide::rq_result result;
-	BOOL reach_wall =
-		Level().ObjectSpace.RayPick(
-			start_pos,
-			dir,
-			trace_dist,
-			collide::rqtBoth,
-			result,
-			this
-		)
-		&&
-		!result.O;
+	bool bSurfaceReached = Level().ObjectSpace.RayPick(start_pos, dir, trace_dist, collide::rqtBoth, result, r_blood_decals_on_objects ? nullptr : this);
+	if (!r_blood_decals_on_objects)
+		bSurfaceReached = bSurfaceReached && !result.O;
 
-	//если кровь долетела до статического объекта
-	if (reach_wall)
+	if (!bSurfaceReached)
+		return;
+
+	// Calculate hit pos
+	Fvector end_point;
+	end_point.set(0, 0, 0);
+	end_point.mad(start_pos, dir, result.range);
+
+	if (r_blood_decals_on_objects && result.O)
 	{
-		CDB::TRI* pTri = Level().ObjectSpace.GetStaticTris() + result.element;
-		SGameMtl* pMaterial = GMLib.GetMaterialByIdx(pTri->material);
+		// Dynamic object
+		IKinematics* const pK = smart_cast<IKinematics*>(result.O->Visual());
+		if (!pK)
+			return;
+
+		CBoneData const& bone_data = pK->LL_GetData((u16)result.element);
+		SGameMtl* pMaterial = GMLib.GetMaterialByIdx(bone_data.game_mtl_idx);
 
 		if (pMaterial->Flags.is(SGameMtl::flBloodmark))
+			::Render->add_SkeletonWallmark(&result.O->renderable.xform, pK, pwallmarks_vector, end_point, dir, wallmark_size);
+	}
+
+	//если кровь долетела до статического объекта
+	CDB::TRI* pTri = Level().ObjectSpace.GetStaticTris() + result.element;
+	SGameMtl* pMaterial = GMLib.GetMaterialByIdx(pTri->material);
+
+	if (pMaterial->Flags.is(SGameMtl::flBloodmark))
+	{
+		//вычислить нормаль к пораженной поверхности
+		Fvector* pVerts = Level().ObjectSpace.GetStaticVerts();
+
+		//ref_shader wallmarkShader = wallmarks_vector[::Random.randI(wallmarks_vector.size())];
+		VERIFY(!pwallmarks_vector->empty());
 		{
-			//вычислить нормаль к пораженной поверхности
-			Fvector* pVerts = Level().ObjectSpace.GetStaticVerts();
-
-			//вычислить точку попадания
-			Fvector end_point;
-			end_point.set(0, 0, 0);
-			end_point.mad(start_pos, dir, result.range);
-
-
-			//ref_shader wallmarkShader = wallmarks_vector[::Random.randI(wallmarks_vector.size())];
-			VERIFY(!pwallmarks_vector->empty());
-			{
-				//добавить отметку на материале
-				//::Render->add_StaticWallmark(wallmarkShader, end_point, wallmark_size, pTri, pVerts);
-				::Render->add_StaticWallmark(pwallmarks_vector, end_point, wallmark_size, pTri, pVerts);
-			}
+			//добавить отметку на материале
+			//::Render->add_StaticWallmark(wallmarkShader, end_point, wallmark_size, pTri, pVerts);
+			::Render->add_StaticWallmark(pwallmarks_vector, end_point, wallmark_size, pTri, pVerts);
 		}
 	}
 }
@@ -707,7 +711,7 @@ CIKLimbsController* CEntityAlive::character_ik_controller()
 	}
 	else
 	{
-		return nullptr;
+		return NULL;
 	}
 }
 
@@ -719,7 +723,7 @@ CPHSoundPlayer* CEntityAlive::ph_sound_player()
 	}
 	else
 	{
-		return nullptr;
+		return NULL;
 	}
 }
 
@@ -797,8 +801,8 @@ void CEntityAlive::OnChangeVisual()
 
 void CEntityAlive::fill_hit_bone_surface_areas() const
 {
+	xrSRWLockGuard guard(&m_hit_bone_lock, false);
 	VERIFY(!m_hit_bone_surface_areas_actual);
-	m_hit_bone_surface_areas_actual = true;
 
 	IKinematics* const kinematics = smart_cast<IKinematics*>(Visual());
 	VERIFY(kinematics);
@@ -841,6 +845,7 @@ void CEntityAlive::fill_hit_bone_surface_areas() const
 	}
 
 	std::sort(m_hit_bone_surface_areas.begin(), m_hit_bone_surface_areas.end(), sort_surface_area_predicate());
+    m_hit_bone_surface_areas_actual = true;
 }
 
 BOOL g_ai_use_old_vision = 0;
@@ -856,10 +861,11 @@ Fvector CEntityAlive::get_new_local_point_on_mesh(u16& bone_id) const
 
 	if (!kinematics->LL_BoneCount())
 		return inherited::get_new_local_point_on_mesh(bone_id);
-
+	
 	if (!m_hit_bone_surface_areas_actual)
 		fill_hit_bone_surface_areas();
 
+	xrSRWLockGuard guard(&m_hit_bone_lock, true);
 	if (m_hit_bone_surface_areas.empty())
 		return inherited::get_new_local_point_on_mesh(bone_id);
 
@@ -983,8 +989,7 @@ Fvector CEntityAlive::get_last_local_point_on_mesh(Fvector const& last_point, u1
 	IKinematics* const kinematics = smart_cast<IKinematics*>(Visual());
 	VERIFY(kinematics);
 
-	Fmatrix transform;
-	kinematics->Bone_GetAnimPos(transform, bone_id, u8(-1), false);
+	Fmatrix transform = kinematics->LL_GetTransform(bone_id);
 
 	Fvector result;
 	transform.transform_tiny(result, last_point);

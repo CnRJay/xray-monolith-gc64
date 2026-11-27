@@ -8,6 +8,8 @@
 
 #include "pch_script.h"
 #include "script_reader.h"
+#include "script_engine.h"
+#include "ai_space.h"
 
 using namespace luabind;
 
@@ -31,6 +33,44 @@ bool r_bool(IReader* self)
 void r_fvector3(IReader* self, Fvector* arg0)
 {
 	self->r_fvector3(*arg0);
+}
+
+static luabind::internal_string r_file_as_string(const char* path)
+{
+	auto fileIter = FS.exist(path);
+	if (fileIter == nullptr)
+	{
+		lua_pushfstring(ai().script_engine().lua(), "Not found file: %s", path);
+		lua_error(ai().script_engine().lua());
+
+		return nullptr;
+	}
+
+	IReader* reader = FS.r_open(path);
+
+	luabind::internal_string result;
+	result.resize(reader->length());
+	std::memcpy(result.data(), reader->pointer(), sizeof(char) * reader->length());
+	FS.r_close(reader);
+
+	return result;
+}
+
+static void w_file_from_string(const char* path, const char* buffer)
+{
+	auto fileIter = FS.exist(path);
+	if (fileIter == nullptr)
+	{
+		lua_pushfstring(ai().script_engine().lua(), "Not found file: %s", path);
+		lua_error(ai().script_engine().lua());
+
+		return;
+	}
+
+	shared_str newPath = fileIter->name;
+	IWriter* writer = FS.w_open(*newPath);
+	writer->w(buffer, xr_strlen(buffer));
+	FS.w_close(writer);
 }
 
 #pragma optimize("s",on)
@@ -70,6 +110,9 @@ void CScriptReader::script_register(lua_State* L)
 		.def("r_stringZ", &r_stringZ)
 		.def("r_elapsed", &IReader::elapsed)
 		.def("r_advance", &IReader::advance)
-		.def("r_eof", &r_eof)
+		.def("r_eof", &r_eof),
+
+		def("r_file_as_string", &r_file_as_string)
+		//def("w_file_from_string", &w_file_from_string)
 	];
 }

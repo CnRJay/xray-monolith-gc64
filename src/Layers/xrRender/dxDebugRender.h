@@ -25,10 +25,10 @@ public:
 	virtual void dbg_DrawTRI(Fmatrix& T, Fvector& p1, Fvector& p2, Fvector& p3, u32 C);
 
 private:
-	xr_unordered_map<u32, std::vector<FVF::L>> m_line_vertices;
-	xr_unordered_map<u32, std::vector<u16>> m_line_indices;
-	xr_unordered_map<u32, std::vector<FVF::L>> m_line_vertices_hud;
-	xr_unordered_map<u32, std::vector<u16>> m_line_indices_hud;
+	xr_unordered_map<u32, xr_vector<FVF::L>> m_line_vertices;
+	xr_unordered_map<u32, xr_vector<u16>> m_line_indices;
+	xr_unordered_map<u32, xr_vector<FVF::L>> m_line_vertices_hud;
+	xr_unordered_map<u32, xr_vector<u16>> m_line_indices_hud;
 
 	ref_shader m_dbgShaders[dbgShaderCount];
 };

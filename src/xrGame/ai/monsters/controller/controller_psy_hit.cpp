@@ -163,7 +163,7 @@ namespace detail
 
 
 		collide::rq_result l_rq;
-		l_rq.O = nullptr;
+		l_rq.O = NULL;
 		Level().ObjectSpace.RayPick(trace_from,
 		                            trace_dir,
 		                            dist,
@@ -257,7 +257,7 @@ void CControllerPsyHit::death_glide_start()
     }
 
     Fmatrix m;
-    Fvector target_pos = k ? m.mul_43(m_object->XFORM(), k->LL_GetTransform(bone_id)).c : m_object->Position();
+    Fvector target_pos = k ? m.mul_43(m_object->XFORM(), k->LL_GetTransform_safed(bone_id)).c : m_object->Position();
 	target_pos.y += k ? 0.f : 1.4f;
 
 	Fvector dir;

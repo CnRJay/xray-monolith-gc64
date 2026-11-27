@@ -1,11 +1,11 @@
 #include "stdafx.h"
 #include "dxUIShader.h"
 
-xr_unordered_map<std::string, ref_shader> g_UIShadersCache;
+xr_unordered_flat_map<xr_string, ref_shader> g_UIShadersCache;
 
 static ref_shader& GetCachedUIShader(const char* sh, const char* tex)
 {
-    std::string key{ tex ? tex : "" };
+    xr_string key{ tex ? tex : "" };
     key += "_";
     key += sh;
 

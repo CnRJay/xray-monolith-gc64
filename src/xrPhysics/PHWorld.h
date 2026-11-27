@@ -61,9 +61,9 @@ class CPHWorld : public pureFrame,
 	IPHWorldUpdateCallbck* m_update_callback;
 	CObjectSpace* m_object_space;
 	CObjectList* m_level_objects;
-	CRenderDeviceBase* m_device; ;
+	CRenderDeviceBase* m_device;
 public:
-	xr_vector<ISpatial*> r_spatial;
+	xr_vector<ISpatialShared> r_spatial;
 public:
 	u64 m_steps_num;
 private:
@@ -79,7 +79,6 @@ public:
 private:
 	ContactCallbackFun* m_default_contact_shotmark;
 	ContactCallbackFun* m_default_character_contact_shotmark;
-	PhysicsStepTimeCallback* physics_step_time_callback;
 public:
 
 	CPHWorld();
@@ -155,7 +154,6 @@ public:
 private:
 	void StepNumIterations(int num_it);
 	iphysics_scripted& get_scripted() { return *this; }
-	void set_step_time_callback(PhysicsStepTimeCallback* cb) { physics_step_time_callback = cb; }
 
 	void set_update_callback(IPHWorldUpdateCallbck* cb)
 	{

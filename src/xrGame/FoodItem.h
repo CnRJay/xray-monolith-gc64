@@ -8,6 +8,8 @@ class CFoodItem : public CEatableItemObject
 public:
 	CFoodItem();
 	virtual ~CFoodItem();
-	
+
+	virtual CFoodItem* cast_food_item() { return this; }
+
 	DECLARE_SCRIPT_REGISTER_FUNCTION
 };

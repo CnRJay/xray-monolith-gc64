@@ -32,7 +32,7 @@ public:
 	void add_Shape(const SBoneShape& shape, const Fmatrix& offset); //aux
 	CODEGeom* last_geom()
 	{
-		if (m_geoms.empty())return nullptr;
+		if (m_geoms.empty())return NULL;
 		return m_geoms.back();
 	} //aux
 	bool has_geoms() { return !m_geoms.empty(); }
@@ -57,7 +57,7 @@ public:
 		void						dbg_draw								( float scale, u32 color, Flags32 flags )const;
 #endif
 	void SetMaterial(u16 m);
-	void SetMaterial(LPCSTR m) { SetMaterial(GMLibrary().GetMaterialIdx(m)); } //aux
+	void SetMaterial(LPCSTR m); //aux
 	IC CODEGeom* Geom(u16 num)
 	{
 		R_ASSERT2(num<m_geoms.size(), "out of range");

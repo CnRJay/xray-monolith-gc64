@@ -103,7 +103,7 @@ public:
 	//	Igor: for async screenshots
 	IDirect3DSurface9* pFB; //32bit		(r,g,b,a) is situated in the system memory
 
-	ref_rt rt_LUM_pool [CHWCaps::MAX_GPUS * 2]; // 1xfp32,1x1,		exp-result -> scaler
+	ref_rt rt_LUM_pool [2]; // 1xfp32,1x1,		exp-result -> scaler
 	ref_texture t_LUM_src; // source
 	ref_texture t_LUM_dest; // destination & usage for current frame
 
@@ -205,6 +205,8 @@ public:
 	ref_geom g_postprocess;
 	ref_shader s_menu;
 	ref_geom g_menu;
+	ref_shader s_ui_icons[6]; // SKIN_NONE, SKIN_0 ... SKIN_4
+	IDirect3DSurface9* ui_icons_depth = nullptr; // Reused; never clear scene depth for icons.
 private:
 	float im_noise_time;
 	u32 im_noise_shift_w;
@@ -305,6 +307,7 @@ public:
 	void accum_reflected(light* L);
 	//	Igor: for volumetric lights
 	void accum_volumetric(light* L);
+	void accum_volumetric_lv(light* L);
 	void phase_bloom();
 	void phase_luminance();
 	void phase_combine();

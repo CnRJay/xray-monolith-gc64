@@ -19,7 +19,30 @@ void CWeaponAK74::script_register	(lua_State *L)
 	[
 		class_<CWeaponAK74,CGameObject>("CWeaponAK74")
 			.def(constructor<>()),
-			
+
+		class_<enum_exporter<CHUDState::EHudStates>>("hud_state")
+			.enum_("states")
+			[
+				value("idle", int(CHUDState::eIdle)),
+				value("showing", int(CHUDState::eShowing)),
+				value("hiding", int(CHUDState::eHiding)),
+				value("hidden", int(CHUDState::eHidden)),
+				value("bore", int(CHUDState::eBore))
+			],
+
+		class_<enum_exporter<CWeapon::EWeaponStates>>("weapon_state")
+			.enum_("states")
+			[
+				value("fire", int(CWeapon::eFire)),
+				value("fire2", int(CWeapon::eFire2)),
+				value("reload", int(CWeapon::eReload)),
+				value("misfire", int(CWeapon::eMisfire)),
+				value("switch", int(CWeapon::eSwitch)),
+				value("switch_mode", int(CWeapon::eSwitchMode)),
+				value("aim_start", int(CWeapon::eAimStart)),
+				value("aim_end", int(CWeapon::eAimEnd))
+			],
+
 		class_<CWeapon,CGameObject>("CWeapon")
 			.def(constructor<>())
 			.def("can_kill", (bool (CWeapon::*)() const)&CWeapon::can_kill)
@@ -35,11 +58,29 @@ void CWeaponAK74::script_register	(lua_State *L)
 			.def("IsSilencerAttached", &CWeapon::IsSilencerAttached)
 			.def("SilencerAttachable", &CWeapon::SilencerAttachable)
 			.def("GetSilencerName", &CWeapon::GetSilencerNameScript)
+			.def("SetSilencerName", &CWeapon::SetSilencerName)
+			.def("SetSilencerBoneHidden", &CWeapon::SetSilencerBoneHidden)
+			.def("IsSilencerBoneHidden", &CWeapon::IsSilencerBoneHidden)
 			
 			.def("IsZoomEnabled", &CWeapon::IsZoomEnabled)
 			.def("IsZoomed", &CWeapon::IsZoomed)
+			.def("StopZoom", &CWeapon::StopZoom)
+			.def("IsTextureZoomActive", &CWeapon::IsTextureZoomActive)
 			.def("GetZoomFactor", &CWeapon::GetZoomFactor)
 			.def("SetZoomFactor", &CWeapon::SetZoomFactor)
+			.def("GetScopeZoomFactor", &CWeapon::GetScopeZoomFactor)
+			.def("SetScopeZoomFactor", &CWeapon::SetScopeZoomFactor)
+			.def("GetMinScopeZoomFactor", &CWeapon::GetMinScopeZoomFactor)
+			.def("SetMinScopeZoomFactor", &CWeapon::SetMinScopeZoomFactor)
+			.def("GetZoomStepCount", &CWeapon::GetZoomStepCount)
+			.def("SetZoomStepCount", &CWeapon::SetZoomStepCount)
+			.def("IsDynamicZoom", &CWeapon::IsDynamicZoom)
+			.def("SetDynamicZoom", &CWeapon::SetDynamicZoom)
+			.def("GetZoomPostprocess", &CWeapon::GetZoomPostprocess)
+			.def("SetZoomPostprocess", &CWeapon::SetZoomPostprocess)
+			.def("SetFlameParticles", &CWeapon::SetFlameParticles)
+			.def("SetSmokeParticles", &CWeapon::SetSmokeParticles)
+			.def("SetLightShotDisabled", &CWeapon::SetLightShotDisabled)
 			
 			.def("IsSingleHanded", &CWeapon::IsSingleHanded)
 			
@@ -51,15 +92,19 @@ void CWeaponAK74::script_register	(lua_State *L)
 			
 			.def("GetAmmoElapsed", &CWeapon::GetAmmoElapsed)
 			.def("GetAmmoMagSize", &CWeapon::GetAmmoMagSize)
+			.def("SetAmmoMagSize", &CWeapon::SetAmmoMagSize)
 			.def("GetSuitableAmmoTotal", &CWeapon::GetSuitableAmmoTotal)
 			.def("SetAmmoElapsed", &CWeapon::SetAmmoElapsed)
 			.def("SwitchAmmoType", &CWeapon::SwitchAmmoType)
 			.def("GetMagazineWeight", &CWeapon::GetMagazineWeightScript)
-			.def("GetAmmoCount_forType", &CWeapon::GetAmmoCount_forType_Script)
+			.def("GetAmmoCount_forType", (int (CWeapon::*)(LPCSTR) const) & CWeapon::GetAmmoCount_forType_Script)
+			.def("GetAmmoCount_forType", (int (CWeapon::*)(u8) const) & CWeapon::GetAmmoCount_byIndex_Script)
 			.def("set_ef_main_weapon_type", &CWeapon::set_ef_main_weapon_type)
 			.def("set_ef_weapon_type", &CWeapon::set_ef_weapon_type)
-			.def("SetAmmoType", &CWeapon::SetAmmoType)
+			.def("SetAmmoType", (void (CWeapon::*) (u8)) & CWeapon::SetAmmoType)
+			.def("SetAmmoType", (void (CWeapon::*) (LPCSTR)) & CWeapon::SetAmmoType_Script)
 			.def("GetAmmoType", &CWeapon::GetAmmoType)
+			.def("GetAmmoName", &CWeapon::GetAmmoNameScript)
 			.def("AmmoTypeForEach", &CWeapon::AmmoTypeForEach)
 			.def("RPM", &CWeapon::RPMScript)
 			.def("RealRPM", &CWeapon::RealRPMScript)
@@ -93,6 +138,8 @@ void CWeaponAK74::script_register	(lua_State *L)
 			.def("GetHitImpulse", &CWeapon::GetHitImpulse)
 			.def("GetFireDistance", &CWeapon::GetFireDistance)
 			.def("GetFireMode", &CWeapon::GetCurrentFireMode)
+			.def("GetFireModeIndex", &CWeapon::GetCurrentFireModeIndex)
+			.def("GetFireModes", &CWeapon::GetFireModes_script)
 
 			.def("GetInertionAimFactor", &CWeapon::GetInertionAimFactor)
 
@@ -137,6 +184,8 @@ void CWeaponAK74::script_register	(lua_State *L)
 			.def("GetZoomRotateTime", &CWeapon::GetZoomRotateTime)
 			.def("SetZoomRotateTime", &CWeapon::SetZoomRotateTime)
 
+			.def("UseCustomHudOffset", &CWeapon::SetHandleCustomHudOffset)
+
             // verdatim
             .def("ForceSetZoomType", &CWeapon::ForceSetZoomType)
 
@@ -145,6 +194,7 @@ void CWeaponAK74::script_register	(lua_State *L)
 			.def("Set_mStrapOffset", &CWeapon::set_mStrapOffset)
 			.def("Set_mFirePoint", &CWeapon::set_mFirePoint)
 			.def("Set_mFirePoint2", &CWeapon::set_mFirePoint2)
+			.def("Set_mFirePointSilencer", &CWeapon::set_mFirePointSilencer)
 			.def("Set_mShellPoint", &CWeapon::set_mShellPoint)
 
 			.def("Get_mOffset", &CWeapon::get_mOffset)
@@ -153,6 +203,31 @@ void CWeaponAK74::script_register	(lua_State *L)
 			.def("Get_strap_bone1", &CWeapon::strap_bone1)
 			.def("Get_strapped_mode", (bool (CWeapon::*)() const)&CWeapon::strapped_mode)
 			.def("HandDependence", &CWeapon::HandDependence)
+
+			//Private_Pirate:
+			// Control weapon inertia on mouse movement
+			// Getters
+			.def("GetInertionOffsetLRUD", &CWeapon::GetInertionOffsetLRUD)
+			.def("GetInertionOffsetLRUDAim", &CWeapon::GetInertionOffsetLRUDAim)
+			.def("GetInertionTendtoSpeed", &CWeapon::GetInertionTendtoSpeed)
+			.def("GetInertionTendtoAimSpeed", &CWeapon::GetInertionTendtoAimSpeed)
+			.def("GetInertionTendtoRetSpeed", &CWeapon::GetInertionTendtoRetSpeed)
+			.def("GetInertionTendtoRetAimSpeed", &CWeapon::GetInertionTendtoRetAimSpeed)
+			.def("GetInertionMinAngle", &CWeapon::GetInertionMinAngle)
+			.def("GetInertionMinAngleAim", &CWeapon::GetInertionMinAngleAim)
+
+			// Setters
+			.def("SetInertionOffsetLRUD", (void (CWeapon::*)(Fvector4)) &CWeapon::SetInertionOffsetLRUD)
+			.def("SetInertionOffsetLRUD", (void (CWeapon::*)(float, float, float, float)) &CWeapon::SetInertionOffsetLRUD)
+			.def("SetInertionOffsetLRUDAim", (void (CWeapon::*)(Fvector4)) &CWeapon::SetInertionOffsetLRUDAim)
+			.def("SetInertionOffsetLRUDAim", (void (CWeapon::*)(float, float, float, float)) &CWeapon::SetInertionOffsetLRUDAim)
+			.def("SetInertionTendtoSpeed", &CWeapon::SetInertionTendtoSpeed)
+			.def("SetInertionTendtoAimSpeed", &CWeapon::SetInertionTendtoAimSpeed)
+			.def("SetInertionTendtoRetSpeed", &CWeapon::SetInertionTendtoRetSpeed)
+			.def("SetInertionTendtoRetAimSpeed", &CWeapon::SetInertionTendtoRetAimSpeed)
+			.def("SetInertionMinAngle", &CWeapon::SetInertionMinAngle)
+			.def("SetInertionMinAngleAim", &CWeapon::SetInertionMinAngleAim)
+			// Private_Pirate end
 
 			// Cam Recoil
 			// Getters
@@ -218,7 +293,8 @@ void CWeaponAK74::script_register	(lua_State *L)
 			
 		class_<CWeaponMagazined,CWeapon>("CWeaponMagazined")
 			.def(constructor<>())
-			.def("SetFireMode", &CWeaponMagazined::SetFireMode),
+			.def("SetFireMode", &CWeaponMagazined::SetFireMode)
+			.def("SetShootSound", &CWeaponMagazined::SetShootSound),
 			
 		class_<CWeaponMagazinedWGrenade,CWeaponMagazined>("CWeaponMagazinedWGrenade")
 			.def(constructor<>())

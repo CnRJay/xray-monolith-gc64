@@ -18,6 +18,7 @@ class CPsyDog : public CAI_PseudoDog
 	CActor* m_enemy;
 
 	// externals
+	u8 m_min_phantoms_count;
 	u8 m_max_phantoms_count;
 	u32 m_time_phantom_respawn;
 
@@ -44,7 +45,7 @@ public:
 	virtual char* get_monster_class_name() { return "psydog"; }
 
 	u8 get_phantoms_count();
-	bool must_hide() { return get_phantoms_count() == 0; }
+	bool must_hide() { return get_phantoms_count() < m_min_phantoms_count; }
 private:
 	bool spawn_phantom();
 	void delete_phantom(CPsyDogPhantom*);

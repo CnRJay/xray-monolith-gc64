@@ -51,7 +51,7 @@ void CAI_Stalker::unsubscribe_on_best_cover_changed(const on_best_cover_changed_
 {
 	cover_delegates::iterator I = std::find(m_cover_delegates.begin(), m_cover_delegates.end(), delegate);
 	VERIFY(I != m_cover_delegates.end());
-	m_cover_delegates.erase(I);
+	m_cover_delegates.erase_fast(I);
 }
 
 void CAI_Stalker::on_best_cover_changed(const CCoverPoint* new_cover, const CCoverPoint* old_cover)
@@ -160,21 +160,8 @@ const CCoverPoint* CAI_Stalker::find_best_cover(const Fvector& position_to_cover
 	float minimum_enemy_distance, maximum_enemy_distance;
 	compute_enemy_distances(minimum_enemy_distance, maximum_enemy_distance);
 
-	if (!best_weapon())
-		m_ce_best->can_use_smart_covers(false);
-	else
-	{
-		CWeapon* weapon = smart_cast<CWeapon*>(best_weapon());
-		if (!weapon)
-			m_ce_best->can_use_smart_covers(false);
-		else
-		{
-			if (weapon->BaseSlot() != INV_SLOT_3)
-				m_ce_best->can_use_smart_covers(false);
-			else
-				m_ce_best->can_use_smart_covers(true);
-		}
-	}
+	CInventoryItem* best_wpn = best_weapon();
+	m_ce_best->can_use_smart_covers(best_wpn && best_wpn->cast_weapon() && best_wpn->BaseSlot() == INV_SLOT_3);
 
 	m_ce_best->setup(position_to_cover_from, minimum_enemy_distance, maximum_enemy_distance, minimum_enemy_distance);
 	const CCoverPoint* point = ai().cover_manager().best_cover(Position(), g_ai_cover_search_near_radius, *m_ce_best,
@@ -298,10 +285,22 @@ const CCoverPoint* CAI_Stalker::best_cover(const Fvector& position_to_cover_from
 	const CCoverPoint* best_cover = find_best_cover(position_to_cover_from);
 	if (best_cover != m_best_cover)
 	{
-		on_best_cover_changed(best_cover, m_best_cover);
-		m_best_cover = best_cover;
-		m_best_cover_advance_cover = 0;
-		m_best_cover_can_try_advance = false;
+		// Let Lua veto replacing the held cover before on_best_cover_changed clears the cover props.
+		// allow = false keeps m_best_cover. Only when a cover is already held; no functor means allow.
+		bool allow = true;
+		if (m_best_cover)
+		{
+			luabind::functor<bool> repick_funct;
+			if (ai().script_engine().functor("_G.CAI_Stalker__AllowCoverRepick", repick_funct))
+				allow = repick_funct(lua_game_object());
+		}
+		if (allow)
+		{
+			on_best_cover_changed(best_cover, m_best_cover);
+			m_best_cover = best_cover;
+			m_best_cover_advance_cover = 0;
+			m_best_cover_can_try_advance = false;
+		}
 	}
 
 	m_best_cover_value = m_best_cover ? best_cover_value(position_to_cover_from) : flt_max;

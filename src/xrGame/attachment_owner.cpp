@@ -52,12 +52,10 @@ void CAttachmentOwner::net_Destroy()
 	R_ASSERT(attached_objects().empty());
 }
 
-void CAttachmentOwner::renderable_Render()
+void CAttachmentOwner::renderable_Render(IDSGraphManager* DM)
 {
-	xr_vector<CAttachableItem*>::iterator I = m_attached_objects.begin();
-	xr_vector<CAttachableItem*>::iterator E = m_attached_objects.end();
-	for (; I != E; ++I)
-		(*I)->renderable_Render();
+	for (CAttachableItem* item : m_attached_objects)
+		item->renderable_Render(DM);
 }
 
 void __stdcall AttachmentCallback(IKinematics* tpKinematics)
@@ -117,7 +115,7 @@ void CAttachmentOwner::detach(CInventoryItem* inventory_item)
 		if ((*I)->item().object().ID() == inventory_item->object().ID())
 		{
 			CAttachableItem* ai = *I;
-			m_attached_objects.erase(I);
+			m_attached_objects.erase_fast(I);
 			ai->afterDetach();
 			if (m_attached_objects.empty())
 			{
@@ -134,12 +132,12 @@ void CAttachmentOwner::detach(CInventoryItem* inventory_item)
 
 bool CAttachmentOwner::attached(const CInventoryItem* inventory_item) const
 {
-	return (attachedItem(inventory_item->object().ID()) != nullptr);
+	return (attachedItem(inventory_item->object().ID()) != NULL);
 }
 
 bool CAttachmentOwner::attached(shared_str sect_name) const
 {
-	return (attachedItem(sect_name) != nullptr);
+	return (attachedItem(sect_name) != NULL);
 }
 
 bool CAttachmentOwner::can_attach(const CInventoryItem* inventory_item) const
@@ -184,7 +182,7 @@ CAttachableItem* CAttachmentOwner::attachedItem(CLASS_ID clsid) const
 		if ((*I)->item().object().CLS_ID == clsid)
 			return (*I);
 
-	return nullptr;
+	return NULL;
 }
 
 CAttachableItem* CAttachmentOwner::attachedItem(u16 id) const
@@ -195,7 +193,7 @@ CAttachableItem* CAttachmentOwner::attachedItem(u16 id) const
 		if ((*I)->item().object().ID() == id)
 			return (*I);
 
-	return nullptr;
+	return NULL;
 }
 
 CAttachableItem* CAttachmentOwner::attachedItem(shared_str& section) const
@@ -206,5 +204,5 @@ CAttachableItem* CAttachmentOwner::attachedItem(shared_str& section) const
 		if (!xr_strcmp((*I)->item().object().cNameSect(), section) && !(*I)->item().IsInvalid())
 			return (*I);
 
-	return nullptr;
+	return NULL;
 }

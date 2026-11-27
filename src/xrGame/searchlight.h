@@ -62,15 +62,20 @@ public:
 #endif
 	virtual void shedule_Update(u32 dt); // Called by sheduler
 	virtual void UpdateCL(); // Called each frame, so no need for dt
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM);
 
 	virtual BOOL UsedAI_Locations();
+
+	virtual CProjector* cast_projector() { return this; }
 
 #ifdef PROJECTOR_NEW
 	/* Remove. */
 #else
 	virtual bool bfAssignWatch(CScriptEntityAction* tpEntityAction);
 	virtual bool bfAssignObject(CScriptEntityAction* tpEntityAction);
+
+	virtual CScriptEntity* cast_script_entity() { return this; }
+	virtual CGameObject* cast_game_object() { return this; }
 #endif
 
 	Fvector GetCurrentDirection();

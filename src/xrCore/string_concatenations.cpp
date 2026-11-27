@@ -1,6 +1,20 @@
 #include "stdafx.h"
 #include "string_concatenations.h"
 
+bool XRCORE_API _strconcatSingle(char*& destPtr, char* pDestEnd, const char* src)
+{
+    if (!src) return true;
+
+    // We stop at pDestEnd - 1 to ensure space for the null terminator
+    while (*src && (destPtr < (pDestEnd - 1)))
+    {
+        *destPtr++ = *src++;
+    }
+
+    // Return true if we reached the end of the source string successfully
+    return (*src == '\0');
+}
+
 namespace xray
 {
 	namespace core
@@ -308,17 +322,4 @@ LPSTR strconcat(int dest_sz, char* dest, const char* S1, const char* S2, const c
 	*i = 0;
 
 	return (dest);
-}
-
-int XRCORE_API _strconcatSingle(char*& destPtr, char* pDestEnd, const char* Str)
-{
-	char* TargetStrCursor = const_cast<char*> (Str);
-	for (; *TargetStrCursor && destPtr < pDestEnd; destPtr++, TargetStrCursor++)
-	{
-		*destPtr = *TargetStrCursor;
-	}
-
-	R_ASSERT3(!(*TargetStrCursor), "Failed to concatenate string", Str);
-
-	return 0;
 }

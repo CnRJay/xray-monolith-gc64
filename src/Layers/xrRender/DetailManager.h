@@ -9,6 +9,7 @@
 #include "../../xrCore/xrpool.h"
 #include "detailformat.h"
 #include "detailmodel.h"
+#include "light.h"
 
 #ifdef _EDITOR
 //.	#include	"ESceneClassList.h"
@@ -74,8 +75,8 @@ public:
 	{
 		// один кустик
 		float scale;
-		float scale_calculated;
 		Fmatrix mRotY;
+		Fmatrix mRotY_calculated;
 		u32 vis_ID; // индекс в visibility списке он же тип [не качается, качается1, качается2]
 		float c_hemi;
 		float c_sun;
@@ -206,7 +207,6 @@ public:
 	int cache_cz;
 
 	PSS poolSI; // pool из которого выделяются SlotItem
-	xrCriticalSection pool_mutex;
 
 	void UpdateVisibleM();
 	void UpdateVisibleS();
@@ -239,11 +239,11 @@ public:
 	void hw_Load_Geom();
 	void hw_Load_Shaders();
 	void hw_Unload();
-	void hw_Render();
+	void hw_Render(light* L = nullptr);
 #if defined(USE_DX10) || defined(USE_DX11)
-	void hw_Render_dump(const Fvector4 &consts, const Fvector4 &wave, const Fvector4 &wind, const Fvector4& prev_wave, const Fvector4& prev_wind, u32 var_id, u32 lod_id);
+	void hw_Render_dump(const Fvector4 &consts, const Fvector4 &wave, const Fvector4 &wind, const Fvector4& prev_wave, const Fvector4& prev_wind, u32 var_id, u32 lod_id, light* L = nullptr);
 #else	//	USE_DX10
-	void hw_Render_dump(ref_constant array, u32 var_id, u32 lod_id, u32 c_base);
+	void hw_Render_dump(ref_constant array, u32 var_id, u32 lod_id, u32 c_base, light* L = nullptr);
 #endif	//	USE_DX10
 
 public:
@@ -254,7 +254,7 @@ public:
 	void cache_Update(int sx, int sz, Fvector& view, int limit);
 	void cache_Task(int gx, int gz, Slot* D);
 	Slot* cache_Query(int sx, int sz);
-	void cache_Decompress(Slot* D, CDB::COLLIDER* collider = nullptr);
+	void cache_Decompress(Slot* D);
 	BOOL cache_Validate();
 	// cache grid to world
 	int cg2w_X(int x) { return cache_cx - dm_size + x; }
@@ -268,18 +268,10 @@ public:
 	void Render();
 
 	/// MT stuff
-	xrCriticalSection MT;
-	volatile u32 m_frame_calc;
-	volatile u32 m_frame_rendered;
-
+	u32 m_frame_calc;
+	xr_atomic_u32 m_frame_rendered;
+	xrCriticalSection m_mt_calc_guard;
 	void __stdcall MT_CALC();
-	ICF void MT_SYNC()
-	{
-		if (m_frame_calc == RDEVICE.dwFrame)
-			return;
-
-		MT_CALC();
-	}
 
 	CDetailManager();
 	virtual ~CDetailManager();

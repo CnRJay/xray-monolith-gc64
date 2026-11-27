@@ -8,8 +8,8 @@
 
 CPhantom::CPhantom()
 {
-	m_fly_particles = nullptr;
-	m_enemy = nullptr;
+	m_fly_particles = NULL;
+	m_enemy = NULL;
 	fSpeed = 4.f;
 	fASpeed = 1.7f;
 	vHP.set(0, 0);
@@ -27,12 +27,8 @@ void CPhantom::Load(LPCSTR section)
 {
 	inherited::Load(section);
 	//////////////////////////////////////////////////////////////////////////
-	ISpatial* self = smart_cast<ISpatial*>(this);
-	if (self)
-	{
-		self->spatial.type &= ~STYPE_VISIBLEFORAI;
-		self->spatial.type &= ~STYPE_REACTTOSOUND;
-	}
+	SpatialComponent->spatial.type &= ~STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type &= ~STYPE_REACTTOSOUND;
 	//////////////////////////////////////////////////////////////////////////
 	fSpeed = pSettings->r_float(section, "speed");
 	fASpeed = pSettings->r_float(section, "angular_speed");
@@ -123,7 +119,7 @@ void CPhantom::net_Destroy()
 	// stop looped
 	SStateData& sdata = m_state_data[stFly];
 	sdata.sound.stop();
-	CParticlesObject::Destroy(m_fly_particles);
+	Particles::Details::Destroy(m_fly_particles);
 }
 
 //---------------------------------------------------------------------
@@ -133,7 +129,7 @@ void CPhantom::animation_end_callback(CBlend* B)
 	CPhantom* phantom = (CPhantom*)B->CallbackParam;
 	switch (phantom->m_CurState)
 	{
-	case stBirth: phantom->SwitchToState(stFly);
+    case stBirth: phantom->SwitchToState(stFly);
 		break;
 	case stContact: phantom->SwitchToState(stIdle);
 		break;
@@ -222,7 +218,7 @@ void CPhantom::SwitchToState_internal(EState new_state)
 				UpdateEvent.bind(this, &CPhantom::OnIdleState);
 				SStateData& sdata = m_state_data[m_CurState];
 				sdata.sound.stop();
-				CParticlesObject::Destroy(m_fly_particles);
+				Particles::Details::Destroy(m_fly_particles);
 			}
 			break;
 		}
@@ -283,7 +279,7 @@ void CPhantom::UpdateFlyMedia()
 
 void CPhantom::shedule_Update(u32 DT)
 {
-	spatial.type &= ~STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type &= ~STYPE_VISIBLEFORAI;
 
 	inherited::shedule_Update(DT);
 
@@ -303,7 +299,7 @@ void CPhantom::UpdateCL()
 //void CPhantom::Hit	(float P, Fvector &dir, CObject* who, s16 element,Fvector p_in_object_space, float impulse, ALife::EHitType hit_type)
 void CPhantom::Hit(SHit* pHDS)
 {
-	if (m_TgtState == stFly) SwitchToState(stShoot);
+	if (m_TgtState == stFly || m_TgtState == stBirth) SwitchToState(stShoot);
 	if (g_Alive())
 	{
 		//		SetfHealth		(-1.f);
@@ -323,7 +319,7 @@ Fmatrix CPhantom::XFORM_center()
 
 CParticlesObject* CPhantom::PlayParticles(const shared_str& name, BOOL bAutoRemove, const Fmatrix& xform)
 {
-	CParticlesObject* ps = CParticlesObject::Create(name.c_str(), bAutoRemove);
+	CParticlesObject* ps = Particles::Details::Create(name.c_str(), bAutoRemove).get();
 	ps->UpdateParent(xform, zero_vel);
 	ps->Play(false);
 	return bAutoRemove ? 0 : ps;

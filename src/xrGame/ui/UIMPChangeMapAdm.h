@@ -25,4 +25,7 @@ public:
 	void OnBtnOk();
 	void OnItemSelect();
 	void FillUpList();
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 };

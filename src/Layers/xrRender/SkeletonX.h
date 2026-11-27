@@ -17,23 +17,12 @@ class Fvisual;
 
 struct SEnumVerticesCallback;
 
-class ECORE_API CSkeletonX
+class CSkeletonX
 {
 protected:
 	enum { vertRenderFVF = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1 };
 
-public:
-	enum
-	{
-		RM_SKINNING_SOFT,
-		RM_SINGLE,
-		RM_SKINNING_1B,
-		RM_SKINNING_2B,
-		RM_SKINNING_3B,
-		RM_SKINNING_4B
-	};
-
-protected:
+	enum { RM_SKINNING_SOFT, RM_SINGLE, RM_SKINNING_1B, RM_SKINNING_2B, RM_SKINNING_3B, RM_SKINNING_4B };
 
 	CKinematics* Parent; // setted up by parent
 	ref_smem<vertBoned1W> Vertices1W; // shared
@@ -138,15 +127,6 @@ public:
 	                      u16 bone_id) =0;
 	virtual void FillVertices(const Fmatrix& view, CSkeletonWallmark& wm, const Fvector& normal, float size,
 	                          u16 bone_id) =0;
-
-	// Exposed for LightShadows
-	u16 GetRenderMode() const { return RenderMode; }
-	ref_smem<vertBoned1W>& GetVertices1W() { return Vertices1W; }
-	ref_smem<vertBoned2W>& GetVertices2W() { return Vertices2W; }
-	ref_smem<vertBoned3W>& GetVertices3W() { return Vertices3W; }
-	ref_smem<vertBoned4W>& GetVertices4W() { return Vertices4W; }
-	ref_smem<u16>& GetBonesUsed() { return BonesUsed; }
-	CBoneInstance* GetBoneInstances() { return &Parent->LL_GetBoneInstance(0); }
 
 #if defined(USE_DX10) || defined(USE_DX11)
 protected:

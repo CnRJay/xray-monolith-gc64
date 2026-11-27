@@ -12,10 +12,10 @@ CPHGeometryOwner::CPHGeometryOwner()
 	VERIFY(ph_world);
 	//contact_callback=ContactShotMark;//ph_world->default_contact_shotmark();
 	contact_callback = ph_world->default_contact_shotmark();
-	object_contact_callback = nullptr;
+	object_contact_callback = NULL;
 	ul_material = GMLibrary().GetMaterialIdx("objects\\small_box");
-	m_group = nullptr;
-	m_phys_ref_object = nullptr;
+	m_group = NULL;
+	m_phys_ref_object = NULL;
 }
 
 CPHGeometryOwner::~CPHGeometryOwner()
@@ -163,6 +163,11 @@ void CPHGeometryOwner::SetMaterial(u16 m)
 	for (; i != e; ++i) (*i)->set_material(m);
 }
 
+void CPHGeometryOwner::SetMaterial(LPCSTR m)
+{
+	SetMaterial(GMLibrary().GetMaterialIdx(m));
+}
+
 void CPHGeometryOwner::SetPhObjectInGeomData(CPHObject* O)
 {
 	if (!b_builded) return;
@@ -307,7 +312,7 @@ void CPHGeometryOwner::remove_ObjectContactCallback(ObjectContactCallbackFun* ca
 {
 	if (object_contact_callback == callback)
 	{
-		object_contact_callback = nullptr;
+		object_contact_callback = NULL;
 	}
 	if (!b_builded)return;
 	{
@@ -413,7 +418,7 @@ void CPHGeometryOwner::DestroyGroupSpace()
 	if (m_group)
 	{
 		dGeomDestroy((dGeomID)m_group);
-		m_group = nullptr;
+		m_group = NULL;
 	}
 }
 
@@ -441,7 +446,7 @@ CODEGeom* CPHGeometryOwner::GeomByBoneID(u16 bone_id)
 	}
 	else
 	{
-		return nullptr;
+		return NULL;
 	}
 }
 

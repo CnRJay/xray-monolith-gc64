@@ -161,6 +161,7 @@ public:
 	virtual void net_Export(NET_Packet& P); // export to server
 	virtual void net_Import(NET_Packet& P); // import from server
 	virtual void net_Relcase(CObject* O);
+	virtual BOOL net_Relevant();
 
 	virtual void SelectAnimation(const Fvector& _view, const Fvector& _move, float speed) = 0;
 
@@ -169,7 +170,7 @@ public:
 	// debug
 #ifdef DEBUG
 	virtual void		OnRender				( );
-	virtual void		OnHUDDraw				(CCustomHUD* hud);
+	virtual void		OnHUDDraw				(CCustomHUD* hud, IDSGraphManager* DM);
 #endif
 
 	virtual bool bfExecMovement() { return (false); };
@@ -228,6 +229,7 @@ public:
 	bool is_special_killer(CObject* obj);
 
 	IC CMemoryManager& memory() const;
+    IC CMemoryManager* memoryPtr() const { return m_memory_manager; }
 	virtual float feel_vision_mtl_transp(CObject* O, u32 element);
 	virtual void feel_sound_new(CObject* who, int type, CSound_UserDataPtr user_data, const Fvector& Position,
 	                            float power);

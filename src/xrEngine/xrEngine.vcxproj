@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="ProfiledDX11|x64">
       <Configuration>ProfiledDX11</Configuration>
@@ -35,6 +35,10 @@
     </ProjectConfiguration>
     <ProjectConfiguration Include="ReleaseR4|x64">
       <Configuration>ReleaseR4</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="VerifiedDX11ASAN|x64">
+      <Configuration>VerifiedDX11ASAN</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
     <ProjectConfiguration Include="VerifiedDX11|x64">
@@ -90,9 +94,16 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX9|x64'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <EnableASAN>true</EnableASAN>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX9|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
   </PropertyGroup>
@@ -127,7 +138,7 @@
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX8|x64'" Label="Configuration">
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
@@ -162,6 +173,11 @@
     <Import Project="$(SolutionDir)Common.props" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(VCTargetsPath)Microsoft.CPP.UpgradeFromVC71.props" />
+    <Import Project="$(SolutionDir)Common.props" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="$(VCTargetsPath)Microsoft.CPP.UpgradeFromVC71.props" />
     <Import Project="$(SolutionDir)Common.props" />
@@ -235,6 +251,12 @@
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11|x64'">
+    <OutDir>$(xrGameDir)bin_dbg\</OutDir>
+    <TargetName>VerifiedDX11</TargetName>
+    <IntDir>$(xrIntDir)$(ProjectName)\</IntDir>
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'">
     <OutDir>$(xrGameDir)bin_dbg\</OutDir>
     <TargetName>VerifiedDX11</TargetName>
     <IntDir>$(xrIntDir)$(ProjectName)\</IntDir>
@@ -398,7 +420,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalDependencies>vfw32.lib;libogg_static.lib;libtheora_static.lib;winmm.lib;OpenAL32.lib;giflib.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(OutDir)$(Platform);$(OutDir)$(Platform)\Release\;$(SolutionDir)3rd party\luajit-2\src\;$(XRAY_16X_LIBS)OpenAutomate\libraries;$(SolutionDir)..\lib\$(Platform)\Release;$(SolutionDir)$(Platform)\Release;$(xrSdkDir)libraries\x64;$(xrLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(OutDir)$(Platform)\Release\;$(SolutionDir)3rd party\luajit-2\src\;$(XRAY_16X_LIBS)OpenAutomate\libraries;$(SolutionDir)..\lib\$(Platform)\Release;$(SolutionDir)$(Platform)\Release;$(xrSdkDir)libraries\x64;$(xrLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <ImportLibrary>$(xrLibDir)$(TargetName).lib</ImportLibrary>
       <AdditionalOptions>/ignore:4099 /LTCG:INCREMENTAL</AdditionalOptions>
@@ -459,8 +481,8 @@
       <OmitFramePointers>false</OmitFramePointers>
       <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
       <WholeProgramOptimization>false</WholeProgramOptimization>
-      <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)3rd party\giflib\;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)libogg-1.1.4\include;$(XRAY_16X_LIBS)libtheora-1.1.1\include;$(xrSdkDir)include;$(xrSdkDir)include\OpenAutomate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>USE_VERIFY_IN_RELEASE;STATIC_RENDERER_R4;NDEBUG;WIN32;_WINDOWS;ENGINE_BUILD;_SECURE_SCL=0;AL_LIBTYPE_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\giflib\;$(SolutionDir)3rd party\luabind\;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)libogg-1.1.4\include;$(XRAY_16X_LIBS)libtheora-1.1.1\include;$(xrSdkDir)include;$(xrSdkDir)include\OpenAutomate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>XRCORE_PROFILER;USE_VERIFY_IN_RELEASE;STATIC_RENDERER_R4;NDEBUG;WIN32;_WINDOWS;ENGINE_BUILD;_SECURE_SCL=0;AL_LIBTYPE_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
       <UndefinePreprocessorDefinitions>USE_LUAJIT_ONE</UndefinePreprocessorDefinitions>
@@ -494,6 +516,50 @@
       <AdditionalManifestFiles>$(SolutionDir)xrEngine\as-invoker-manifest-part.xml;%(AdditionalManifestFiles)</AdditionalManifestFiles>
     </Manifest>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Neither</FavorSizeOrSpeed>
+      <OmitFramePointers>false</OmitFramePointers>
+      <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\giflib\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)3rd party\giflib\;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)libogg-1.1.4\include;$(XRAY_16X_LIBS)libtheora-1.1.1\include;$(xrSdkDir)include;$(xrSdkDir)include\OpenAutomate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>XRCORE_PROFILER;USE_VERIFY_IN_RELEASE;STATIC_RENDERER_R4;NDEBUG;WIN32;_WINDOWS;ENGINE_BUILD;_SECURE_SCL=0;AL_LIBTYPE_STATIC;_DISABLE_VECTOR_ANNOTATION;_DISABLE_STRING_ANNOTATION;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
+      <UndefinePreprocessorDefinitions>USE_LUAJIT_ONE</UndefinePreprocessorDefinitions>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <WarningLevel>Level4</WarningLevel>
+      <RemoveUnreferencedCodeData>false</RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <ExceptionHandling>false</ExceptionHandling>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
+    <Link>
+      <AdditionalDependencies>vfw32.lib;libogg_static.lib;libtheora_static.lib;winmm.lib;OpenAL32.lib;giflib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir)$(Platform)\VerifiedDX11ASAN\;$(SolutionDir)3rd party\luajit-2\src\;$(XRAY_16X_LIBS)OpenAutomate\libraries;$(SolutionDir)..\lib\$(Platform)\VerifiedDX11ASAN;$(SolutionDir)$(Platform)\VerifiedDX11ASAN;$(xrSdkDir)libraries\x64;$(xrLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImportLibrary>$(xrLibDir)$(TargetName).lib</ImportLibrary>
+      <AdditionalOptions>/ignore:4099</AdditionalOptions>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>false</EnableCOMDATFolding>
+      <FixedBaseAddress>false</FixedBaseAddress>
+      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <OptimizeReferences>false</OptimizeReferences>
+      <SubSystem>NotSet</SubSystem>
+    </Link>
+    <Manifest>
+      <AdditionalManifestFiles>$(SolutionDir)xrEngine\as-invoker-manifest-part.xml;%(AdditionalManifestFiles)</AdditionalManifestFiles>
+    </Manifest>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX9|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
@@ -503,7 +569,7 @@
       <OmitFramePointers>false</OmitFramePointers>
       <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
       <WholeProgramOptimization>false</WholeProgramOptimization>
-      <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)3rd party\giflib\;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)libogg-1.1.4\include;$(XRAY_16X_LIBS)libtheora-1.1.1\include;$(xrSdkDir)include;$(xrSdkDir)include\OpenAutomate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\giflib\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)3rd party\giflib\;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)libogg-1.1.4\include;$(XRAY_16X_LIBS)libtheora-1.1.1\include;$(xrSdkDir)include;$(xrSdkDir)include\OpenAutomate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>XRCORE_PROFILER;USE_VERIFY_IN_RELEASE;STATIC_RENDERER_R2;NDEBUG;WIN32;_WINDOWS;ENGINE_BUILD;_SECURE_SCL=0;AL_LIBTYPE_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
@@ -748,7 +814,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX8|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)3rd party\giflib\;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)libogg-1.1.4\include;$(XRAY_16X_LIBS)libtheora-1.1.1\include;$(xrSdkDir)include;$(xrSdkDir)include\OpenAutomate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\imgui\;$(SolutionDir)3rd party\luajit-2\src\;$(SolutionDir)3rd party\giflib\;$(SolutionDir)3rd party\luabind\;$(SolutionDir)3rd party\giflib\;$(XRAY_16X_LIBS)OpenAutomate\inc;$(XRAY_16X_LIBS)libogg-1.1.4\include;$(XRAY_16X_LIBS)libtheora-1.1.1\include;$(xrSdkDir)include;$(xrSdkDir)include\OpenAutomate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <BufferSecurityCheck>true</BufferSecurityCheck>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
@@ -867,6 +933,7 @@
     <ClInclude Include="edit_actions.h" />
     <ClInclude Include="Effector.h" />
     <ClInclude Include="EffectorPP.h" />
+    <ClInclude Include="EngineThreading.h" />
     <ClInclude Include="Engine.h" />
     <ClInclude Include="EngineAPI.h" />
     <ClInclude Include="EnnumerateVertices.h" />
@@ -910,9 +977,12 @@
     <ClInclude Include="pure.h" />
     <ClInclude Include="pure_relcase.h" />
     <ClInclude Include="Rain.h" />
+    <ClInclude Include="renderdoc_app.h" />
+    <ClInclude Include="renderdoc_integration.h" />
     <ClInclude Include="Render.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="ShadersExternalData.h" />
+    <ClInclude Include="shader_bus.h" />
     <ClInclude Include="Shader_xrLC.h" />
     <ClInclude Include="SkeletonMotionDefs.h" />
     <ClInclude Include="SkeletonMotions.h" />
@@ -931,7 +1001,6 @@
     <ClInclude Include="xrLevel.h" />
     <ClInclude Include="xrSASH.h" />
     <ClInclude Include="xrSheduler.h" />
-    <ClInclude Include="xrSkinning.h" />
     <ClInclude Include="xrTheora_Stream.h" />
     <ClInclude Include="xrTheora_Surface.h" />
     <ClInclude Include="xrTheora_Surface_mmx.h" />
@@ -981,6 +1050,7 @@
     <ClCompile Include="edit_actions.cpp" />
     <ClCompile Include="Effector.cpp" />
     <ClCompile Include="EffectorPP.cpp" />
+    <ClCompile Include="EngineThreading.cpp" />
     <ClCompile Include="Engine.cpp" />
     <ClCompile Include="EngineAPI.cpp" />
     <ClCompile Include="Envelope.cpp" />
@@ -1022,7 +1092,9 @@
     <ClCompile Include="pure.cpp" />
     <ClCompile Include="pure_relcase.cpp" />
     <ClCompile Include="Rain.cpp" />
+    <ClCompile Include="renderdoc_integration.cpp" />
     <ClCompile Include="Render.cpp" />
+    <ClCompile Include="shader_bus.cpp" />
     <ClCompile Include="SkeletonMotions.cpp" />
     <ClCompile Include="StatGraph.cpp" />
     <ClCompile Include="Stats.cpp" />
@@ -1032,6 +1104,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='ReleaseR4|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='ProfiledDX11|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='VerifiedDX9|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Verified|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='ReleaseR4-AVX|x64'">Create</PrecompiledHeader>
@@ -1049,7 +1122,6 @@
     <ClCompile Include="xrImage_Resampler.cpp" />
     <ClCompile Include="xrSASH.cpp" />
     <ClCompile Include="xrSheduler.cpp" />
-    <ClCompile Include="xrSkinning.cpp" />
     <ClCompile Include="xrTheora_Stream.cpp" />
     <ClCompile Include="xrTheora_Surface.cpp" />
     <ClCompile Include="xrTheora_Surface_mmx.cpp" />
@@ -1130,6 +1202,9 @@
     <ProjectReference Include="$(SolutionDir)xrCore\xrCore.vcxproj">
       <Project>{a0f7d1fb-59a7-4717-a7e4-96f37e91998e}</Project>
     </ProjectReference>
+    <ProjectReference Include="$(SolutionDir)xrCPU_Pipe\xrCPU_Pipe.vcxproj">
+      <Project>{ca0649dd-d089-423a-981c-46b57a884eb9}</Project>
+    </ProjectReference>
     <ProjectReference Include="$(SolutionDir)xrGame\xrGame.vcxproj">
       <Project>{200652a6-043e-4634-8837-87983b3bd5e0}</Project>
     </ProjectReference>
@@ -1155,6 +1230,11 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11|x64'">
+    <ProjectReference Include="$(SolutionDir)Layers\xrRenderPC_R4\xrRender_R4.vcxproj">
+      <Project>{AC9B12ED-A2D7-4337-A981-5BD8430E96D8}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)|$(Platform)'=='VerifiedDX11ASAN|x64'">
     <ProjectReference Include="$(SolutionDir)Layers\xrRenderPC_R4\xrRender_R4.vcxproj">
       <Project>{AC9B12ED-A2D7-4337-A981-5BD8430E96D8}</Project>
     </ProjectReference>

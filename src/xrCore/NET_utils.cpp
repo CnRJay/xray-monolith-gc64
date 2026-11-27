@@ -8,16 +8,12 @@
 void NET_Packet::read_start()
 {
 	r_pos = 0;
-	INI_W(move_begin());
 }
 
 u32 NET_Packet::r_begin(u16& type) // returns time of receiving
 {
 	r_pos = 0;
-	if (!inistream)
-		r_u16(type);
-	else
-		inistream->r_u16(type);
+	r_u16(type);
 
 	return timeReceive;
 }
@@ -31,7 +27,6 @@ void NET_Packet::w_seek(u32 pos, const void* p, u32 count)
 
 void NET_Packet::r_seek(u32 pos)
 {
-	INI_ASSERT(r_seek)
 	//AVO: changed changed condition to <= as all net packet script utils are using r_seek(0) to read the entire packet.
 	VERIFY(pos <= B.count);
 	//VERIFY(pos < B.count);
@@ -40,25 +35,21 @@ void NET_Packet::r_seek(u32 pos)
 
 u32 NET_Packet::r_tell()
 {
-	INI_ASSERT(r_tell)
 	return r_pos;
 }
 
 BOOL NET_Packet::r_eof()
 {
-	INI_ASSERT(r_eof)
 	return (r_pos >= B.count);
 }
 
 u32 NET_Packet::r_elapsed()
 {
-	INI_ASSERT(r_elapsed)
 	return (B.count - r_pos);
 }
 
 void NET_Packet::r_advance(u32 size)
 {
-	INI_ASSERT(r_advance)
 	r_pos += size;
 	VERIFY(r_pos <= B.count);
 }
@@ -66,90 +57,57 @@ void NET_Packet::r_advance(u32 size)
 // reading - utilities
 void NET_Packet::r_vec3(Fvector& A)
 {
-	if (!inistream)
-		r(&A, sizeof(Fvector));
-	else
-		inistream->r_vec3(A);
+	r(&A, sizeof(Fvector));
 } // vec3
 
 void NET_Packet::r_vec4(Fvector4& A)
 {
-	if (!inistream)
-		r(&A, sizeof(Fvector4));
-	else
-		inistream->r_vec4(A);
+	r(&A, sizeof(Fvector4));
 } // vec4
 
 void NET_Packet::r_float(float& A)
 {
-	if (!inistream)
-		r(&A, sizeof(float));
-	else
-		inistream->r_float(A);
+	r(&A, sizeof(float));
 } // float
 
 void NET_Packet::r_u64(u64& A)
 {
-	if (!inistream)
-		r(&A, sizeof(u64));
-	else
-		inistream->r_u64(A);
+	r(&A, sizeof(u64));
 } // qword (8b)
 
 void NET_Packet::r_s64(s64& A)
 {
-	if (!inistream)
-		r(&A, sizeof(s64));
-	else
-		inistream->r_s64(A);
+	r(&A, sizeof(s64));
 } // qword (8b)
 
 void NET_Packet::r_u32(u32& A)
 {
-	if (!inistream)
-		r(&A, sizeof(u32));
-	else
-		inistream->r_u32(A);
+	r(&A, sizeof(u32));
 } // dword (4b)
 
 void NET_Packet::r_s32(s32& A)
 {
-	if (!inistream)
-		r(&A, sizeof(s32));
-	else
-		inistream->r_s32(A);
+	r(&A, sizeof(s32));
 } // dword (4b)
 
 void NET_Packet::r_u16(u16& A)
 {
-	if (!inistream)
-		r(&A, sizeof(u16));
-	else
-		inistream->r_u16(A);
+	r(&A, sizeof(u16));
 } // word (2b)
 
 void NET_Packet::r_s16(s16& A)
 {
-	if (!inistream)
-		r(&A, sizeof(s16));
-	else
-		inistream->r_s16(A);
+	r(&A, sizeof(s16));
 } // word (2b)
 
 void NET_Packet::r_u8(u8& A)
 {
-	if (!inistream)
-		r(&A, sizeof(u8));
-	else
-		inistream->r_u8(A);
+	r(&A, sizeof(u8));
 } // byte (1b)
 
 void NET_Packet::r_s8(s8& A)
 {
-	if (!inistream)
-		r(&A, sizeof(s8));
-	else
-		inistream->r_s8(A);
+	r(&A, sizeof(s8));
 } // byte (1b)
 
 // IReader compatibility
@@ -289,60 +247,28 @@ void NET_Packet::r_sdir(Fvector& A)
 
 void NET_Packet::r_stringZ(LPSTR S)
 {
-	if (!inistream)
-	{
-		LPCSTR data = LPCSTR(&B.data[r_pos]);
-		size_t len = xr_strlen(data);
-		r(S, (u32)len + 1);
-	}
-	else
-	{
-		inistream->r_string(S, 4096); //???
-	}
+	LPCSTR data = LPCSTR(&B.data[r_pos]);
+	size_t len = xr_strlen(data);
+	r(S, (u32)len + 1);
 }
 
 void NET_Packet::r_stringZ(xr_string& dest)
 {
-	if (!inistream)
-	{
-		dest = LPCSTR(&B.data[r_pos]);
-		r_advance(u32(dest.size() + 1));
-	}
-	else
-	{
-		string4096 buff;
-		inistream->r_string(buff, sizeof(buff));
-		dest = buff;
-	}
+	dest = LPCSTR(&B.data[r_pos]);
+	r_advance(u32(dest.size() + 1));
 }
 
 void NET_Packet::r_stringZ(shared_str& dest)
 {
-	if (!inistream)
-	{
-		dest = LPCSTR(&B.data[r_pos]);
-		r_advance(dest.size() + 1);
-	}
-	else
-	{
-		string4096 buff;
-		inistream->r_string(buff, sizeof(buff));
-		dest = buff;
-	}
+	dest = LPCSTR(&B.data[r_pos]);
+	r_advance(dest.size() + 1);
 }
 
 void NET_Packet::skip_stringZ()
 {
-	if (!inistream)
-	{
-		LPCSTR data = LPCSTR(&B.data[r_pos]);
-		u32 len = xr_strlen(data);
-		r_advance(len + 1);
-	}
-	else
-	{
-		inistream->skip_stringZ();
-	}
+	LPCSTR data = LPCSTR(&B.data[r_pos]);
+	u32 len = xr_strlen(data);
+	r_advance(len + 1);
 }
 
 void NET_Packet::r_matrix(Fmatrix& M)
@@ -366,12 +292,6 @@ void NET_Packet::r_clientID(ClientID& C)
 
 void NET_Packet::r_stringZ_s(LPSTR string, u32 const size)
 {
-	if (inistream)
-	{
-		inistream->r_string(string, size);
-		return;
-	}
-
 	LPCSTR data = LPCSTR(B.data + r_pos);
 	u32 length = xr_strlen(data);
 	R_ASSERT2((length + 1) <= size, "buffer overrun");

@@ -14,7 +14,7 @@ struct CUICell
 {
 	CUICell()
 	{
-		m_item = nullptr;
+		m_item = NULL;
 		Clear();
 	}
 
@@ -28,7 +28,7 @@ struct CUICell
 		m_bMainItem = bMain;
 	}
 
-	bool Empty() { return m_item == nullptr; }
+	bool Empty() { return m_item == NULL; }
 	bool MainItem() { return m_bMainItem; }
 	void Clear();
 	bool operator ==(const CUICell& C) const { return (m_item == C.m_item); }
@@ -78,8 +78,8 @@ public:
 	virtual ~CUIDragDropListEx();
 	void InitDragDropList(Fvector2 pos, Fvector2 size);
 
-	typedef fastdelegate::FastDelegate1<CUICellItem*, bool> DRAG_CELL_EVENT;
-	typedef fastdelegate::FastDelegate2<CUIDragItem*, bool, void> DRAG_ITEM_EVENT;
+	typedef xr_delegate<bool(CUICellItem*)> DRAG_CELL_EVENT;
+	typedef xr_delegate<void(CUIDragItem*, bool)> DRAG_ITEM_EVENT;
 
 	DRAG_CELL_EVENT m_f_item_drop;
 	DRAG_CELL_EVENT m_f_item_start_drag;
@@ -162,9 +162,11 @@ public:
 	virtual void Draw();
 	virtual void Update();
 	virtual bool OnMouseAction(float x, float y, EUIMessages mouse_action);
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 
 	void OnDragEvent(CUIDragItem* drag_item, bool b_receive);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 };
 
 class CUICellContainer : public CUIWindow
@@ -195,6 +197,8 @@ public:
 	Ivector2 PickCell(const Fvector2& abs_pos); //Alundaio made public
 	bool ValidCell(const Ivector2& pos) const; //Alundaio made public 
 	CUICell& GetCellAt(const Ivector2& pos);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 protected:
 	virtual void Draw();

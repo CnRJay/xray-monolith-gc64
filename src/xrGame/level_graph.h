@@ -55,6 +55,7 @@ private:
 	IReader* m_reader; // level graph virtual storage
 	CHeader* m_header; // level graph header
 	CVertex* m_nodes; // nodes array
+	bool m_nodes_allocated; // version 10 nodes are expanded to the version 13 layout
 	xr_vector<bool> m_access_mask;
 	GameGraph::_LEVEL_ID m_level_id; // unique level identifier
 	u32 m_row_length;
@@ -63,10 +64,10 @@ private:
 	u32 m_max_z;
 
 private:
-	u32 vertex(const Fvector& position) const;
 	u32 guess_vertex_id(u32 const& current_vertex_id, Fvector const& position) const;
 
 public:
+	u32 vertex(const Fvector& position) const;
 	typedef u32 const_iterator;
 	typedef u32 const_spawn_iterator;
 	typedef u32 const_death_iterator;
@@ -203,7 +204,7 @@ public:
 	IC float vertex_high_cover_angle(u32 vertex_id, float inc_angle, _predicate compare_predicate) const;
 	template <class _predicate>
 	IC float vertex_low_cover_angle(u32 vertex_id, float inc_angle, _predicate compare_predicate) const;
-	IC void set_invalid_vertex(u32& vertex_id, CVertex** vertex = nullptr) const;
+	IC void set_invalid_vertex(u32& vertex_id, CVertex** vertex = NULL) const;
 	IC const u32 vertex_id(const CLevelGraph::CVertex* vertex) const;
 	u32 vertex_id(const Fvector& position) const;
 	u32 vertex(u32 current_vertex_id, const Fvector& position) const;

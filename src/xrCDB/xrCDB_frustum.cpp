@@ -7,8 +7,7 @@
 using namespace CDB;
 using namespace Opcode;
 
-template <bool bClass3, bool bFirst>
-class frustum_collider
+class _MM_ALIGN16 cform_frustum_collider
 {
 public:
 	COLLIDER* dest;
@@ -16,6 +15,18 @@ public:
 	Fvector* verts;
 
 	const CFrustum* F;
+
+	Fvector mM[2];
+
+	sPoly Src, Dst;
+
+	bool bClass3 = false;
+
+	bool bFirst = false;
+
+	cform_frustum_collider(bool bClass, bool bFrst)
+
+		:bClass3(bClass), bFirst(bFrst) {}
 
 	IC void _init(COLLIDER* CL, Fvector* V, TRI* T, const CFrustum* _F)
 	{
@@ -25,102 +36,79 @@ public:
 		F = _F;
 	}
 
-	IC EFC_Visible _box(Fvector& C, Fvector& E, u32& mask)
+	IC void SetByVerts(Fvector* Val, DWORD prim)
 	{
-		Fvector mM[2];
+		Val[0] = verts[tris[prim].verts[0]];
+		Val[1] = verts[tris[prim].verts[1]];
+		Val[2] = verts[tris[prim].verts[2]];
+	}
+
+	IC EFC_Visible Box(const Fvector& C, const Fvector& E, u32& mask)
+	{
 		mM[0].sub(C, E);
 		mM[1].add(C, E);
 		return F->testAABB(&mM[0].x, mask);
 	}
 
-	void _prim(DWORD prim)
+	void Prim(DWORD InPrim)
 	{
 		if (bClass3)
 		{
-			sPoly src, dst;
-			src.resize(3);
-			src[0] = verts[tris[prim].verts[0]];
-			src[1] = verts[tris[prim].verts[1]];
-			src[2] = verts[tris[prim].verts[2]];
-			if (F->ClipPoly(src, dst))
+			Src.resize(3);
+			SetByVerts(Src.begin(), InPrim);
+			if (F->ClipPoly(Src, Dst))
 			{
 				RESULT& R = dest->r_add();
-				R.id = prim;
-				R.verts[0] = verts[tris[prim].verts[0]];
-				R.verts[1] = verts[tris[prim].verts[1]];
-				R.verts[2] = verts[tris[prim].verts[2]];
-				R.dummy = tris[prim].dummy;
+				R.id = InPrim;
+				R.verts[0] = verts[tris[InPrim].verts[0]];
+				R.verts[1] = verts[tris[InPrim].verts[1]];
+				R.verts[2] = verts[tris[InPrim].verts[2]];
+				R.dummy = tris[InPrim].dummy;
 			}
 		}
 		else
 		{
 			RESULT& R = dest->r_add();
-			R.id = prim;
-			R.verts[0] = verts[tris[prim].verts[0]];
-			R.verts[1] = verts[tris[prim].verts[1]];
-			R.verts[2] = verts[tris[prim].verts[2]];
-			R.dummy = tris[prim].dummy;
+			R.id = InPrim;
+			R.verts[0] = verts[tris[InPrim].verts[0]];
+			R.verts[1] = verts[tris[InPrim].verts[1]];
+			R.verts[2] = verts[tris[InPrim].verts[2]];
+			R.dummy = tris[InPrim].dummy;
 		}
 	}
 
-	void _stab(const AABBNoLeafNode* node, u32 mask)
+	void Stab(const AABBNoLeafNode* node, u32 mask)
 	{
 		// Actual frustum/aabb test
-		EFC_Visible result = _box((Fvector&)node->mAABB.mCenter, (Fvector&)node->mAABB.mExtents, mask);
+		EFC_Visible result = Box((Fvector&)node->mAABB.mCenter, (Fvector&)node->mAABB.mExtents, mask);
 		if (fcvNone == result) return;
 
 		// 1st chield
-		if (node->HasLeaf()) _prim(node->GetPrimitive());
-		else _stab(node->GetPos(), mask);
+		if (node->HasLeaf()) Prim(node->GetPrimitive());
+		else Stab(node->GetPos(), mask);
 
 		// Early exit for "only first"
 		if (bFirst && dest->r_count()) return;
 
 		// 2nd chield
-		if (node->HasLeaf2()) _prim(node->GetPrimitive2());
-		else _stab(node->GetNeg(), mask);
+		if (node->HasLeaf2()) Prim(node->GetPrimitive2());
+		else Stab(node->GetNeg(), mask);
 	}
 };
 
 void COLLIDER::frustum_query(const MODEL* m_def, const CFrustum& F)
 {
-	m_def->syncronize();
+	PROF_EVENT("COLLIDER::frustum_query", PROF_CAT(Physics))
+	if (!m_def)
+		return;
+	const_cast<MODEL*>(m_def)->syncronize();
 
 	// Get nodes
-	const AABBNoLeafTree* T = (const AABBNoLeafTree*)m_def->tree->GetTree();
-	const AABBNoLeafNode* N = T->GetNodes();
+	const AABBNoLeafNode* pNodes = ((AABBNoLeafTree*)m_def->tree->GetTree())->GetNodes();
 	const DWORD mask = F.getMask();
 	r_clear();
 
-	// Binary dispatcher
-	if (frustum_mode & OPT_FULL_TEST)
-	{
-		if (frustum_mode & OPT_ONLYFIRST)
-		{
-			frustum_collider<true, true> BC;
-			BC._init(this, m_def->verts, m_def->tris, &F);
-			BC._stab(N, mask);
-		}
-		else
-		{
-			frustum_collider<true, false> BC;
-			BC._init(this, m_def->verts, m_def->tris, &F);
-			BC._stab(N, mask);
-		}
-	}
-	else
-	{
-		if (frustum_mode & OPT_ONLYFIRST)
-		{
-			frustum_collider<false, true> BC;
-			BC._init(this, m_def->verts, m_def->tris, &F);
-			BC._stab(N, mask);
-		}
-		else
-		{
-			frustum_collider<false, false> BC;
-			BC._init(this, m_def->verts, m_def->tris, &F);
-			BC._stab(N, mask);
-		}
-	}
+	cform_frustum_collider BC(!!(frustum_mode&OPT_FULL_TEST), !!(frustum_mode&OPT_ONLYFIRST));
+	BC._init(this, m_def->verts, m_def->tris, &F);
+	BC.Stab(pNodes, mask);
 }

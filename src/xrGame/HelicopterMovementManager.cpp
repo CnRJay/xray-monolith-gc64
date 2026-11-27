@@ -88,8 +88,8 @@ void SHeliMovementState::Update()
 void SHeliMovementState::reinit()
 {
 	type = eMovNone;
-	currPatrolPath = nullptr;
-	currPatrolVertex = nullptr;
+	currPatrolPath = NULL;
+	currPatrolVertex = NULL;
 	patrol_begin_idx = 0;
 	patrol_path_name = "";
 	need_to_del_path = false;
@@ -186,7 +186,7 @@ void SHeliMovementState::getPathAltitude(Fvector& point, float base_altitude)
 	point.y = boundingVolume.max.y + EPS_L;
 	VERIFY(_valid(point));
 
-	Level().ObjectSpace.RayPick(point, down_dir, boundSize.y + 1.0f, collide::rqtStatic, cR, nullptr);
+	Level().ObjectSpace.RayPick(point, down_dir, boundSize.y + 1.0f, collide::rqtStatic, cR, NULL);
 
 	point.y = point.y - cR.range;
 
@@ -228,7 +228,7 @@ void SHeliMovementState::goPatrolByPatrolPath(LPCSTR path_name, int start_idx)
 	patrol_begin_idx = start_idx;
 	patrol_path_name = path_name;
 
-	currPatrolPath = ai().patrol_paths().path(patrol_path_name);
+	currPatrolPath = ai().patrol_paths().safe_path(patrol_path_name, false, true);
 	need_to_del_path = false;
 	currPatrolVertex = currPatrolPath->vertex(patrol_begin_idx);
 
@@ -307,7 +307,7 @@ void SHeliMovementState::load(IReader& input_packet)
 
 	if (type == eMovPatrolPath)
 	{
-		currPatrolPath = ai().patrol_paths().path(patrol_path_name);
+		currPatrolPath = ai().patrol_paths().safe_path(patrol_path_name, false, true);
 		int idx = input_packet.r_s32();
 		currPatrolVertex = currPatrolPath->vertex(idx);
 	}

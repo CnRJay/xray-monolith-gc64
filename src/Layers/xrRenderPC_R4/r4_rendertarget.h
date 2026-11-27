@@ -1,7 +1,9 @@
 #pragma once
 
+#include <functional>
 #include "../xrRender/ColorMapManager.h"
 #include "../xrRender/light_db.h"
+#include "../xrRender/r__dsgraph_types.h"
 class light;
 
 //#define DU_SPHERE_NUMVERTEX 92
@@ -135,6 +137,10 @@ public:
 
 	ref_rt rt_dof;
 	ref_rt rt_ui_pda;
+	ref_rt rt_ui_3d_icons;
+	ref_rt rt_ui_3d_icons_raw;
+	ref_rt rt_ui_3d_icons_raw_msaa;
+	ref_rt rt_ui_3d_icons_depth;
 
 	ref_rt rt_blur_h_2;
 	ref_rt rt_blur_2;
@@ -157,7 +163,7 @@ public:
 	ref_rt rt_LUM_64; // 64bit, 64x64,	log-average in all components
 	ref_rt rt_LUM_8; // 64bit, 8x8,		log-average in all components
 
-	ref_rt rt_LUM_pool[CHWCaps::MAX_GPUS * 2]; // 1xfp32,1x1,		exp-result -> scaler
+	ref_rt rt_LUM_pool[2]; // 1xfp32,1x1,		exp-result -> scaler
 	ref_texture t_LUM_src; // source
 	ref_texture t_LUM_dest; // destination & usage for current frame
 
@@ -230,12 +236,12 @@ public:
 		Fmatrix Matrix_previous, Matrix_current;
 		Fmatrix Matrix_HUD_previous, Matrix_HUD_current;
 		Fvector3 Position_previous;
-	} Previous[2];	
+	} Previous[2];
 
 	PreviousData* GetPrevious() {
 		return &Previous[Device.m_SecondViewport.IsSVPFrame()];
 	}
-	
+
 	ref_shader s_ssfx_dumb;
 
 	//	Igor: for async screenshots
@@ -249,7 +255,6 @@ public:
 	ref_texture t_noise [TEX_jitter_count];
 	ID3DTexture2D* t_noise_surf_mipped;
 	ref_texture t_noise_mipped;
-
 
 	ref_shader s_scope_color_write;
 	ref_shader s_scope_depth_write;
@@ -384,6 +389,8 @@ public:
 	ref_geom g_postprocess;
 	ref_shader s_menu;
 	ref_geom g_menu;
+	ref_shader s_ui_icons[6];
+	ref_shader s_ui_3d_icons_postprocess;
 
 	bool bDistort;
 	bool bCaptureScopeLens;
@@ -416,7 +423,7 @@ private:
 	bool m_bHasActiveVolumetric;
 	bool m_bHasActiveVolumetric_spot;
 
-	xr_list<std::pair<ref_texture,ref_rt>> RenderTargetRemaps;
+	xr_list<std::pair<ref_texture, ref_rt>> RenderTargetRemaps;
 public:
 	CRenderTarget();
 	CRenderTarget(LPCSTR name, u32 width, u32 height);
@@ -454,10 +461,9 @@ public:
 	void phase_gasmask_dudv();
 	void phase_nightvision();
 	void phase_fakescope(); //crookr
-	void phase_heatvision();
+	void phase_heatvision(); //--DSR-- HeatVision
 	void draw_reflex();
-	//--DSR-- HeatVision
-	void draw_scope(ref_shader e, std::function<void(R_dsgraph::mapSorted_Node* N)> bind);
+	void draw_scope(ref_shader e, std::function<void(R_dsgraph::DSGraphItem<float, true>* N)> bind);
 	void phase_3DSSReticle(); // Redotix99: for 3D Shader Based Scopes
 	void phase_apply_distortion();
 	void phase_svp_capture();
@@ -519,6 +525,7 @@ public:
 	void disable_aniso();
 
 	void draw_volume(light* L);
+	void draw_occq_volume(light* L);
 	void accum_direct(u32 sub_phase);
 	void accum_direct_cascade(u32 sub_phase, Fmatrix& xform, Fmatrix& xform_prev, float fBias);
 	void accum_direct_f(u32 sub_phase);
@@ -535,6 +542,7 @@ public:
 	void phase_luminance();
 	void phase_combine();
 	void phase_combine_volumetric();
+	void phase_ui_3d_icons_postprocess();
 	void phase_pp();
 
 	virtual void set_blur(float f) { param_blur = f; }

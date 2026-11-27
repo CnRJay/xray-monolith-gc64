@@ -36,10 +36,10 @@ CArtefact::CArtefact()
 {
 	shedule.t_min = 20;
 	shedule.t_max = 50;
-	m_sParticlesName = nullptr;
-	m_pTrailLight = nullptr;
-	m_activationObj = nullptr;
-	m_detectorObj = nullptr;
+	m_sParticlesName = NULL;
+	m_pTrailLight = NULL;
+	m_activationObj = NULL;
+	m_detectorObj = NULL;
 	m_additional_weight = 0.0f;
 }
 
@@ -133,8 +133,8 @@ void CArtefact::OnH_A_Chield()
 	}
 	if (m_detectorObj)
 	{
-		m_detectorObj->m_currPatrolPath = nullptr;
-		m_detectorObj->m_currPatrolVertex = nullptr;
+		m_detectorObj->m_currPatrolPath = NULL;
+		m_detectorObj->m_currPatrolVertex = NULL;
 	}
 }
 
@@ -219,6 +219,7 @@ void CArtefact::UpdateWorkload(u32 dt)
 
 void CArtefact::shedule_Update(u32 dt)
 {
+	PROF_EVENT("CArtefact::shedule_Update", PROF_CAT(GameLogic));
 	inherited::shedule_Update(dt);
 
 	//////////////////////////////////////////////////////////////////////////
@@ -253,7 +254,7 @@ void CArtefact::StartLights()
 	VERIFY(!physics_world()->Processing());
 	if (!m_bLightsEnabled) return;
 
-	VERIFY(m_pTrailLight == nullptr);
+	VERIFY(m_pTrailLight == NULL);
 	m_pTrailLight = ::Render->light_create();
 	bool const b_light_shadow = !!READ_IF_EXISTS(pSettings, r_bool, cNameSect(), "idle_light_shadow", false);
 	bool const b_light_volumetric = !!READ_IF_EXISTS(pSettings, r_bool, cNameSect(), "idle_light_volumetric", false);
@@ -350,52 +351,56 @@ void CArtefact::MoveTo(Fvector const& position)
 
 void CArtefact::UpdateXForm()
 {
-	if (Device.dwFrame != dwXF_Frame)
+	if (Device.dwFrame == dwXF_Frame) return;
+	dwXF_Frame = Device.dwFrame;
+
+	if (0==H_Parent())	return;
+
+	// Get access to entity and its visual
+	CEntityAlive* E = H_Parent()->cast_entity_alive();
+
+	if(!E) return;
+
+	CInventoryOwner	*parent = E->cast_inventory_owner();
+	if (parent && parent->use_simplified_visual())
+		return;
+
+	VERIFY				(E);
+	IKinematics*		V		= PKinematics(E->Visual());
+	VERIFY				(V);
+	if(CAttachableItem::enabled())
+		return;
+
+	// Get matrices
+	int					boneL = -1, boneR = -1, boneR2 = -1;
+	E->g_WeaponBones	(boneL,boneR,boneR2);
+	if (boneR == -1)	return;
+
+	boneL = boneR2;
+
+	//V->CalculateBones	();
+	Fmatrix mL, mR;
+	if (E->cast_actor())
 	{
-		dwXF_Frame = Device.dwFrame;
-
-		if (0 == H_Parent()) return;
-
-		// Get access to entity and its visual
-		CEntityAlive* E = smart_cast<CEntityAlive*>(H_Parent());
-
-		if (!E) return;
-
-		const CInventoryOwner* parent = smart_cast<const CInventoryOwner*>(E);
-		if (parent && parent->use_simplified_visual())
-			return;
-
-		VERIFY(E);
-		IKinematics* V = smart_cast<IKinematics*>(E->Visual());
-		VERIFY(V);
-		if (CAttachableItem::enabled())
-			return;
-
-		// Get matrices
-		int boneL = -1, boneR = -1, boneR2 = -1;
-		E->g_WeaponBones(boneL, boneR, boneR2);
-		if (boneR == -1) return;
-
-		boneL = boneR2;
-
-		V->CalculateBones();
-		Fmatrix& mL = V->LL_GetTransform(u16(boneL));
-		Fmatrix& mR = V->LL_GetTransform(u16(boneR));
-
-		// Calculate
-		Fmatrix mRes;
-		Fvector R, D,N;
-		D.sub(mL.c, mR.c);
-		D.normalize_safe();
-		R.crossproduct(mR.j, D);
-		R.normalize_safe();
-		N.crossproduct(D, R);
-		N.normalize_safe();
-		mRes.set(R,N, D, mR.c);
-		mRes.mulA_43(E->XFORM());
-		//		UpdatePosition		(mRes);
-		XFORM().mul(mRes, offset());
+		V->Bone_GetAnimPos(mL, boneL, u8(-1), false);
+		V->Bone_GetAnimPos(mR, boneR, u8(-1), false);
 	}
+	else
+	{
+		// V->CalculateBones();
+		mL = V->LL_GetTransform(boneL);
+		mR = V->LL_GetTransform(boneR);
+	}
+	// Calculate
+	Fmatrix				mRes;
+	Fvector				R,D,N;
+	D.sub				(mL.c,mR.c);	D.normalize_safe();
+	R.crossproduct		(mR.j,D);		R.normalize_safe();
+	N.crossproduct		(D,R);			N.normalize_safe();
+	mRes.set			(R,N,D,mR.c);
+	mRes.mulA_43		(E->XFORM());
+
+	XFORM().mul			(mRes,offset());
 }
 
 #include "xr_level_controller.h"
@@ -459,7 +464,7 @@ void CArtefact::OnStateSwitch(u32 S, u32 oldState)
 
 void CArtefact::PlayAnimIdle()
 {
-	PlayHUDMotion("anm_idle", TRUE, nullptr, eIdle);
+	PlayHUDMotion("anm_idle", TRUE, NULL, eIdle);
 }
 
 void CArtefact::OnAnimationEnd(u32 state)
@@ -499,7 +504,7 @@ void CArtefact::FollowByPath(LPCSTR path_name, int start_idx, Fvector magic_forc
 
 bool CArtefact::CanBeInvisible()
 {
-	return (m_detectorObj != nullptr);
+	return (m_detectorObj != NULL);
 }
 
 void CArtefact::SwitchVisibility(bool b)
@@ -533,7 +538,7 @@ void CArtefact::CreateArtefactActivation()
 }
 
 SArtefactDetectorsSupport::SArtefactDetectorsSupport(CArtefact* A)
-	: m_parent(A), m_currPatrolPath(nullptr), m_currPatrolVertex(nullptr), m_switchVisTime(0)
+	: m_parent(A), m_currPatrolPath(NULL), m_currPatrolVertex(NULL), m_switchVisTime(0)
 {
 }
 

@@ -48,7 +48,7 @@ void CEncyclopediaArticle::Load	(ARTICLE_STR_ID str_id)
 void CEncyclopediaArticle::Load(shared_str id)
 {
 	m_ArticleId = id;
-	inherited_shared::load_shared(m_ArticleId, nullptr);
+	inherited_shared::load_shared(m_ArticleId, NULL);
 }
 
 
@@ -60,7 +60,7 @@ void CEncyclopediaArticle::load_shared(LPCSTR)
 	pXML->SetLocalRoot(pXML->GetRoot());
 
 	//loading from XML
-	XML_NODE* pNode = pXML->NavigateToNode(id_to_index::tag_name, item_data.pos_in_file);
+	XML_NODE* pNode = item_data._node;
 	THROW3(pNode, "encyclopedia article id=", *item_data.id);
 
 	//текст
@@ -70,7 +70,7 @@ void CEncyclopediaArticle::load_shared(LPCSTR)
 	//группа
 	data()->group = pXML->ReadAttrib(pNode, "group", "");
 	//секция ltx, откуда читать данные
-	LPCSTR ltx = pXML->Read(pNode, "ltx", 0, nullptr);
+	LPCSTR ltx = pXML->Read(pNode, "ltx", 0, NULL);
 
 
 	if (ltx)

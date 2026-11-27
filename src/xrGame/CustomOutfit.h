@@ -32,6 +32,8 @@ public:
 	virtual void OnH_A_Chield();
 	virtual float GetControlInertionFactor() const { return m_fControlInertionFactor; };
 
+	virtual CCustomOutfit* cast_outfit() { return this; }
+
 protected:
 	HitImmunity::HitTypeSVec m_HitTypeProtection;
 

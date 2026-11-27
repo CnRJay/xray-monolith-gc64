@@ -8,6 +8,7 @@
 //#include "fbasicvisual.h"
 #include "cameramanager.h"
 #include "environment.h"
+#include "IGame_Persistent.h"
 #include "xr_input.h"
 #include "CustomHUD.h"
 
@@ -15,8 +16,9 @@
 
 #include "xr_object.h"
 #include "MonitorList.h"
+#include "renderdoc_integration.h"
 
-xr_token* vid_quality_token = nullptr;
+xr_token* vid_quality_token = NULL;
 
 u32 g_screenmode = 1;
 xr_token screen_mode_tokens[] =
@@ -33,6 +35,10 @@ xr_token vid_bpp_token[] =
 	{"32", 32},
 	{0, 0}
 };
+
+extern float r_wallmarks_ssa_k;
+extern BOOL r_wallmarks_static;
+extern BOOL r_wallmarks_dynamic;
 //-----------------------------------------------------------------------
 
 void IConsole_Command::add_to_LRU(shared_str const& arg)
@@ -79,6 +85,38 @@ public:
 	}
 };
 
+#if XRCORE_PROFILER == PROFILER_OPTICK
+// Records the given number of frames in the profiler and saves them to logs\optick.opt
+extern ENGINE_API int g_prof_capture_frames;
+class CCC_ProfCapture : public IConsole_Command
+{
+public:
+	CCC_ProfCapture(LPCSTR N) : IConsole_Command(N) {}
+
+	virtual void Execute(LPCSTR args)
+	{
+		int frames = atoi(args);
+		if (frames <= 0)
+		{
+			InvalidSyntax();
+			return;
+		}
+		if (g_prof_capture_frames > 0)
+		{
+			Msg("! profiler capture already running, %d frames left", g_prof_capture_frames);
+			return;
+		}
+		PROF_START_CAPTURE();
+		g_prof_capture_frames = frames;
+	}
+
+	virtual void Info(TInfo& I)
+	{
+		xr_strcpy(I, sizeof(I), "frame count, records that many frames to logs\\optick.opt");
+	}
+};
+#endif
+
 //-----------------------------------------------------------------------
 #ifdef DEBUG_MEMORY_MANAGER
 class CCC_MemStat : public IConsole_Command
@@ -118,6 +156,61 @@ class CCC_DbgStrDump : public IConsole_Command
 public:
 	CCC_DbgStrDump(LPCSTR N) : IConsole_Command(N) { bEmptyArgsHandled = TRUE; };
 	virtual void Execute(LPCSTR args) { g_pStringContainer->dump(); }
+};
+
+class CCC_RenderDoc : public IConsole_Command
+{
+protected:
+	int Value(LPCSTR args, int fallback) { return (args && args[0]) ? atoi(args) : fallback; }
+
+public:
+	CCC_RenderDoc(LPCSTR N) : IConsole_Command(N) { bEmptyArgsHandled = TRUE; };
+};
+
+class CCC_RenderDocCapture : public CCC_RenderDoc
+{
+	enum { frames_max = 60 };
+
+public:
+	CCC_RenderDocCapture(LPCSTR N) : CCC_RenderDoc(N) {};
+
+	virtual void Execute(LPCSTR args)
+	{
+		int frames = Value(args, 1);
+		if (frames < 1 || frames > frames_max) InvalidSyntax();
+		else renderdoc_trigger_capture(u32(frames));
+	}
+
+	virtual void Info(TInfo& I) { xr_sprintf(I, sizeof(I), "frame count in range [1,%d], 1 when omitted", frames_max); }
+};
+
+class CCC_RenderDocOpen : public CCC_RenderDoc
+{
+public:
+	CCC_RenderDocOpen(LPCSTR N) : CCC_RenderDoc(N) {};
+
+	virtual void Execute(LPCSTR args) { renderdoc_open_replay_ui(); }
+};
+
+class CCC_RenderDocOverlay : public CCC_RenderDoc
+{
+public:
+	CCC_RenderDocOverlay(LPCSTR N) : CCC_RenderDoc(N) {};
+
+	virtual void Execute(LPCSTR args)
+	{
+		if (!args || !args[0])
+		{
+			Msg("* [RDC] overlay %s", renderdoc_overlay_enabled() ? "on" : "off");
+			return;
+		}
+
+		int visible = Value(args, 0);
+		if (visible < 0 || visible > 1) InvalidSyntax();
+		else renderdoc_set_overlay(visible != 0);
+	}
+
+	virtual void Info(TInfo& I) { xr_strcpy(I, "0 hides, 1 shows, empty prints the state"); }
 };
 
 //-----------------------------------------------------------------------
@@ -318,7 +411,7 @@ void CCC_LoadCFG::Execute(LPCSTR args)
 	IReader* F = FS.r_open(cfg_full_name);
 
 	string1024 str;
-	if (F != nullptr)
+	if (F != NULL)
 	{
 		while (!F->eof())
 		{
@@ -485,7 +578,7 @@ class CCC_VidMode : public CCC_Token
 {
 	u32 _dummy;
 public:
-	CCC_VidMode(LPCSTR N) : CCC_Token(N, &_dummy, nullptr) { bEmptyArgsHandled = FALSE; };
+	CCC_VidMode(LPCSTR N) : CCC_Token(N, &_dummy, NULL) { bEmptyArgsHandled = FALSE; };
 
 	virtual void Execute(LPCSTR args)
 	{
@@ -714,7 +807,7 @@ class CCC_r2 : public CCC_Token
 {
 	typedef CCC_Token inherited;
 public:
-	CCC_r2(LPCSTR N) : inherited(N, &renderer_value, nullptr) { renderer_value = 0; };
+	CCC_r2(LPCSTR N) : inherited(N, &renderer_value, NULL) { renderer_value = 0; };
 
 	virtual ~CCC_r2()
 	{
@@ -775,7 +868,7 @@ public:
 	{
 		//fill_render_mode_list ();
 		tokens = vid_quality_token;
-		if (!strstr(Core.Params, "-r2"))
+		if (!Core.ParamsData.test(ECoreParams::r2))
 		{
 			inherited::Save(F);
 		}
@@ -978,8 +1071,29 @@ public:
 	}
 };
 
+// Re-read env modifiers for the current level
+class CCC_EnvModsReload : public IConsole_Command
+{
+public:
+	CCC_EnvModsReload(pcstr name) : IConsole_Command(name) { bEmptyArgsHandled = true; }
+	void Execute(pcstr args) override
+	{
+		if (!g_pGameLevel || !g_pGamePersistent)
+		{
+			Log("! env_mods_reload: no level loaded");
+			return;
+		}
+		CEnvironment& env = g_pGamePersistent->Environment();
+		env.mods_reload();
+		Msg("* env_mods_reload: %u modifier(s) active", u32(env.Modifiers.size()));
+	}
+};
+
 ENGINE_API float psHUD_FOV_def = 0.45f;
 ENGINE_API float psHUD_FOV = psHUD_FOV_def;
+ENGINE_API float psCamAttachedFOV = 83.f;
+
+float psCAM_ATTACHED_FOV = 1.0;
 
 //extern int psSkeletonUpdate;
 extern int rsDVB_Size;
@@ -1027,16 +1141,27 @@ float scope_fog_sharp = 4.0f;
 int scope_2dtexactive = 0.0;
 Fvector3 ssfx_wetness_multiplier = Fvector3().set(1.0f, 0.3f, 0.0f);
 
+BOOL dump_cvar_enable = TRUE;
+
 void CCC_Register()
 {
 	// General
 	CMD1(CCC_Help, "help");
 	CMD1(CCC_Quit, "quit");
+#if XRCORE_PROFILER == PROFILER_OPTICK
+	CMD1(CCC_ProfCapture, "prof_capture");
+#endif
 	CMD1(CCC_Start, "start");
 	CMD1(CCC_Disconnect, "disconnect");
 	CMD1(CCC_SaveCFG, "cfg_save");
 	CMD1(CCC_LoadCFG, "cfg_load");
 	CMD1(CCC_DumpCVars, "dump_cvar");
+        CMD4(CCC_Integer, "dump_cvar_enable", &dump_cvar_enable, 0, 1);
+	CMD1(CCC_RenderDocCapture, "rdoc_capture");
+	CMD1(CCC_RenderDocOpen, "rdoc_open");
+	CMD1(CCC_RenderDocOverlay, "rdoc_overlay");
+
+	CMD3(CCC_Mask, "mt_particles", &psDeviceFlags, mtParticles);
 
 #ifdef DEBUG
     CMD1(CCC_MotionsStat, "stat_motions");
@@ -1049,7 +1174,6 @@ void CCC_Register()
 #endif // DEBUG_MEMORY_MANAGER
 
 #ifdef DEBUG
-    CMD3(CCC_Mask, "mt_particles", &psDeviceFlags, mtParticles);
 
     CMD1(CCC_DbgStrCheck, "dbg_str_check");
     CMD1(CCC_DbgStrDump, "dbg_str_dump");
@@ -1074,6 +1198,8 @@ void CCC_Register()
     CMD3(CCC_Mask, "rs_render_dynamics", &psDeviceFlags, rsDrawDynamic);
 #endif
 
+	CMD3(CCC_Mask, "rs_render_portals", &psDeviceFlags, rsDrawPortals);
+
 	// bone damage modifier
 	CMD4(CCC_Float, "g_hit_pwr_modif", &hit_modifier, .5f, 3.f);
 
@@ -1083,6 +1209,10 @@ void CCC_Register()
 
 	// Render device states
 	CMD4(CCC_Integer, "r__supersample", &ps_r__Supersample, 1, 4);
+
+    CMD4(CCC_Integer, "r_wallmarks_static", &r_wallmarks_static, 0, 1);
+    CMD4(CCC_Integer, "r_wallmarks_dynamic", &r_wallmarks_dynamic, 0, 1);
+    CMD4(CCC_Float, "r_wallmarks_ssa_k", &r_wallmarks_ssa_k, 0.25f, 10.f);
 
 	CMD4(CCC_Float, "r2_sunshafts_min", &ps_r2_sun_shafts_min, 0.0, 0.5);
 	CMD4(CCC_Float, "r2_sunshafts_value", &ps_r2_sun_shafts_value, 0.5, 2.0);
@@ -1124,6 +1254,7 @@ void CCC_Register()
 	CMD1(CCC_PART_Import, "part_import");
 
 	CMD1(CCC_VID_Reset, "vid_restart");
+	CMD4(CCC_Integer, "g_loading_screen_early", &psLoadingScreenEarly, 0, 1);
 
 	// Sound
 	CMD2(CCC_Float, "snd_volume_eff", &psSoundVEffects);
@@ -1225,10 +1356,14 @@ void CCC_Register()
 
 	CMD4(CCC_Integer, "r__framelimit", &ps_framelimiter, 0, 500);
 	CMD3(CCC_Mask, "rs_refresh_60hz", &psDeviceFlags, rsRefresh60hz);
+	CMD3(CCC_Mask, "dbg_ph_shapes", &psDeviceFlags2, rsDBGDrawPHShapes);
+	CMD3(CCC_Mask, "dbg_ph_bones", &psDeviceFlags2, rsDBGDrawPHBones);
+	CMD3(CCC_Mask, "dbg_vis_boxes", &psDeviceFlags2, rsDBGDrawVisBoxes);
+	CMD3(CCC_Mask, "dbg_attachment_cforms", &psDeviceFlags2, rsDBGDrawAttCForms);
 	CMD2(CCC_Color, "g_crosshair_color", &g_crosshair_color);
 	CMD4(CCC_Float, "mouse_sens_aim", &g_AimLookFactor, 0.01f, 5.0f);
 
-	if (strstr(Core.Params, "-dbgdev"))
+	if (Core.ParamsData.test(ECoreParams::dbgdev))
 		CMD4(CCC_Float, "g_freelook_z_offset_factor", &g_freelook_z_offset, -3.f, 3.f);
 
 	CMD4(CCC_Float, "g_ironsights_zoom_factor", &g_ironsights_factor, 1.f, 2.f);
@@ -1252,6 +1387,7 @@ void CCC_Register()
 	CMD4(CCC_Float, "scope_fog_sharp", &scope_fog_sharp, 0, 1000);
 	CMD2(CCC_Integer, "scope_2dtexactive", &scope_2dtexactive);
 	CMD1(CCC_Editor, "rs_editor");
+	CMD1(CCC_EnvModsReload, "env_mods_reload");
 #ifdef DEBUG
     extern BOOL debug_destroy;
     CMD4(CCC_Integer, "debug_destroy", &debug_destroy, FALSE, TRUE);

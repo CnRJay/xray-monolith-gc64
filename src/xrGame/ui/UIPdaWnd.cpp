@@ -41,11 +41,11 @@ void RearrangeTabButtons(CUITabControl* pTab);
 
 CUIPdaWnd::CUIPdaWnd()
 {
-	pUITaskWnd = nullptr;
-	pUIRankingWnd = nullptr;
-	pUILogsWnd = nullptr;
-	m_hint_wnd = nullptr;
-	m_battery_bar = nullptr;
+	pUITaskWnd = NULL;
+	pUIRankingWnd = NULL;
+	pUILogsWnd = NULL;
+	m_hint_wnd = NULL;
+	m_battery_bar = NULL;
 	m_power = 0.f;
 	last_cursor_pos.set(UI_BASE_WIDTH / 2.f, UI_BASE_HEIGHT / 2.f);
 	m_cursor_box.set(117.f, 39.f, UI_BASE_WIDTH - 121.f, UI_BASE_HEIGHT - 37.f);
@@ -67,7 +67,7 @@ void CUIPdaWnd::Init()
 	CUIXml uiXml;
 	uiXml.Load(CONFIG_PATH, UI_PATH, GetPdaXml());
 
-	m_pActiveDialog = nullptr;
+	m_pActiveDialog = NULL;
 	m_sActiveSection = "";
 
 	CUIXmlInit::InitWindow(uiXml, "main", 0, this);
@@ -115,11 +115,47 @@ void CUIPdaWnd::Init()
 	CUIXmlInit::InitTabControl(uiXml, "tab", 0, UITabControl);
 	UITabControl->SetMessageTarget(this);
 
+	RebuildExtraTabs();
+
 	UINoice = xr_new<CUIStatic>();
 	UINoice->SetAutoDelete(true);
 	CUIXmlInit::InitStatic(uiXml, "noice_static", 0, UINoice);
 
 	//	RearrangeTabButtons		(UITabControl);
+}
+
+void CUIPdaWnd::RebuildExtraTabs()
+{
+	if (!UITabControl)
+		return;
+
+	shared_str active = UITabControl->GetActiveId();
+
+	UITabControl->RemoveDynamicTabs();
+	::luabind::functor<void> build_tabs;
+	if (ai().script_engine().functor("pda_dynamic_tabs.build_extra_tabs", build_tabs))
+		build_tabs(UITabControl);
+	UITabControl->RecalcScroll();
+
+	if (active.size())
+	{
+		CUITabButton* btn = UITabControl->GetButtonById(active);
+		if (btn && !btn->m_dynamic)
+		{
+			UITabControl->EnsureVisible(active);
+			return;
+		}
+		if (!btn)
+		{
+			TABS_VECTOR* tabs = UITabControl->GetButtonsVector();
+			active = tabs->empty() ? "" : (*tabs)[0]->m_btn_id;
+		}
+		if (active.size())
+		{
+			UITabControl->ResetTab();
+			UITabControl->SetActiveTab(active);
+		}
+	}
 }
 
 void CUIPdaWnd::SetPdaXml(LPCSTR xml)
@@ -231,7 +267,7 @@ void CUIPdaWnd::Show(bool status)
 	{
 		InventoryUtilities::SendInfoToActor("ui_pda");
 
-		if (m_sActiveSection == nullptr || strcmp(m_sActiveSection.c_str(), "") == 0)
+		if (m_sActiveSection == NULL || strcmp(m_sActiveSection.c_str(), "") == 0)
 		{
 			SetActiveSubdialog("eptTasks");
 			UITabControl->SetActiveTab("eptTasks");
@@ -497,5 +533,5 @@ bool CUIPdaWnd::OnKeyboardAction(int dik, EUIMessages keyboard_action)
 		return pda->Action(get_binded_action(dik), keyboard_action == WINDOW_KEY_PRESSED ? CMD_START : CMD_STOP);
 	}
 
-	return inherited::OnKeyboardAction(dik, keyboard_action);
+	return false;
 }

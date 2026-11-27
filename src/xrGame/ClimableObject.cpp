@@ -49,7 +49,7 @@ IC void OrientToNorm(const Fvector& normal, Fmatrix& form, Fobb& box)
 }
 
 
-CClimableObject::CClimableObject(): m_pStaticShell(nullptr), m_material(u16(-1)), m_radius(0.0f)
+CClimableObject::CClimableObject(): m_pStaticShell(NULL), m_material(u16(-1)), m_radius(0.0f)
 {
 }
 
@@ -75,7 +75,7 @@ BOOL CClimableObject::net_Spawn(CSE_Abstract* DC)
 	//m_box.m_halfsize.set(1.f,1.f,1.f);
 	BOOL ret = inherited::net_Spawn(DC);
 
-	spatial.type &= ~STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type &= ~STYPE_VISIBLEFORAI;
 
 	const float f_min_width = 0.2f;
 	Fvector shift;
@@ -335,10 +335,10 @@ void CClimableObject::ObjectContactCallback(bool& do_colide, bool bo1, dContact&
 {
 	dxGeomUserData* usr_data_1 = PHRetrieveGeomUserData(c.geom.g1);
 	dxGeomUserData* usr_data_2 = PHRetrieveGeomUserData(c.geom.g2);
-	dxGeomUserData* usr_data_ch = nullptr;
-	dxGeomUserData* usr_data_lad = nullptr;
-	CClimableObject* this_object = nullptr;
-	CPHCharacter* ch = nullptr;
+	dxGeomUserData* usr_data_ch = NULL;
+	dxGeomUserData* usr_data_lad = NULL;
+	CClimableObject* this_object = NULL;
+	CPHCharacter* ch = NULL;
 	float norm_sign = 0.f;
 	if (bo1)
 	{
@@ -363,8 +363,10 @@ void CClimableObject::ObjectContactCallback(bool& do_colide, bool bo1, dContact&
 	VERIFY(ch);
 	VERIFY(usr_data_lad);
 	this_object = static_cast<CClimableObject*>(usr_data_lad->ph_ref_object);
-	VERIFY(this_object);
-	if (!this_object->BeforeLadder(ch, -0.1f)) do_colide = false;
+    if (this_object)
+    {
+        if (!this_object->BeforeLadder(ch, -0.1f)) do_colide = false;
+    }    
 }
 #ifdef DEBUG
 extern	Flags32	dbg_net_Draw_Flags;

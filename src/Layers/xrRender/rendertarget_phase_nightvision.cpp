@@ -242,7 +242,7 @@ void ffp_sfp(bool drawDebug) {
 	if (drawDebug) {
 		Fvector u_e = {0,e.radius,0}; e.m_W.transform_dir(u_e);
 		Fvector u_o = {0,o.radius,0}; e.m_W.transform_dir(u_o);
-		Fvector u_c = {0,(o.radius + e.radius)*0.3f,0}; e.m_W.transform_dir(u_c);
+		Fvector u_c = {0,(o.radius + e.radius)*0.3,0}; e.m_W.transform_dir(u_c);
 
 
 		auto d = CDebugRenderer();
@@ -271,15 +271,15 @@ void CRenderTarget::draw_reflex() {
 
 	// Rendering
 	RImplementation.rmNear();
-	for (auto N : RImplementation.mapReflexHUDSorted) {
+	for (auto& N : RImplementation.GMBase.RGraph.mapReflexHUDSorted) {
 		
-		RCache.set_Element(N.val.se);
+		RCache.set_Element(N.pSE);
 		
-		RCache.set_xform_world(N.val.Matrix);
-		RImplementation.apply_object(N.val.pObject);
+		RCache.set_xform_world(*N.pMatrix);
+		RImplementation.apply_object(N.pObject);
 		RImplementation.apply_lmaterial();
 		
-		N.val.pVisual->Render(0);
+		N.pVisual->Render(0);
 	}
 	
 	RImplementation.rmNormal();
@@ -289,7 +289,7 @@ void CRenderTarget::draw_reflex() {
 	RCache.set_xform_project(Device.mProject);
 }
 
-void CRenderTarget::draw_scope(ref_shader se, std::function<void(R_dsgraph::mapSorted_Node *N)> bind)
+void CRenderTarget::draw_scope(ref_shader se, std::function<void(R_dsgraph::DSGraphItem<float, true> *N)> bind)
 {
 	auto elem = se ? se->E[0] : nullptr;
 	if (!elem)
@@ -302,16 +302,16 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void(R_dsgraph::mapS
 	// Rendering
 	RImplementation.rmNear();
 
-	for (auto N : RImplementation.mapScopeHUDSorted) {
-		dxRender_Visual* V = N.val.pVisual;
+	for (auto& N : RImplementation.GMBase.RGraph.mapScopeHUDSorted) {
+		dxRender_Visual* V = N.pVisual;
 
 		auto tex = V->GetTexture();
 		if (tex)
 			t_reticle->surface_set(tex->surface_get());
 		RCache.set_Element(elem);
 
-		RCache.set_xform_world(N.val.Matrix);
-		RImplementation.apply_object(N.val.pObject);
+		RCache.set_xform_world(*N.pMatrix);
+		RImplementation.apply_object(N.pObject);
 		RImplementation.apply_lmaterial();
 
 		auto set_v3 = [](LPCSTR id, Fvector3 v) -> void {
@@ -340,7 +340,7 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void(R_dsgraph::mapS
 			p->eyepiece.radius = 0.f;
 			p->objective.radius = 0.f;
 
-			auto S = N.val.pVisual->getVisData().sphere;
+			auto S = N.pVisual->getVisData().sphere;
 			auto m_W = RCache.get_xform_world();
 			m_W.mulB_43(Fmatrix().translate(S.P));
 

@@ -134,6 +134,9 @@ public:
 	float m_fAfDetectRadius;
 
 	virtual u32 ef_detector_type() const { return 1; };
+
+	virtual CCustomDetector* cast_custom_detector() { return this; }
+
 protected:
 	virtual void UpdateWork();
 	virtual void UpdateAf(){};

@@ -81,6 +81,8 @@ u32 lvInterpSteps = 0;
 BOOL spawn_antifreeze = TRUE;
 BOOL spawn_antifreeze_debug = FALSE;
 static HANDLE prefetch_thread_signal;
+// set by the prefetch thread when it has left, so the level can wait for it before freeing what it uses
+static HANDLE prefetch_thread_done = nullptr;
 
 static void unpausePrefetchThreadSignal()
 {
@@ -173,42 +175,47 @@ namespace crash_saving {
         NET_Packet& net_packet = data->P;
         net_packet.w_begin(M_SAVE_GAME);
 
-		std::string path = "fatal_ctd_save_";
-		std::string path_mask(path);
-		std::string path_ext = ".scop";
-		path_mask.append("*").append(path_ext);
+        xr_string path = "fatal_ctd_save_";
+        xr_string path_mask(path);
+        xr_string path_ext = ".scop";
+        path_mask.append("*").append(path_ext);
 
         FS_FileSet fset_temp;
         FS.file_list(fset_temp, "$game_saves$", FS_ListFiles | FS_RootOnly, path_mask.c_str());
 
-		std::vector<FS_File> fset(fset_temp.begin(), fset_temp.end());
-		struct {
-			bool operator()(FS_File& a, FS_File& b) {
-				return a.time_write > b.time_write;
-			}
-		} sortFilesDesc;
-		std::sort(fset.begin(), fset.end(), sortFilesDesc);
+        xr_vector<FS_File> fset;
+        for (auto& file : fset_temp)
+        {
+            fset.push_back(file);
+        }
+        struct {
+            bool operator()(FS_File& a, FS_File& b) {
+                return a.time_write > b.time_write;
+            }
+        } sortFilesDesc;
+        std::sort(fset.begin(), fset.end(), sortFilesDesc);
 
         //Msg("save mask %s", path_mask.c_str());
 
-		for (auto &file : fset)
-		{
-			string128 name;
-			xr_strcpy(name, sizeof(name), file.name.c_str());
-			std::string name_string(name);
-			name_string.erase(name_string.length() - path_ext.length());
+        for (auto& file : fset)
+        {
+            string128 name;
+            xr_strcpy(name, sizeof(name), file.name.c_str());
+            xr_string name_string(name);
+            name_string.erase(name_string.length() - path_ext.length());
 
             //Msg("found save file %s, save_name %s", name, name_string.c_str());
 
-			try {
-				//Msg("save number %s", name_string.substr(path.length()).c_str());
-				int name_count = std::stoi(name_string.substr(path.length()));
-				saveCount = name_count;
-				break;
-			} catch (...) {
-				Msg("!error getting save number from %s", name);
-			}
-		}
+            try {
+                //Msg("save number %s", name_string.substr(path.length()).c_str());
+                int name_count = std::stoi(name_string.substr(path.length()).c_str());
+                saveCount = name_count;
+                break;
+            }
+            catch (...) {
+                Msg("!error getting save number from %s", name);
+            }
+        }
 
         saveCount++;
         if (saveCount >= saveCountMax) {
@@ -233,8 +240,9 @@ CLevel::CLevel() :
     , DemoCS(MUTEX_PROFILE_ID(DemoCS))
 #endif
 {
-	g_bDebugEvents = strstr(Core.Params, "-debug_ge") != nullptr;
-	game_events = xr_new<NET_Queue_Event>();
+    PROF_EVENT("CLevel::CLevel", PROF_CAT(Scene));
+    g_bDebugEvents = Core.ParamsData.test(ECoreParams::debug_ge);
+    game_events = xr_new<NET_Queue_Event>();
 
     eChangeRP = Engine.Event.Handler_Attach("LEVEL:ChangeRP", this);
     eDemoPlay = Engine.Event.Handler_Attach("LEVEL:PlayDEMO", this);
@@ -274,6 +282,9 @@ CLevel::CLevel() :
     prefetched_models = xr_new<models_set>();
     auto events = new spawn_and_prefetch_events({ spawn_events, spawn_events_data, prefetch_events, prefetched_models, &closeSignal, &prefetch_lock });
     createPrefetchThreadSignal();
+    if (!prefetch_thread_done)
+        prefetch_thread_done = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+    ResetEvent(prefetch_thread_done);
     thread_spawn(ProcessPrefetchEvents, "Pre-Spawn Prefetcher Thread", 0, events);
     Msg("CLevel::CLevel() Spawn Antifreeze initialized");
 #endif
@@ -286,55 +297,62 @@ extern CAI_Space* g_ai_space;
 
 CLevel::~CLevel()
 {
-	//crash_saving::save_impl = nullptr; // CLevel not available, disable crash save
-	xr_delete(g_player_hud);
-	delete_data(m_script_attachments);
-	delete_data(hud_zones_list);
-	hud_zones_list = nullptr;
-	Msg("- Destroying level");
-	Engine.Event.Handler_Detach(eEntitySpawn, this);
-	Engine.Event.Handler_Detach(eEnvironment, this);
-	Engine.Event.Handler_Detach(eChangeTrack, this);
-	Engine.Event.Handler_Detach(eDemoPlay, this);
-	Engine.Event.Handler_Detach(eChangeRP, this);
-	if (physics_world())
-	{
-		destroy_physics_world();
-		xr_delete(m_ph_commander_physics_worldstep);
-	}
-	// destroy PSs
-	for (POIt p_it = m_StaticParticles.begin(); m_StaticParticles.end() != p_it; ++p_it)
-		CParticlesObject::Destroy(*p_it);
-	m_StaticParticles.clear();
-	// Unload sounds
-	// unload prefetched sounds
-	sound_registry.clear();
-	// unload static sounds
-	for (u32 i = 0; i < static_Sounds.size(); ++i)
-	{
-		static_Sounds[i]->destroy();
-		xr_delete(static_Sounds[i]);
-	}
-	static_Sounds.clear();
-	xr_delete(m_level_sound_manager);
-	xr_delete(m_space_restriction_manager);
-	xr_delete(m_seniority_hierarchy_holder);
-	xr_delete(m_client_spawn_manager);
-	xr_delete(m_autosave_manager);
+    PROF_EVENT("CLevel::~CLevel", PROF_CAT(Scene));
+    //crash_saving::save_impl = nullptr; // CLevel not available, disable crash save
+    xr_delete(g_player_hud);
+    delete_data(m_script_attachments);
+    delete_data(hud_zones_list);
+    hud_zones_list = nullptr;
+    Msg("- Destroying level");
+    Engine.Event.Handler_Detach(eEntitySpawn, this);
+    Engine.Event.Handler_Detach(eEnvironment, this);
+    Engine.Event.Handler_Detach(eChangeTrack, this);
+    Engine.Event.Handler_Detach(eDemoPlay, this);
+    Engine.Event.Handler_Detach(eChangeRP, this);
+    if (physics_world())
+    {
+        destroy_physics_world();
+        xr_delete(m_ph_commander_physics_worldstep);
+    }
+    // destroy PSs
+    for (POIt p_it = m_StaticParticles.begin(); m_StaticParticles.end() != p_it; ++p_it)
+        Particles::Details::Destroy(*p_it);
+    m_StaticParticles.clear();
+    // Unload sounds
+    // unload prefetched sounds
+    sound_registry.clear();
+    // unload static sounds
+    for (u32 i = 0; i < static_Sounds.size(); ++i)
+    {
+        static_Sounds[i]->destroy();
+        xr_delete(static_Sounds[i]);
+    }
+    static_Sounds.clear();
+    xr_delete(m_level_sound_manager);
+    xr_delete(m_space_restriction_manager);
+    xr_delete(m_seniority_hierarchy_holder);
+    xr_delete(m_client_spawn_manager);
+    xr_delete(m_autosave_manager);
     xr_delete(m_debug_renderer);
     delete_data(m_debug_render_queue);
+    delete_data(m_debug_render_queue_immediate);
     if (!g_dedicated_server)
         ai().script_engine().remove_script_process(ScriptEngine::eScriptProcessorLevel);
     xr_delete(game);
     xr_delete(game_events);
 
 #ifdef SPAWN_ANTIFREEZE
+    // The prefetch thread loads models and writes to these queues. Stop it and wait until it has left
+    // before freeing them: it used to go on loading models while the level and the model pool were
+    // torn down, which corrupted the heap on a quit shortly after a load.
+    closeSignal = true; // signal ProcessPrefetchEvents thread to exit
+    unpausePrefetchThreadSignal();
+    if (prefetch_thread_done && WaitForSingleObject(prefetch_thread_done, 60000) != WAIT_OBJECT_0)
+        Msg("! the model prefetch thread did not stop within a minute");
     xr_delete(spawn_events);
     xr_delete(spawn_events_data);
     xr_delete(prefetch_events);
     xr_delete(prefetched_models);
-    closeSignal = true; // signal ProcessPrefetchEvents thread to exit
-    unpausePrefetchThreadSignal();
 #endif
 
     xr_delete(m_pBulletManager);
@@ -508,7 +526,7 @@ bool CLevel::PostponedSpawnFind(u16 id, NET_Packet& P) const
 
 bool CLevel::PostponedSpawn(u16 id)
 {
-    PROF_EVENT("ProcessGameEvents PostponedSpawn");
+    PROF_EVENT("ProcessGameEvents PostponedSpawn", PROF_CAT(GameLogic));
 
     xrSRWLockGuard g(prefetch_lock, true);
     auto queue = prefetch_events;
@@ -566,13 +584,14 @@ void CLevel::ProcessPrefetchEvents(void* args)
 
     while (true)
     {
-        WaitForSingleObject(prefetch_thread_signal, INFINITE); // wait for prefetch queue event to be signaled
+        WaitForSingleObject(prefetch_thread_signal, 200); // wait for prefetch queue event to be signaled; wakes regularly so a close signal is never missed
 
         if (*closeSignal == true)
         {
             if (spawn_antifreeze_debug) Msg("[ProcessPrefetchEvents] closeSignal received, destroying thread");
             closePrefetchThreadSignal();
             delete events;
+            SetEvent(prefetch_thread_done);
             return;
         }
 
@@ -586,7 +605,7 @@ void CLevel::ProcessPrefetchEvents(void* args)
             }
         }
 
-        PROF_EVENT("ProcessPrefetchEvents")
+        PROF_EVENT("ProcessPrefetchEvents", PROF_CAT(Streaming))
             prefetch_event_queue saved_prefetch_events;
         {
             xrSRWLockGuard g(prefetch_lock);
@@ -599,6 +618,8 @@ void CLevel::ProcessPrefetchEvents(void* args)
         {
             for (const auto& model : E.models)
             {
+                if (*closeSignal)
+                    break; // the level is closing, load nothing more
                 bool not_prefetched = false;
 
                 {
@@ -619,6 +640,9 @@ void CLevel::ProcessPrefetchEvents(void* args)
             }
         }
 
+        if (*closeSignal)
+            continue; // back to the top, which sees the close signal (it stays set) and leaves
+
         {
             xrSRWLockGuard g(prefetch_lock);
             for (auto& E : saved_prefetch_events)
@@ -635,7 +659,7 @@ void CLevel::ProcessPrefetchEvents(void* args)
 // demonized: If called manually, be aware of ProcessPrefetchEvents thread, which may modify spawn_events queue at the same time, maybe fix later
 void CLevel::ProcessSpawnEvents()
 {
-    PROF_EVENT("ProcessSpawnEvents");
+    PROF_EVENT("ProcessSpawnEvents", PROF_CAT(GameLogic));
 
     xr_vector<NET_Event> events_to_process;
     spawn_events_data_map spawn_events_data_copy;
@@ -665,7 +689,39 @@ void CLevel::ProcessSpawnEvents()
 		shared_str section;
 		u16 obj_id = GetSpawnInfo(P, parent_id, section);
 
+		// Parent left the level while this spawn waited, so the item would drop where the parent stood
+		if (parent_id != 0xffff)
+		{
+			CObject* parent = Objects.net_Find(parent_id);
+			if (!parent || parent->getDestroy())
+				continue;
+		}
+
+		// The same object can be queued twice when it went online, offline and online again while
+		// its first spawn still waited. A second copy fails in net_Spawn and its clean-up then
+		// frees the first copy's data (heap corruption). Wait for a pending destroy, else skip.
+		if (obj_id != 0xffff)
+		{
+			if (CObject* present = Objects.net_Find(obj_id))
+			{
+				if (present->getDestroy())
+				{
+					xrSRWLockGuard g(prefetch_lock);
+					spawn_events->queue.push_back(E);
+					auto waiting = spawn_events_data_copy.find(obj_id);
+					if (waiting != spawn_events_data_copy.end() && spawn_events_data->find(obj_id) == spawn_events_data->end())
+						spawn_events_data->insert(*waiting);
+				}
+				else
+					Msg("* spawn of [%s][%d] skipped: the object is already on the level", section.c_str(), obj_id);
+				continue;
+			}
+		}
+
 		if (spawn_antifreeze_debug) Msg("[ProcessSpawnEvents] spawning section %s, obj_id %d, parent_id %d, event_id %d", section.c_str(), obj_id, parent_id, dest);
+
+        // If the object was in alife, but now its absent, skip it
+        auto spawn_data_it = spawn_events_data_copy.find(obj_id);
 
 		// demonized: If item is II_BOLT class - go through anyway
 		if (pSettings->line_exist(section.c_str(), "class") && strstr(pSettings->r_string(section.c_str(), "class"), "II_BOLT") != nullptr)
@@ -674,8 +730,6 @@ void CLevel::ProcessSpawnEvents()
 			goto spawn;
 		}
 
-        // If the object was in alife, but now its absent, skip it
-        auto spawn_data_it = spawn_events_data_copy.find(obj_id);
         if (spawn_data_it != spawn_events_data_copy.end())
         {
             if (spawn_data_it->second.hasAlifeObject)
@@ -710,7 +764,7 @@ void CLevel::ProcessSpawnEvents()
 
 void CLevel::ProcessGameEvents()
 {
-	PROF_EVENT("ProcessGameEvents");
+	PROF_EVENT("ProcessGameEvents", PROF_CAT(GameLogic));
 
 	xr_vector<NET_Event> events_to_process;
 	xr_vector<prefetch_event> events_to_prefetch;
@@ -726,7 +780,7 @@ void CLevel::ProcessGameEvents()
 	{
 		for (auto it = events_to_process.begin(); it != events_to_process.end(); )
 		{
-			PROF_EVENT("ProcessGameEvents game_events queue");
+			PROF_EVENT("ProcessGameEvents game_events queue", PROF_CAT(GameLogic));
 			u16 ID = it->ID;
 			u16 dest = it->destination;
 			u16 type = it->type;
@@ -751,7 +805,7 @@ void CLevel::ProcessGameEvents()
 				// add to prefetch_events queue for postponed spawn
 				if (M_SPAWN == ID)
 				{
-					PROF_EVENT("ProcessGameEvents M_SPAWN");
+					PROF_EVENT("ProcessGameEvents M_SPAWN", PROF_CAT(GameLogic));
 
 					u16 parent_id;
 					shared_str section;
@@ -838,6 +892,19 @@ void CLevel::ProcessGameEvents()
 							continue;
 						}
 					}					
+
+					// A child spawned before its postponed parent would drop to the ground where the parent stands
+					if (parent_id != 0xffff && !Objects.net_Find(parent_id))
+					{
+						auto& E = data->E;
+						E.p = P;
+						E.id = obj_id;
+						E.hasAlifeObject = ai().alife().objects().object(obj_id, true) != nullptr;
+
+						events_to_prefetch.push_back(E);
+						it++; // Move to next event
+						continue;
+					}
 				}
 			}
 #endif
@@ -847,7 +914,7 @@ void CLevel::ProcessGameEvents()
 			{
 			case M_SPAWN:
 				{
-					PROF_EVENT("ProcessGameEvents M_SPAWN");
+					PROF_EVENT("ProcessGameEvents M_SPAWN", PROF_CAT(GameLogic));
 
 #ifdef SPAWN_ANTIFREEZE
 					if (spawn_antifreeze_debug)
@@ -866,13 +933,13 @@ void CLevel::ProcessGameEvents()
 				}
 			case M_EVENT:
 				{
-					PROF_EVENT("ProcessGameEvents M_EVENT");
+					PROF_EVENT("ProcessGameEvents M_EVENT", PROF_CAT(GameLogic));
 					cl_Process_Event(dest, type, P);
 					break;
 				}
 			case M_MOVE_PLAYERS:
 				{
-					PROF_EVENT("ProcessGameEvents M_MOVE_PLAYERS");
+					PROF_EVENT("ProcessGameEvents M_MOVE_PLAYERS", PROF_CAT(GameLogic));
 					u8 Count = P.r_u8();
 					for (u8 i = 0; i < Count; i++)
 					{
@@ -892,21 +959,21 @@ void CLevel::ProcessGameEvents()
 				}
 			case M_STATISTIC_UPDATE:
 				{
-					PROF_EVENT("ProcessGameEvents M_STATISTIC_UPDATE");
+					PROF_EVENT("ProcessGameEvents M_STATISTIC_UPDATE", PROF_CAT(GameLogic));
 					if (GameID() != eGameIDSingle)
 						Game().m_WeaponUsageStatistic->OnUpdateRequest(&P);
 					break;
 				}
 			case M_FILE_TRANSFER:
 				{
-					PROF_EVENT("ProcessGameEvents M_FILE_TRANSFER");
+					PROF_EVENT("ProcessGameEvents M_FILE_TRANSFER", PROF_CAT(GameLogic));
 					if (m_file_transfer) // in case of net_Stop
 						m_file_transfer->on_message(&P);
 					break;
 				}
 			case M_GAMEMESSAGE:
 				{
-					PROF_EVENT("ProcessGameEvents M_GAMEMESSAGE");
+					PROF_EVENT("ProcessGameEvents M_GAMEMESSAGE", PROF_CAT(GameLogic));
 					Game().OnGameMessage(P);
 					break;
 				}
@@ -973,11 +1040,24 @@ void CLevel::MakeReconnect()
 	}
 }
 
+void CLevel::SkipMusicTrack()
+{
+	if (m_level_sound_manager)
+		m_level_sound_manager->SkipMusicTrack();
+}
+
+BOOL mt_ph_commander = FALSE;
+BOOL mt_TaskManager = FALSE;
+#if XRCORE_PROFILER == PROFILER_OPTICK
+extern std::atomic<u32> g_prof_stalker_updates;
+extern std::atomic<u32> g_prof_binder_updates;
+#endif
 void CLevel::OnFrame()
 {
-	PROF_EVENT("CLevel::OnFrame()");
+	PROF_EVENT("CLevel::OnFrame()", PROF_CAT(GameLogic));
 
-	::Render->update_Wallmarks();
+    // demonized: update wallmarks before rendering
+    ::Render->update_Wallmarks();
 
 #ifdef DEBUG_MEMORY_MANAGER
     debug_memory_guard __guard__;
@@ -1035,24 +1115,24 @@ void CLevel::OnFrame()
 		make_NetCorrectionPrediction();
 	if (!g_dedicated_server)
 	{
+		// the map update may run on the parallel thread so removals are reported to script from here
+		MapManager().FlushRemovedNotify();
+
 		if (g_mt_config.test(mtMap))
-			Device.seqParallel.push_back(fastdelegate::FastDelegate0<>(m_map_manager, &CMapManager::Update));
+			Device.seqParallel.push_back(xr_make_delegate(m_map_manager, &CMapManager::Update));
 		else
 			MapManager().Update();
-		if (IsGameTypeSingle() && Device.dwPrecacheFrame == 0)
-		{
-			// XXX nitrocaster: was enabled in x-ray 1.5; to be restored or removed
-			//if (g_mt_config.test(mtMap))
-			//{
-			//    Device.seqParallel.push_back(fastdelegate::FastDelegate0<>(
-			//    m_game_task_manager,&CGameTaskManager::UpdateTasks));
-			//}
-			//else
-			GameTaskManager().UpdateTasks();
-		}
+
+        if (!mt_TaskManager && Device.dwPrecacheFrame == 0)
+            GameTaskManager().UpdateTasks();
 	}
+
 	// Inherited update
 	inherited::OnFrame();
+#if XRCORE_PROFILER == PROFILER_OPTICK
+	PROF_TAG("stalker UpdateCL", g_prof_stalker_updates.exchange(0));
+	PROF_TAG("binder updates", g_prof_binder_updates.exchange(0));
+#endif
 	// Draw client/server stats
 	if (!g_dedicated_server && psDeviceFlags.test(rsStatistic))
 	{
@@ -1140,19 +1220,27 @@ void CLevel::OnFrame()
 #endif
 	g_pGamePersistent->Environment().SetGameTime(GetEnvironmentGameDayTimeSec(),
 	                                             game->GetEnvironmentGameTimeFactor());
-	if (!g_dedicated_server)
+	if (!mt_ph_commander)
+	{
+		PROF_EVENT("m_ph_commander", PROF_CAT(Script));
 		ai().script_engine().script_process(ScriptEngine::eScriptProcessorLevel)->update();
-	m_ph_commander->update();
-	m_ph_commander_scripts->update();
-	Device.Statistic->TEST0.Begin();
-	BulletManager().CommitRenderSet();
-	Device.Statistic->TEST0.End();
+
+		{
+			PROF_EVENT("ph_commander", PROF_CAT(Physics));
+			m_ph_commander->update();
+		}
+		{
+			PROF_EVENT("ph_commander_scripts", PROF_CAT(Script));
+			m_ph_commander_scripts->update();
+		}
+	}
+
 	// update static sounds
 	if (!g_dedicated_server)
 	{
 		if (g_mt_config.test(mtLevelSounds))
 		{
-			Device.seqParallel.push_back(fastdelegate::FastDelegate0<>(
+			Device.seqParallel.push_back(xr_make_delegate(
 				m_level_sound_manager, &CLevelSoundManager::Update));
 		}
 		else
@@ -1163,7 +1251,7 @@ void CLevel::OnFrame()
 	if (!g_dedicated_server)
 	{
 		if (g_mt_config.test(mtLUA_GC))
-			Device.seqParallel.push_back(fastdelegate::FastDelegate0<>(this, &CLevel::script_gc));
+			Device.seqParallel.push_back(xr_make_delegate(this, &CLevel::script_gc));
 		else
 			script_gc();
 	}
@@ -1176,7 +1264,16 @@ void CLevel::OnFrame()
 	}
 
 	for (auto& pair : m_script_attachments)
+    {
 		pair.second->Update();
+        pair.second->UpdateXFORM(nullptr, nullptr);
+    }
+
+	for (auto& light : g_pGamePersistent->ScriptLights)
+		light->Update();
+
+	for (auto& glow : g_pGamePersistent->ScriptGlows)
+		glow->Update();
 }
 
 int psLUA_GCSTEP = 300;
@@ -1186,20 +1283,37 @@ extern BOOL psLua_ParallelGC_debug;
 
 void CLevel::script_gc()
 {
+	PROF_TAG("lua KB", lua_gc(ai().script_engine().lua(), LUA_GCCOUNT, 0));
+	if (mt_ph_commander)
+	{
+		PROF_EVENT("m_ph_commander", PROF_CAT(Script));
+		ai().script_engine().script_process(ScriptEngine::eScriptProcessorLevel)->update();
+
+		{
+			PROF_EVENT("ph_commander", PROF_CAT(Physics));
+			m_ph_commander->update();
+		}
+		{
+			PROF_EVENT("ph_commander_scripts", PROF_CAT(Script));
+			m_ph_commander_scripts->update();
+		}
+	}
 	if (!(psLua_ParallelGC && Device.LuaGC))
-	{	
-		PROF_EVENT();	
+	{
+		PROF_EVENT("CLevel::script_gc", PROF_CAT(Script));
 		lua_gc(ai().script_engine().lua(), LUA_GCSTEP, psLUA_GCSTEP);
 	}
+	
 }
 
 // demonized: bind LuaGC call to be available in device.cpp
 bool CLevel::Load(u32 dwNum)
 {
+    PROF_EVENT("CLevel::Load", PROF_CAT(Scene));
     inherited::Load(dwNum);
     Msg("Device.LuaGC bind");
-    Device.LuaGC = fastdelegate::FastDelegate0<int>(&CLevel::LuaGC);
-    Device.LuaGCDebug = fastdelegate::FastDelegate0<void>(&CLevel::LuaGCDebug);
+    Device.LuaGC.bind(&CLevel::LuaGC);
+    Device.LuaGCDebug.bind(&CLevel::LuaGCDebug);
     return true;
 }
 
@@ -1238,6 +1352,7 @@ void CLevel::OnRender()
 		CUIPdaWnd* pda = &CurrentGameUI()->GetPdaMenu();
 		if (psActorFlags.test(AF_3D_PDA) && pda->IsShown())
 		{
+			RENDER_SCOPE(ui_pda_3d);
 			ps_r4_hdr10_pda = 1; // !!! HACK !!!
 
 			pda->Draw();
@@ -1294,17 +1409,38 @@ void CLevel::OnRender()
 	if (!game)
 		return;
 	Game().OnRender();
-
 	// Tracers are not accurately rendered under SVP, so disable them.
-	if (!Device.m_SecondViewport.IsSVPActive()) 
+	if (!Device.m_SecondViewport.IsSVPActive())
+	{
+		RENDER_SCOPE(ui_tracers);
 		BulletManager().Render();
+	}
 
 	if (use_reshade)
+	{
+		RENDER_SCOPE(reshade);
 		render_reshade_effects();
+	}
 
-	HUD().RenderUI();
+	{
+		RENDER_SCOPE(ui_hud);
+		HUD().RenderUI();
+	}
 
-	ScriptDebugRender();
+	{
+		RENDER_SCOPE(script_debug);
+		ScriptDebugRender();
+	}
+
+	for (u32 I = 0; I < Level().Objects.o_count(); I++)
+	{
+		CObject* _O = Level().Objects.o_get_by_iterator(I);
+		CGameObject* obj = smart_cast<CGameObject*>(_O);
+		if (obj) obj->DBGDrawPhysicsShell();
+	}
+
+	for (auto& pair : m_script_attachments)
+		pair.second->DBGDrawPhysicsShell();
 
 #ifdef DEBUG
     draw_wnds_rects();
@@ -1415,7 +1551,7 @@ void CLevel::OnRender()
 
 void CLevel::ScriptDebugRender()
 {
-	if (!m_debug_render_queue.size())
+	if (!m_debug_render_queue.size() && !m_debug_render_queue_immediate.size())
 		return;
 
 	bool hasVisibleObj = false;
@@ -1428,6 +1564,19 @@ void CLevel::ScriptDebugRender()
 			hasVisibleObj = true;
 			obj->Render();
 		}
+	}
+
+	if (m_debug_render_queue_immediate.size())
+    {
+        hasVisibleObj = true;
+
+        for (auto& obj : m_debug_render_queue_immediate)
+        {
+            obj->Render();
+            xr_delete(obj);
+        }
+
+        m_debug_render_queue_immediate.clear_and_free();
 	}
 
 	// demonized: fix of showing console window when there are no visible gizmos 
@@ -1657,26 +1806,6 @@ bool CLevel::InterpolationDisabled()
 	return g_cl_lvInterp < 0;
 }
 
-void CLevel::PhisStepsCallback(u32 Time0, u32 Time1)
-{
-	if (!Level().game)
-		return;
-	if (GameID() == eGameIDSingle)
-		return;
-	//#pragma todo("Oles to all: highly inefficient and slow!!!")
-	//fixed (Andy)
-	/*
-	for (xr_vector<CObject*>::iterator O=Level().Objects.objects.begin(); O!=Level().Objects.objects.end(); ++O)
-	{
-	if( smart_cast<CActor*>((*O)){
-	CActor* pActor = smart_cast<CActor*>(*O);
-	if (!pActor || pActor->Remote()) continue;
-	pActor->UpdatePosStack(Time0, Time1);
-	}
-	};
-	*/
-}
-
 void CLevel::SetNumCrSteps(u32 NumSteps)
 {
 	m_bNeed_CrPr = true;
@@ -1775,6 +1904,7 @@ void CLevel::OnAlifeSimulatorUnLoaded()
 	MapManager().ResetStorage();
 	GameTaskManager().ResetStorage();
 	delete_data(m_debug_render_queue);
+	delete_data(m_debug_render_queue_immediate);
 }
 
 void CLevel::OnAlifeSimulatorLoaded()
@@ -1782,6 +1912,7 @@ void CLevel::OnAlifeSimulatorLoaded()
 	MapManager().ResetStorage();
 	GameTaskManager().ResetStorage();
 	delete_data(m_debug_render_queue);
+	delete_data(m_debug_render_queue_immediate);
 }
 
 void CLevel::OnSessionTerminate(LPCSTR reason)

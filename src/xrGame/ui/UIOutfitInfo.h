@@ -19,6 +19,8 @@ public:
 	void InitFromXml(CUIXml& xml_doc, LPCSTR base_str, u32 hit_type);
 	void SetProgressValue(float cur, float comp);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	CUIStatic m_name; // texture + name
 	CUIDoubleProgressBar m_progress;
@@ -35,8 +37,11 @@ public:
 	virtual ~CUIOutfitInfo();
 
 	void InitFromXml(CUIXml& xml_doc);
-	void UpdateInfo(CCustomOutfit* cur_outfit, CCustomOutfit* slot_outfit = nullptr);
-	void UpdateInfo(CHelmet* cur_helmet, CHelmet* slot_helmet = nullptr);
+	void UpdateInfo(CCustomOutfit* cur_outfit, CCustomOutfit* slot_outfit = NULL);
+	void UpdateInfo(CHelmet* cur_helmet, CHelmet* slot_helmet = NULL);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	enum { max_count = ALife::eHitTypeMax - 2 };
 

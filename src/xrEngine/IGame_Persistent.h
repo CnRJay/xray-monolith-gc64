@@ -15,6 +15,8 @@ class IMainMenu;
 class ScriptWallmarksManager;
 class ENGINE_API CPS_Instance;
 class script_attachment;
+class ScriptLight;
+class ScriptGlow;
 
 //-----------------------------------------------------------------------------------------------------------
 class ENGINE_API IGame_Persistent :
@@ -62,9 +64,9 @@ public:
 
 	params m_game_params;
 public:
-	xr_set<CPS_Instance*> ps_active;
-	xr_vector<CPS_Instance*> ps_destroy;
-	xr_vector<CPS_Instance*> ps_needtoplay;
+	xr_vector<intrusive_ptr<CPS_Instance>> ps_active;
+	xr_vector<intrusive_ptr<CPS_Instance>> ps_active_deffer;
+	xr_vector<intrusive_ptr<CPS_Instance>> ps_needtoplay;
 public:
 	enum GrassBenders_Anim
 	{
@@ -74,14 +76,14 @@ public:
 		BENDER_ANIM_SUCK = 3,
 		BENDER_ANIM_BLOW = 4,
 		BENDER_ANIM_PULSE = 5,
-	};
+	}; 
 
 	void GrassBendersUpdateAnimations();
 	void GrassBendersAddExplosion(u16 id, Fvector position, Fvector3 dir, float fade, float speed, float intensity, float radius);
 	void GrassBendersAddShot(u16 id, Fvector position, Fvector3 dir, float fade, float speed, float intensity, float radius);
 	void GrassBendersRemoveById(u16 id);
 	void GrassBendersRemoveByIndex(u8& idx);
-	void GrassBendersUpdate(u16 id, u8& data_idx, u32& data_frame, Fvector& position, float radius, float str, bool CheckDistance);
+	void GrassBendersUpdate(u16 id, u8& data_idx, u32& data_frame, Fvector& position, float radius, float str, bool CheckDistance );
 	void GrassBendersReset(u8 idx);
 	void GrassBendersSet(u8 idx, u16 id, Fvector position, Fvector3 dir, float fade, float speed, float str, float radius, GrassBenders_Anim anim, bool resetTime);
 	float GrassBenderToValue(float& current, float go_to, float intensity, bool use_easing);
@@ -107,7 +109,7 @@ public:
 	} grass_shader_data;
 
 public:
-	void destroy_particles(const bool& all_particles);
+	void destroy_particles(bool all_particles);
 
 public:
 	virtual void PreStart(LPCSTR op);
@@ -124,6 +126,10 @@ public:
 	IC ScriptWallmarksManager& GetWallmarksManager() const { return *m_pWallmarksManager; }
 	ShadersExternalData* m_pGShaderConstants; //--#SM+#--
 	xr_vector<script_attachment*> AttachmentUIsToRender;
+	xr_vector<ScriptLight*> ScriptLights;
+	xr_vector<ScriptGlow*> ScriptGlows;
+
+	void UpdateParticles();
 
 	virtual bool OnRenderPPUI_query() { return FALSE; }; // should return true if we want to have second function called
 	virtual void OnRenderPPUI_main()
@@ -140,6 +146,7 @@ public:
 	virtual void OnAppDeactivate();
 	virtual void _BCL OnFrame();
 	virtual void ImGui_OnRender(LPCSTR name) {};
+	virtual void ImGui_OnShow(bool show) {};
 
 	// вызывается только когда изменяется тип игры
 	virtual void OnGameStart();
@@ -161,15 +168,15 @@ public:
 
 	virtual void RegisterModel(IRenderVisual* V)
 #ifndef _EDITOR
-		= 0;
+	= 0;
 #else
-	{}
+    {}
 #endif
 	virtual float MtlTransparent(u32 mtl_idx)
 #ifndef _EDITOR
-		= 0;
+	= 0;
 #else
-	{ return 1.f; }
+    {return 1.f; }
 #endif
 
 	struct act_dat
@@ -186,15 +193,21 @@ public:
 	ICF u32 GameType() { return m_game_params.m_e_game_type; };
 	virtual void Statistics(CGameFont* F)
 #ifndef _EDITOR
-		= 0;
+	= 0;
 #else
-	{}
+    {}
 #endif
 	virtual void LoadTitle(bool change_tip = false, shared_str map_name = "")
 	{
 	}
 
 	virtual bool CanBePaused() { return true; }
+
+	// thunderbolt clap volume gate, overridden by the game layer to ask Lua. Returns 1.0 for vanilla.
+	// Appended at the end of the virtual block so it adds no vtable slot ahead of the existing ones.
+	virtual float OnThunderboltSound(LPCSTR file, float distance) { return 1.0f; }
+	// looped rain ambient volume gate, overridden by the game layer to ask Lua. Returns 1.0 for vanilla.
+	virtual float OnRainSound(LPCSTR file) { return 1.0f; }
 
 	struct pda_data
 	{

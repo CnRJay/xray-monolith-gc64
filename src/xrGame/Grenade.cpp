@@ -3,7 +3,6 @@
 #include "../xrphysics/PhysicsShell.h"
 //.#include "WeaponHUD.h"
 #include "entity.h"
-#include "ParticlesObject.h"
 #include "actor.h"
 #include "inventory.h"
 #include "level.h"
@@ -85,7 +84,7 @@ void CGrenade::net_Destroy()
 	if (m_destroy_callback)
 	{
 		m_destroy_callback(this);
-		m_destroy_callback = destroy_callback(nullptr);
+		m_destroy_callback = destroy_callback(NULL);
 	}
 
 	inherited::net_Destroy();
@@ -211,7 +210,7 @@ void CGrenade::Destroy()
 	if (m_destroy_callback)
 	{
 		m_destroy_callback(this);
-		m_destroy_callback = destroy_callback(nullptr);
+		m_destroy_callback = destroy_callback(NULL);
 	}
 
 	FindNormal(normal);
@@ -249,7 +248,7 @@ void CGrenade::PutNextToSlot()
 		this->u_EventSend(P);
 	}
 	else
-		Msg("! PutNextToSlot : m_pInventory = nullptr [%d][%d]", ID(), Device.dwFrame);
+		Msg("! PutNextToSlot : m_pInventory = NULL [%d][%d]", ID(), Device.dwFrame);
 
 	if (smart_cast<CInventoryOwner*>(H_Parent()) && m_pInventory)
 	{
@@ -274,6 +273,7 @@ void CGrenade::PutNextToSlot()
 				pNext->u_EventGen(P, GEG_PLAYER_ITEM2SLOT, pNext->H_Parent()->ID());
 				P.w_u16(pNext->ID());
 				P.w_u16(pNext->BaseSlot());
+                P.w_u8(0); // do activate
 				pNext->u_EventSend(P);
 				m_pInventory->SetActiveSlot(pNext->BaseSlot());
 			}
@@ -296,6 +296,7 @@ void CGrenade::OnAnimationEnd(u32 state)
 
 void CGrenade::UpdateCL()
 {
+	PROF_EVENT(PROF_CAT(GameLogic));
 	inherited::UpdateCL();
 	CExplosive::UpdateCL();
 

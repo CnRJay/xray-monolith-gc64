@@ -7,6 +7,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #include "pch_script.h"
+#include "../xrEngine/LightAnimLibrary.h"
 #include "level.h"
 #include "actor.h"
 #include "script_game_object.h"
@@ -28,6 +29,8 @@
 #include "map_manager.h"
 #include "map_spot.h"
 #include "map_location.h"
+#include "ui/xrUIXmlParser.h"
+#include "../Include/xrRender/UIRender.h"
 #include "physics_world_scripted.h"
 #include "alife_simulator.h"
 #include "alife_time_manager.h"
@@ -382,6 +385,12 @@ float rain_wetness()
 	return (g_pGamePersistent->Environment().wetness_factor);
 }
 
+void set_rain_wetness(float val)
+{
+	clamp(val, 0.f, 1.f);
+	g_pGamePersistent->Environment().wetness_factor = val;
+}
+
 float rain_hemi()
 {
 	CEffect_Rain* rain = g_pGamePersistent->pEnvironment->eff_Rain;
@@ -434,10 +443,6 @@ Fvector vertex_position(u32 level_vertex_id)
 void map_add_object_spot(u16 id, LPCSTR spot_type, LPCSTR text)
 {
 	CMapLocation* ml = Level().MapManager().AddMapLocation(spot_type, id);
-
-	if (!ml)
-		return;
-
 	if (xr_strlen(text))
 	{
 		ml->SetHint(text);
@@ -447,10 +452,6 @@ void map_add_object_spot(u16 id, LPCSTR spot_type, LPCSTR text)
 void map_add_object_spot_ser(u16 id, LPCSTR spot_type, LPCSTR text)
 {
 	CMapLocation* ml = Level().MapManager().AddMapLocation(spot_type, id);
-
-	if (!ml)
-		return;
-
 	if (xr_strlen(text))
 		ml->SetHint(text);
 
@@ -510,6 +511,69 @@ CUIStatic* map_get_minimap_spot_static(u16 id, LPCSTR spot_type)
 	return table;
 }
 
+::luabind::object map_get_all_object_spots()
+{
+	::luabind::object table = ::luabind::newtable(ai().script_engine().lua());
+
+	if (!g_pGameLevel)
+		return table;
+
+	Locations& locations = Level().MapManager().Locations();
+	int i = 1;
+	for (Locations_it it = locations.begin(); it != locations.end(); ++it)
+	{
+		CMapLocation* ml = (*it).location;
+		if (!ml) continue;
+
+		::luabind::object spot = ::luabind::newtable(ai().script_engine().lua());
+		spot["id"] = ml->ObjectID();
+		spot["spot_type"] = ml->spot_type;
+		spot["current_spot_type"] = ml->CurrentSpotType();
+		spot["hint"] = ml->GetHint();
+		spot["level_name"] = ml->GetLevelName().c_str();
+
+		Fvector pos = ml->GetLastPosition();
+		spot["x"] = pos.x;
+		spot["y"] = pos.y;
+		spot["z"] = pos.z;
+
+		table[i] = spot;
+		i++;
+	}
+
+	return table;
+}
+
+::luabind::object map_get_spot_declaration(LPCSTR spot_type)
+{
+	::luabind::object declaration = ::luabind::newtable(ai().script_engine().lua());
+
+	if (!spot_type || !spot_type[0])
+	{
+		Msg("!map_get_spot_declaration: empty spot type");
+		return declaration;
+	}
+
+	CUIXml* xml = GetSpotXml();
+	string512 path;
+	strconcat(sizeof(path), path, spot_type, ":mini_map");
+	if (!xml->NavigateToNode(path, 0))
+		return declaration;
+
+	LPCSTR spot = xml->ReadAttrib(path, 0, "spot", "");
+	if (!xr_strlen(spot))
+		return declaration;
+
+	strconcat(sizeof(path), path, spot, ":texture");
+	if (!xml->NavigateToNode(path, 0))
+		return declaration;
+
+	declaration["texture"] = xml->Read(path, 0, "");
+	declaration["width"] = xml->ReadAttribFlt(spot, 0, "width", 0.0f);
+	declaration["height"] = xml->ReadAttribFlt(spot, 0, "height", 0.0f);
+	return declaration;
+}
+
 u16 map_has_object_spot(u16 id, LPCSTR spot_type)
 {
 	return Level().MapManager().HasMapLocation(spot_type, id);
@@ -537,6 +601,11 @@ void map_pan_to_level(LPCSTR level_name, bool zoom_in)
 	CUIMapWnd* mapWnd = taskWnd->GetMapWnd();
 	if (!mapWnd) return;
 	mapWnd->SetTargetMap(shared_str(level_name), zoom_in);
+}
+
+CMapManager* get_map_manager()
+{
+	return &Level().MapManager();
 }
 
 bool patrol_path_exists(LPCSTR patrol_path)
@@ -621,6 +690,11 @@ void show_weapon(bool b)
 bool is_level_present()
 {
 	return (!!g_pGameLevel);
+}
+
+void scheduler_flush(bool b)
+{
+    g_pGameLevel->schedulerFlush = b;
 }
 
 void add_call(const ::luabind::functor<bool>& condition, const ::luabind::functor<void>& action)
@@ -718,6 +792,15 @@ void enable_input()
 #ifdef DEBUG
 	Msg("input enabled");
 #endif // #ifdef DEBUG
+}
+
+bool is_input_captured()
+{
+	if (g_bDisableAllInput)
+		return true;
+
+	CUIGameCustom* ui = CurrentGameUI();
+	return ui && ui->TopInputReceiver() != NULL;
 }
 
 void spawn_phantom(const Fvector& position)
@@ -827,6 +910,30 @@ float add_cam_effector(LPCSTR fn, int id, bool cyclic, LPCSTR cb_func, float cam
 	return e->GetAnimatorLength();
 }
 
+float add_cam_effector(LPCSTR fn, int id, bool cyclic, LPCSTR cb_func, float cam_fov, bool b_hud, float power, float speed)
+{
+    CAnimatorCamEffectorScriptCB* e = xr_new<CAnimatorCamEffectorScriptCB>(cb_func);
+    if (cam_fov)
+    {
+        e->m_bAbsolutePositioning = true;
+        e->m_fov = cam_fov;
+    }
+    if (power)
+    {
+        e->SetPower(power);
+    }
+    if (speed)
+    {
+        e->SetSpeed(speed);
+    }
+    e->SetHudAffect(b_hud);
+    e->SetType((ECamEffectorType)id);
+    e->SetCyclic(cyclic);
+    e->Start(fn);
+    Actor()->Cameras().AddCamEffector(e);
+    return e->GetAnimatorLength();
+}
+
 // demonized: Get cam effector transform data from "*.anm" file
 #include "../xrEngine/motion.h"
 #include "../xrEngine/envelope.h"
@@ -846,7 +953,7 @@ bool getCamEffectorTransformData(::luabind::object& t, LPCSTR animationFile)
 		{
 			COMotion M;
 			if (M.LoadMotion(full_path)) {
-				std::map<EChannelType, std::string> mapOrder;
+				xr_map<EChannelType, xr_string> mapOrder;
 				mapOrder[EChannelType::ctPositionX] = "positionX";
 				mapOrder[EChannelType::ctPositionY] = "positionY";
 				mapOrder[EChannelType::ctPositionZ] = "positionZ";
@@ -967,6 +1074,11 @@ void remove_hud_motion_cam_effectors()
 		actor->Cameras().RemoveHudMotionEffectors();
 }
 
+bool is_demo_record()
+{
+    return g_pGameLevel->Cameras().GetCamEffector(ECamEffectorType::cefDemo);
+}
+
 float get_snd_volume()
 {
 	return psSoundVFactor;
@@ -1041,16 +1153,38 @@ void remove_pp_effector(int id)
 
 void set_pp_effector_factor(int id, float f, float f_sp)
 {
-	CPostprocessAnimator* pp = smart_cast<CPostprocessAnimator*>(Actor()->Cameras().GetPPEffector((EEffectorPPType)id));
+    CPostprocessAnimator* pp = smart_cast<CPostprocessAnimator*>(Actor()->Cameras().GetPPEffector((EEffectorPPType)id));
 
-	if (pp) pp->SetDesiredFactor(f, f_sp);
+    if (pp) pp->SetDesiredFactor(f, f_sp);
 }
 
 void set_pp_effector_factor2(int id, float f)
 {
-	CPostprocessAnimator* pp = smart_cast<CPostprocessAnimator*>(Actor()->Cameras().GetPPEffector((EEffectorPPType)id));
+    CPostprocessAnimator* pp = smart_cast<CPostprocessAnimator*>(Actor()->Cameras().GetPPEffector((EEffectorPPType)id));
 
-	if (pp) pp->SetCurrentFactor(f);
+    if (pp) pp->SetCurrentFactor(f);
+}
+
+bool check_pp_effector(int id)
+{
+    CPostprocessAnimator* pp = smart_cast<CPostprocessAnimator*>(Actor()->Cameras().GetPPEffector((EEffectorPPType)id));
+    if (pp)
+    {
+        return pp->Valid();
+    }
+    return false;
+}
+
+float get_pp_effector_factor(int id)
+{
+    CPostprocessAnimator* pp = smart_cast<CPostprocessAnimator*>(Actor()->Cameras().GetPPEffector((EEffectorPPType)id));
+    return pp ? pp->GetCurrentFactor() : 0.0f;
+}
+
+float get_pp_effector_length(int id)
+{
+    CPostprocessAnimator* pp = smart_cast<CPostprocessAnimator*>(Actor()->Cameras().GetPPEffector((EEffectorPPType)id));
+    return pp ? pp->GetLength() : 0.0f;
 }
 
 #include "relation_registry.h"
@@ -1134,9 +1268,14 @@ void refresh_npc_names()
 			if (g_pGameLevel)
 			{
 				CObject* obj = g_pGameLevel->Objects.net_Find(it->first);
-				CInventoryOwner* owner = smart_cast<CInventoryOwner*>(obj);
-				if (owner)
-					owner->refresh_npc_name();
+				if (obj)
+				{
+					CInventoryOwner* owner = smart_cast<CInventoryOwner*>(obj);
+					if (owner)
+					{
+						owner->refresh_npc_name();
+					}
+				}
 			}
 		}
 	}
@@ -1199,8 +1338,8 @@ u32 render_get_dx_level()
 	return ::Render->get_dx_level();
 }
 
-CUISequencer* g_tutorial = nullptr;
-CUISequencer* g_tutorial2 = nullptr;
+CUISequencer* g_tutorial = NULL;
+CUISequencer* g_tutorial2 = NULL;
 
 void start_tutorial(LPCSTR name)
 {
@@ -1222,14 +1361,31 @@ void stop_tutorial()
 		g_tutorial->Stop();
 }
 
+LPCSTR tutorial_name()
+{
+	if (g_tutorial)
+		return g_tutorial->m_name;
+	return "invalid";
+}
+
 LPCSTR translate_string(LPCSTR str)
 {
 	return *CStringTable().translate(str);
 }
 
+void patrol_path_add(LPCSTR patrol_path, CPatrolPath* path)
+{
+	ai().patrol_paths_raw().add_path(shared_str(patrol_path), path);
+}
+
+void patrol_path_remove(LPCSTR patrol_path)
+{
+	ai().patrol_paths_raw().remove_path(shared_str(patrol_path));
+}
+
 bool has_active_tutotial()
 {
-	return (g_tutorial != nullptr);
+	return (g_tutorial != NULL);
 }
 
 float get_weather_value_numric(LPCSTR name)
@@ -1327,7 +1483,7 @@ void set_weather_value_numric(LPCSTR name, float val)
 	else if (0 == xr_strcmp(name, "bloom_sky_intensity"))
 		E.bloom_sky_intensity = val;
 	else
-		Msg("~xrGame\level_script.cpp (set_weather_value_numric) | [%s] is not a valid numric weather parameter to set", name);
+		Msg("~xrGame\\level_script.cpp (set_weather_value_numric) | [%s] is not a valid numric weather parameter to set", name);
 }
 
 Fvector3 get_weather_value_vector(LPCSTR name)
@@ -1383,7 +1539,7 @@ void set_weather_value_vector(LPCSTR name, float x, float y, float z, float w = 
 	else if (0 == xr_strcmp(name, "hemisphere_color"))
 		E.hemi_color.set(x, y, z, w);
 	else
-		Msg("~xrGame\level_script.cpp (set_weather_value_vector) | [%s] is not a valid vector weather parameter to set", name);
+		Msg("~xrGame\\level_script.cpp (set_weather_value_vector) | [%s] is not a valid vector weather parameter to set", name);
 }
 
 LPCSTR get_weather_value_string(LPCSTR name)
@@ -1442,7 +1598,7 @@ void set_weather_value_string(LPCSTR name, LPCSTR newval)
 		E.env_ambient = environment()->AppendEnvAmb(newval);
 	}
 	else
-		Msg("~xrGame\level_script.cpp (set_weather_value_string) | [%s] is not a valid string weather parameter to set", name);
+		Msg("~xrGame\\level_script.cpp (set_weather_value_string) | [%s] is not a valid string weather parameter to set", name);
 }
 
 void pause_weather(bool b_pause)
@@ -1477,7 +1633,7 @@ void boost_weather_value(LPCSTR name, float value)
 	else if (0 == xr_strcmp(name, "sun_color"))
 		environment()->env_boost.sun_color = value;
 	else
-		Msg("~xrGame\level_script.cpp (boost_weather_value)| [%s] is not a valid weather parameter to boost", name);
+		Msg("~xrGame\\level_script.cpp (boost_weather_value)| [%s] is not a valid weather parameter to boost", name);
 }
 
 void boost_weather_reset()
@@ -1559,6 +1715,23 @@ void hud_adj_offs(int off, int idx, float x, float y, float z)
 		g_player_hud->m_adjust_offset[off][idx].set(x, y, z);
 }
 
+void set_hud_offset(int type, int idx, float x, float y, float z)
+{
+	attachable_hud_item * hi = g_player_hud->attached_item(0);
+	if (hi)
+		hi->m_measures.m_hands_offset[type][idx].set(x, y, z);
+}
+
+void set_hud_offset(int type, int idx, const Fvector& offs)
+{
+    set_hud_offset(type, idx, offs.x, offs.y, offs.z);
+}
+
+Fmatrix get_hud_transform()
+{
+	return g_player_hud->m_transform_2;
+}
+
 #include "Inventory.h"
 #include "Weapon.h"
 
@@ -1581,18 +1754,25 @@ void hud_adj_state(bool state)
 
 LPCSTR vid_modes_string()
 {
-	xr_string resolutions = "";
+	// Static: the returned pointer must outlive this call until luabind copies it.
+	// A local would be freed on return, leaving luabind to read a freed buffer.
+	static shared_str resolutions;
+    if (resolutions.size() > 0)
+        return resolutions.c_str();
+
+    xr_string result;
 
 	xr_token* tok = vid_mode_token;
 	while (tok->name)
 	{
-		if (strlen(resolutions.c_str()) > 0)
-			resolutions.append(",");
+		if (!result.empty())
+            result.append(",");
 
-		resolutions.append(tok->name);
+        result.append(tok->name);
 		tok++;
 	}
 
+    resolutions = result.c_str();
 	return resolutions.c_str();
 }
 
@@ -1604,6 +1784,12 @@ u32 PlayHudMotion(u8 hand, LPCSTR itm_name, LPCSTR anm_name, bool bMixIn = true,
 void StopHudMotion()
 {
 	g_player_hud->StopScriptAnim();
+}
+
+void SetHudMotionLock(float target, float time)
+{
+	g_player_hud->script_anim_lock_camera_target = clampr(target, 0.f, 1.f);
+	g_player_hud->script_anim_lock_camera_time = time;
 }
 
 float MotionLength(LPCSTR section, LPCSTR name, float speed)
@@ -1769,15 +1955,47 @@ const Fvector3 world2ui_with_depth(Fvector pos, bool hud = false, bool allow_off
 	x /= width_fk;
 	y /= height_fk;
 
-	float depth = v_res.w < 0 ? -1 : 1;
-
-	return {x, y, depth};
+	// post projection w, negative behind the camera, its magnitude is the view distance
+	return {x, y, v_res.w};
 }
 
 const Fvector2 world2ui(Fvector pos, bool hud = false, bool allow_offscreen = false)
 {
 	Fvector3 res = world2ui_with_depth(pos, hud, allow_offscreen);
 	return {res.x, res.y};
+}
+
+::luabind::object world2ui_many(::luabind::object points, bool hud, bool allow_offscreen)
+{
+	::luabind::object table = ::luabind::newtable(ai().script_engine().lua());
+
+	if (!points || points.type() != LUA_TTABLE)
+	{
+		Msg("!world2ui_many: argument is not a table");
+		return table;
+	}
+
+	for (int i = 1;; ++i)
+	{
+		std::optional<Fvector> pos = ::luabind::object_cast_nothrow<Fvector>(points[i]);
+		if (!pos)
+			break;
+
+		table[i] = world2ui_with_depth(*pos, hud, allow_offscreen);
+	}
+
+	return table;
+}
+
+#include "spawn_overlays.h"
+
+::luabind::object game_level_names()
+{
+	::luabind::object table = ::luabind::newtable(ai().script_engine().lua());
+	int index = 0;
+	for (const shared_str& name : spawn_overlays::level_names())
+		table[++index] = *name;
+	return table;
 }
 
 // demonized: unproject ui coordinates (ie mouse cursor coordinates) to world coordinates
@@ -1887,6 +2105,21 @@ void ui2world_offscreen(Fvector& pos, Fvector& res, u16& obj_id)
 	ui2world_offscreen(Fvector2().set(pos.x, pos.y), res, obj_id);
 }
 
+Fvector2 get_texture_size(LPCSTR name)
+{
+	Fvector2 size;
+	size.set(0.f, 0.f);
+
+	if (!name || !name[0])
+	{
+		Msg("!get_texture_size: empty texture name");
+		return size;
+	}
+
+	UIRender->GetTextureResolution(name, size);
+	return size;
+}
+
 const float get_env_rads()
 {
 	if (!CurrentGameUI())
@@ -1919,9 +2152,9 @@ enum ETraceTarget {
 
 static SPickParam* get_pick(ETraceTarget tt)
 {
-	R_ASSERT(tt >= 0, tt < TT_MAX);
+	R_ASSERT(tt >= 0 && tt < TT_MAX);
 
-	const attachable_hud_item* item = nullptr;
+	const attachable_hud_item* item = NULL;
 	switch (tt)
 	{
 	case TT_CAMERA:
@@ -1948,7 +2181,7 @@ static collide::rq_result* get_rq(ETraceTarget tt)
 	if (pp)
 		return &pp->result;
 
-	return nullptr;
+	return NULL;
 }
 
 //ability to get the target game_object at crosshair
@@ -2081,6 +2314,11 @@ void prefetch_model(LPCSTR name)
 {
 	::Render->models_PrefetchOne(name);
 }
+
+bool model_prefetched(LPCSTR name)
+{
+    return ::Render->models_Exists(name, true);
+}
 #endif
 //-Alundaio
 
@@ -2089,7 +2327,7 @@ bool ray_pick(const Fvector& start, const Fvector& dir, float range, collide::rq
               CScriptGameObject* ignore_object)
 {
 	collide::rq_result R;
-	CObject* ignore = nullptr;
+	CObject* ignore = NULL;
 	if (ignore_object)
 		ignore = smart_cast<CObject *>(&(ignore_object->object()));
 	if (Level().ObjectSpace.RayPick(start, dir, range, tgt, R, ignore))
@@ -2125,7 +2363,7 @@ xrTime get_start_time()
 void iterate_nearest(const Fvector& pos, float radius, const ::luabind::functor<bool>& functor)
 {
 	xr_vector<CObject*> m_nearest;
-	Level().ObjectSpace.GetNearest(m_nearest, pos, radius, nullptr);
+	Level().ObjectSpace.GetNearest(m_nearest, pos, radius, NULL);
 
 	if (!m_nearest.size()) return;
 
@@ -2142,6 +2380,49 @@ void iterate_nearest(const Fvector& pos, float radius, const ::luabind::functor<
 		if (!obj) continue;
 		if (functor(obj->lua_game_object())) break;
 	}
+}
+
+CScriptGameObject* nearest_object_of_class(const Fvector& pos, float radius, int clsid, float& distance)
+{
+	distance = 0.f;
+
+	if (!g_pGameLevel)
+		return nullptr;
+
+	if (radius <= 0.f)
+	{
+		Msg("!nearest_object: bad radius %f", radius);
+		return nullptr;
+	}
+
+	xr_vector<CObject*> nearest;
+	Level().ObjectSpace.GetNearest(nearest, pos, radius, NULL);
+
+	CGameObject* best = nullptr;
+	float best_dist = flt_max;
+	for (CObject* o : nearest)
+	{
+		CGameObject* obj = smart_cast<CGameObject*>(o);
+		if (!obj) continue;
+		if (clsid >= 0 && obj->clsid() != clsid) continue;
+
+		float d = obj->Position().distance_to_sqr(pos);
+		if (d < best_dist)
+		{
+			best_dist = d;
+			best = obj;
+		}
+	}
+
+	if (!best) return nullptr;
+
+	distance = _sqrt(best_dist);
+	return best->lua_game_object();
+}
+
+CScriptGameObject* nearest_object(const Fvector& pos, float radius, float& distance)
+{
+	return nearest_object_of_class(pos, radius, -1, distance);
 }
 
 LPCSTR PickMaterial(const Fvector& start_pos, const Fvector& dir, float trace_dist, CScriptGameObject* ignore_obj)
@@ -2261,6 +2542,9 @@ DBG_ScriptObject* add_object(LPCSTR s, DebugRenderType type)
 	case eDBGLine:
 		dbg_obj = xr_new<DBG_ScriptLine>();
 		break;
+    case eDBGCylinder:
+        dbg_obj = xr_new<DBG_ScriptCylinder>();
+        break;
 	default:
 		R_ASSERT2(false, "Wrong debug object type used!");
 	}
@@ -2274,6 +2558,50 @@ DBG_ScriptObject* add_object(u32 id, DebugRenderType type)
 {
 	auto s = std::to_string(id);
 	return add_object(s.c_str(), type);
+}
+
+void dbg_draw_line(Fvector& a, Fvector& b, Fcolor& color, bool hud)
+{
+    DBG_ScriptLine* dbg_obj = xr_new<DBG_ScriptLine>();
+    dbg_obj->m_point_a = a;
+    dbg_obj->m_point_b = b;
+    dbg_obj->m_color = color;
+    dbg_obj->m_hud = hud;
+
+    Level().getImmediateScriptRenderQueue()->push_back(dbg_obj->cast_dbg_obj());
+}
+
+void dbg_draw_box(Fmatrix& mat, Fvector& halfsize, Fcolor& color, bool hud)
+{
+    DBG_ScriptBox* dbg_obj = xr_new<DBG_ScriptBox>();
+    dbg_obj->m_mat = mat;
+    dbg_obj->m_size = halfsize;
+    dbg_obj->m_color = color;
+    dbg_obj->m_hud = hud;
+
+    Level().getImmediateScriptRenderQueue()->push_back(dbg_obj->cast_dbg_obj());
+}
+
+void dbg_draw_sphere(Fmatrix& mat, Fcolor& color, bool hud)
+{
+    DBG_ScriptSphere* dbg_obj = xr_new<DBG_ScriptSphere>();
+    dbg_obj->m_mat = mat;
+    dbg_obj->m_color = color;
+    dbg_obj->m_hud = hud;
+
+    Level().getImmediateScriptRenderQueue()->push_back(dbg_obj->cast_dbg_obj());
+}
+
+void dbg_draw_cylinder(Fmatrix& mat, float length, float radius, Fcolor& color, bool hud)
+{
+    DBG_ScriptCylinder* dbg_obj = xr_new<DBG_ScriptCylinder>();
+    dbg_obj->m_mat = mat;
+    dbg_obj->m_length = length;
+    dbg_obj->m_radius = radius;
+    dbg_obj->m_color = color;
+    dbg_obj->m_hud = hud;
+
+    Level().getImmediateScriptRenderQueue()->push_back(dbg_obj->cast_dbg_obj());
 }
 
 u32 get_flags()
@@ -2367,10 +2695,214 @@ void take_screenshot(LPCSTR path, Fvector2 dimensions, IRender_interface::DxEnco
 	Render->TakeScreenshot(path, dimensions, dx_encoding);
 }
 
+bool TopInputReceiver()
+{
+	return CurrentGameUI() && CurrentGameUI()->TopInputReceiver();
+}
 
 #pragma optimize("s",on)
 
 extern void open_originals_link();
+
+// 0 = right hand, 1 = left hand, 2 = both
+void set_hand_pose(u8 hand, LPCSTR sect, LPCSTR anm, float accrue = 0.f, float falloff = 0.f)
+{
+	g_player_hud->set_hand_pose(hand, sect, anm, accrue, falloff);
+}
+
+void force_set_hand_pose(u8 hand, LPCSTR sect, LPCSTR anm)
+{
+	g_player_hud->set_hand_pose(hand, sect, anm, 1, 1, false);
+}
+
+// 0 = right hand, 1 = left hand, 2 = both
+void clear_hand_pose(u8 hand, float accrue = 0.f, float falloff = 0.f)
+{
+	g_player_hud->clear_hand_pose(hand, accrue, falloff);
+}
+
+::luabind::object list_hand_motions(LPCSTR section)
+{
+	const player_hud_motion_container* motions = g_player_hud->get_hand_motions(section);
+	::luabind::object table = ::luabind::newtable(ai().script_engine().lua());
+	if (!motions) return table;
+
+	for (const player_hud_motion& motion : motions->m_anims)
+	{
+		::luabind::object motion_table = ::luabind::newtable(ai().script_engine().lua());
+		motion_table["base"] = *motion.m_base_name;
+		motion_table["item"] = *motion.m_additional_name;
+        motion_table["speed"] = motion.m_anim_speed;
+
+        CMotionDef* md = g_player_hud->m_model->LL_GetMotionDef(motion.m_animations.front().mid);
+		motion_table["base_speed"] = md->Dequantize(md->speed);
+
+		table[*motion.m_alias_name] = motion_table;
+	}
+
+	return table;
+}
+
+::luabind::object get_hand_motion_marks(LPCSTR name)
+{
+	::luabind::object table = ::luabind::newtable(ai().script_engine().lua());
+
+	MotionID mid = g_player_hud->m_model->ID_Cycle_Safe(name);
+
+	if (!mid)
+	{
+		Msg("[get_hand_motion_marks] animation %s does not exist!", name);
+		return table;
+	}
+
+	CMotionDef* md = g_player_hud->m_model->LL_GetMotionDef(mid);
+	const xr_vector<motion_marks>* anm_marks = &md->marks;
+
+	if (!anm_marks || anm_marks->empty()) return table;
+
+	xr_vector<motion_marks>::const_iterator it = anm_marks->begin();
+	xr_vector<motion_marks>::const_iterator it_e = anm_marks->end();
+	for (; it != it_e; ++it)
+	{
+		const motion_marks& M = (*it);
+		if (M.is_empty())
+			continue;
+
+		::luabind::object mark_table = ::luabind::newtable(ai().script_engine().lua());
+		const auto intervals = M.get_intervals();
+
+		int i = 1;
+		for (const motion_marks::interval& interval : intervals)
+		{
+			::luabind::object interval_table = ::luabind::newtable(ai().script_engine().lua());
+			interval_table["begin"] = interval.first;
+			interval_table["end"] = interval.second;
+			mark_table[i] = interval_table;
+			++i;
+		}
+
+		table[*M.name] = mark_table;
+	}
+
+	return table;
+}
+
+void set_hand_motion_marks(LPCSTR name, ::luabind::object table)
+{
+	if (table.type() != LUA_TTABLE) return;
+
+	MotionID mid = g_player_hud->m_model->ID_Cycle_Safe(name);
+
+	if (!mid)
+	{
+		Msg("[set_hand_motion_marks] animation %s does not exist!", name);
+		return;
+	}
+
+	CMotionDef* md = g_player_hud->m_model->LL_GetMotionDef(mid);
+	xr_vector<motion_marks>* anm_marks = &md->marks;
+
+	if (!anm_marks) return;
+
+	anm_marks->clear();
+
+	for (auto i = table.begin(); i != table.end(); ++i)
+	{
+		::luabind::object mark_table = *i;
+		if (mark_table.type() != LUA_TTABLE) continue;
+
+		motion_marks mark;
+		mark.name = ::luabind::object_cast<LPCSTR>(i.key());
+
+		for (auto k = mark_table.begin(); k != mark_table.end(); ++k)
+		{
+			::luabind::object interval_table = *k;
+			if (interval_table.type() != LUA_TTABLE) continue;
+
+			mark.intervals.push_back(motion_marks::interval(::luabind::object_cast<float>(interval_table["begin"]), ::luabind::object_cast<float>(interval_table["end"])));
+		}
+
+		if (mark.intervals.size()) anm_marks->push_back(mark);
+	}
+}
+
+void set_part_cycle_time(u8 part, float time, float set_time)
+{
+	g_player_hud->set_part_cycle_time(part, time, set_time);
+}
+
+// lucy: getters and setters for first person hands IK
+// Bone IDs 0-20 use the left-hand skeleton; higher IDs use the right-hand skeleton.
+Fmatrix hands_bone_anim_pos(u16 bone_id)
+{
+	Fmatrix res;
+	res.identity();
+	if (!g_player_hud) return res;
+
+	IKinematicsAnimated* model = bone_id > 20 ? g_player_hud->m_model : g_player_hud->m_model_2;
+	if (model)
+	{
+		IKinematics* skeleton = model->dcast_PKinematics();
+		if (skeleton && bone_id < skeleton->LL_BoneCount())
+			skeleton->Bone_GetAnimPos(res, bone_id, u8(-1), true);
+	}
+
+	return res;
+}
+
+// 0 = right hand, 1 = left hand
+void set_hand_target_transform(u8 hand, Fmatrix transform)
+{
+	if (!g_player_hud || hand > 1) return;
+	const u8 ik_id = hand == 0 ? 7 : 3;
+
+	g_player_hud->m_ik_transforms[ik_id].first = transform;
+	g_player_hud->m_ik_transforms[ik_id].second = true;
+}
+
+// 0 = right hand, 1 = left hand
+void set_hand_target_enabled(u8 hand, bool state)
+{
+	if (!g_player_hud || hand > 1) return;
+	const u8 ik_id = hand == 0 ? 7 : 3;
+
+	g_player_hud->m_ik_transforms[ik_id].second = state;
+}
+
+// 0 = right hand, 1 = left hand
+bool get_hand_target_enabled(u8 hand)
+{
+	if (!g_player_hud || hand > 1) return false;
+	const u8 ik_id = hand == 0 ? 7 : 3;
+
+	return g_player_hud->m_ik_transforms[ik_id].second;
+}
+
+// 0 = right hand, 1 = left hand, 2 = both
+void set_arm_ik_enabled(u8 hand, bool enabled)
+{
+	if (g_player_hud) g_player_hud->set_arm_ik_enabled(hand, enabled);
+}
+
+// 0 = right hand, 1 = left hand
+bool get_arm_ik_enabled(u8 hand)
+{
+	return g_player_hud && hand < 2 && g_player_hud->m_arm_ik[1 - hand].enabled;
+}
+
+::luabind::object list_lanims()
+{
+	::luabind::object table = ::luabind::newtable(ai().script_engine().lua());
+
+	int i = 1;
+	for (auto& item : LALib.Items)
+	{
+		table[i] = *item->cName;
+		++i;
+	}
+
+	return table;
+}
 
 void CLevel::script_register(lua_State* L)
 {
@@ -2388,10 +2920,12 @@ void CLevel::script_register(lua_State* L)
 		[
 			value("line", (int)DebugRenderType::eDBGLine),
 			value("sphere", (int)DebugRenderType::eDBGSphere),
-			value("box", (int)DebugRenderType::eDBGBox)
+			value("box", (int)DebugRenderType::eDBGBox),
+			value("cylinder", (int)DebugRenderType::eDBGCylinder)
 		]
 	.def("cast_dbg_sphere", &DBG_ScriptObject::cast_dbg_sphere)
 		.def("cast_dbg_box", &DBG_ScriptObject::cast_dbg_box)
+		.def("cast_dbg_cylinder", &DBG_ScriptObject::cast_dbg_cyl)
 		.def("cast_dbg_line", &DBG_ScriptObject::cast_dbg_line)
 		.def_readwrite("color", &DBG_ScriptObject::m_color)
 		.def_readwrite("hud", &DBG_ScriptObject::m_hud)
@@ -2403,6 +2937,11 @@ void CLevel::script_register(lua_State* L)
 		class_<DBG_ScriptBox, DBG_ScriptObject>("DBG_ScriptBox")
 		.def_readwrite("matrix", &DBG_ScriptBox::m_mat)
 		.def_readwrite("size", &DBG_ScriptBox::m_size),
+
+		class_<DBG_ScriptCylinder, DBG_ScriptObject>("DBG_ScriptCylinder")
+		.def_readwrite("matrix", &DBG_ScriptCylinder::m_mat)
+		.def_readwrite("length", &DBG_ScriptCylinder::m_length)
+		.def_readwrite("radius", &DBG_ScriptCylinder::m_radius),
 
 		class_<DBG_ScriptLine, DBG_ScriptObject>("DBG_ScriptLine")
 		.def_readwrite("point_a", &DBG_ScriptLine::m_point_a)
@@ -2418,7 +2957,11 @@ void CLevel::script_register(lua_State* L)
 			def("get_object", ((DBG_ScriptObject * (*)(u32)) & get_object)),
 			def("get_object", ((DBG_ScriptObject * (*)(LPCSTR)) & get_object)),
 			def("get_flags", get_flags),
-			def("set_flags", set_flags)
+			def("set_flags", set_flags),
+			def("draw_line", dbg_draw_line),
+			def("draw_box", dbg_draw_box),
+			def("draw_sphere", dbg_draw_sphere),
+			def("draw_cylinder", dbg_draw_cylinder)
 		];
 
 	module(L)
@@ -2530,6 +3073,7 @@ void CLevel::script_register(lua_State* L)
 			def("vertex_in_direction", vertex_in_direction),
 			def("rain_factor", rain_factor),
 			def("rain_wetness", rain_wetness),
+			def("set_rain_wetness", set_rain_wetness),
 			def("rain_hemi", rain_hemi),
 			def("patrol_path_exists", patrol_path_exists),
 			def("vertex_position", vertex_position),
@@ -2540,16 +3084,18 @@ void CLevel::script_register(lua_State* L)
 
 			def("map_add_object_spot_ser", map_add_object_spot_ser),
 			def("map_add_object_spot", map_add_object_spot),
-			//-		def("map_add_object_spot_complex",		map_add_object_spot_complex),
 			def("map_remove_object_spot", map_remove_object_spot),
 			def("map_has_object_spot", map_has_object_spot),
 			def("map_change_spot_hint", map_change_spot_hint),
+			def("map_manager", get_map_manager),
 
 			// demonized: remove all map object spots by id
 			def("map_remove_all_object_spots", map_remove_all_object_spots),
 			def("map_get_object_spot_static", map_get_spot_static),
 			def("map_get_object_minimap_spot_static", map_get_minimap_spot_static),
 			def("map_get_object_spots_by_id", map_get_object_spots_by_id),
+			def("map_get_all_object_spots", map_get_all_object_spots),
+			def("map_get_spot_declaration", map_get_spot_declaration),
 
 			def("map_pan_to", &map_pan_to),
 			def("map_pan_to_level", &map_pan_to_level),
@@ -2562,19 +3108,19 @@ void CLevel::script_register(lua_State* L)
 			def("show_indicators", show_indicators),
 			def("show_weapon", show_weapon),
 			def("add_call", ((void (*)(const ::luabind::functor<bool>&, const ::luabind::functor<void>&))&add_call)),
-			def("add_call", ((void (*)(const ::luabind::object&, const ::luabind::functor<bool>&,
-			                           const ::luabind::functor<void>&))&add_call)),
+			def("add_call", ((void (*)(const ::luabind::object&, const ::luabind::functor<bool>&, const ::luabind::functor<void>&))&add_call)),
 			def("add_call", ((void (*)(const ::luabind::object&, LPCSTR, LPCSTR))&add_call)),
 			def("remove_call", ((void (*)(const ::luabind::functor<bool>&, const ::luabind::functor<void>&))&remove_call)),
-			def("remove_call",
-			    ((void (*)(const ::luabind::object&, const ::luabind::functor<bool>&, const ::luabind::functor<void>&))&
-				    remove_call)),
+			def("remove_call", ((void (*)(const ::luabind::object&, const ::luabind::functor<bool>&, const ::luabind::functor<void>&))&remove_call)),
 			def("remove_call", ((void (*)(const ::luabind::object&, LPCSTR, LPCSTR))&remove_call)),
 			def("remove_calls_for_object", remove_calls_for_object),
 			def("present", is_level_present),
 			def("disable_input", disable_input),
 			def("enable_input", enable_input),
+			def("is_input_captured", is_input_captured),
 			def("spawn_phantom", spawn_phantom),
+
+            def("scheduler_flush", scheduler_flush),
 
 			def("get_bounding_volume", get_bounding_volume),
 
@@ -2586,10 +3132,6 @@ void CLevel::script_register(lua_State* L)
 			def("set_snd_volume", &set_snd_volume),
 			def("get_music_volume", &get_music_volume),
 			def("set_music_volume", &set_music_volume),
-			def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR))&add_cam_effector)),
-			def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR, float))&add_cam_effector)),
-			def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR, float, bool))&add_cam_effector)),
-			def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR, float, bool, float))&add_cam_effector)),
 
 			// demonized: Set custom camera position and direction with movement smoothing (for cutscenes, etc)
 			def("set_cam_custom_position_direction", ((void (*)(Fvector&, Fvector&, unsigned int, bool, bool))& set_cam_position_direction)),
@@ -2599,15 +3141,26 @@ void CLevel::script_register(lua_State* L)
 			def("set_cam_custom_position_direction", ((void (*)(Fvector&, Fvector&))&set_cam_position_direction)),
 			def("remove_cam_custom_position_direction", &remove_cam_position_direction),
 
+            def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR))& add_cam_effector)),
+            def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR, float))& add_cam_effector)),
+            def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR, float, bool))& add_cam_effector)),
+            def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR, float, bool, float))& add_cam_effector)),
+            // ver; allow changing the speed of cam effectors
+            def("add_cam_effector", ((float (*)(LPCSTR, int, bool, LPCSTR, float, bool, float, float))& add_cam_effector)),
 			def("remove_cam_effector", &remove_cam_effector),
 			def("set_cam_effector_factor", &set_cam_effector_factor),
 			def("get_cam_effector_factor", &get_cam_effector_factor),
 			def("get_cam_effector_length", &get_cam_effector_length),
 			def("check_cam_effector", &check_cam_effector),
+
 			def("add_pp_effector", &add_pp_effector),
+            def("remove_pp_effector", &remove_pp_effector),
 			def("set_pp_effector_factor", &set_pp_effector_factor),
-			def("set_pp_effector_factor", &set_pp_effector_factor2),
-			def("remove_pp_effector", &remove_pp_effector),
+            def("set_pp_effector_factor", &set_pp_effector_factor2),
+            def("get_pp_effector_factor", &get_pp_effector_factor),
+            def("get_pp_effector_length", &get_pp_effector_length),
+            def("check_pp_effector", &check_pp_effector),
+			def("is_demo_record", &is_demo_record),
 
 			def("add_complex_effector", &add_complex_effector),
 			def("remove_complex_effector", &remove_complex_effector),
@@ -2624,7 +3177,10 @@ void CLevel::script_register(lua_State* L)
 
 			def("actor_moving_state", &ActorMovingState),
 			def("get_env_rads", &get_env_rads),
+			def("get_texture_size", &get_texture_size),
 			def("iterate_nearest", &iterate_nearest),
+			def("nearest_object", &nearest_object, pure_out_value<3>()),
+			def("nearest_object", &nearest_object_of_class, pure_out_value<4>()),
 			def("pick_material", &PickMaterial),
 			def("add_bullet", ((void (*)(Fvector, Fvector, float, float, float, u16, ALife::EHitType, float, LPCSTR, float))& AddBullet)),
 			def("add_bullet", ((void (*)(::luabind::object))& AddBullet)),
@@ -2634,7 +3190,10 @@ void CLevel::script_register(lua_State* L)
 			def("get_attachment", &GetAttachment),
 			def("remove_attachment", (void (*)(LPCSTR)) &RemoveAttachment),
 			def("remove_attachment", (void (*)(script_attachment*)) &RemoveAttachment),
-			def("iterate_attachments", &IterateAttachments)
+			def("iterate_attachments", &IterateAttachments),
+
+			def("patrol_path_add", &patrol_path_add),
+			def("patrol_path_remove", &patrol_path_remove)
 		],
 
 		module(L, "actor_stats")
@@ -2658,6 +3217,7 @@ void CLevel::script_register(lua_State* L)
 		.def("get_object", &CRayPick::get_object)
 		.def("get_distance", &CRayPick::get_distance)
 		.def("get_element", &CRayPick::get_element)
+		.def("get_multiply_add", &CRayPick::get_multiply_add)
 		.def("get_normal", &CRayPick::get_normal),
 		class_<script_rq_result>("rq_result")
 		.def_readonly("object", &script_rq_result::O)
@@ -2722,7 +3282,16 @@ void CLevel::script_register(lua_State* L)
 		def("enabled", hud_adj_state),
 		def("set_vector", hud_adj_offs),
 		def("set_value", hud_adj_value),
-		def("remove_hud_model", remove_hud_model)
+		def("remove_hud_model", remove_hud_model),
+		def("hands_bone_anim_pos", hands_bone_anim_pos),
+		def("set_hand_target_transform", set_hand_target_transform),
+		def("set_hand_target_enabled", set_hand_target_enabled),
+		def("get_hand_target_enabled", get_hand_target_enabled),
+		def("set_arm_ik_enabled", set_arm_ik_enabled),
+		def("get_arm_ik_enabled", get_arm_ik_enabled),
+		def("set_hud_offset", (void (*)(int, int, float, float, float))(set_hud_offset)),
+		def("set_hud_offset", (void (*)(int, int, const Fvector&))(set_hud_offset)),
+		def("get_hud_transform", get_hud_transform)
 	];
 
 	module(L, "relation_registry")
@@ -2783,11 +3352,20 @@ void CLevel::script_register(lua_State* L)
 		def("start_tutorial", &start_tutorial),
 		def("stop_tutorial", &stop_tutorial),
 		def("has_active_tutorial", &has_active_tutotial),
+		def("active_tutorial_name", &tutorial_name),
 		def("translate_string", &translate_string),
 		def("reload_language", &reload_language),
 		def("get_resolutions", &vid_modes_string),
+		def("set_hand_pose", set_hand_pose),
+		def("force_set_hand_pose", force_set_hand_pose),
+		def("clear_hand_pose", clear_hand_pose),
+		def("list_hand_motions", list_hand_motions),
+		def("get_hand_motion_marks", get_hand_motion_marks),
+		def("set_hand_motion_marks", set_hand_motion_marks),
+		def("set_part_cycle_time", set_part_cycle_time),
 		def("play_hud_motion", PlayHudMotion),
 		def("stop_hud_motion", StopHudMotion),
+		def("set_hud_motion_lock", SetHudMotionLock),
 		def("get_motion_length", MotionLength),
 		def("hud_motion_allowed", AllowHudMotion),
 		def("motion_exists", MotionExists),
@@ -2804,14 +3382,18 @@ void CLevel::script_register(lua_State* L)
 		def("actor_lower_weapon", actor_set_safemode),
 		def("prefetch_texture", prefetch_texture),
 		def("prefetch_model", prefetch_model),
+		def("model_prefetched", model_prefetched),
 		def("get_visual_userdata", GetVisualUserdata),
+		def("list_lanims", list_lanims),
 		def("world2ui", world2ui),
 		def("world2ui_with_depth", world2ui_with_depth),
+		def("world2ui_many", world2ui_many),
+		def("level_names", game_level_names),
 		def("ui2world", (void (*)(Fvector2, Fvector&, u16&))&ui2world, pure_out_value<2>() + pure_out_value<3>()),
 		def("ui2world", (void (*)(Fvector&, Fvector&, u16&))&ui2world, pure_out_value<2>() + pure_out_value<3>()),
 		def("ui2world_offscreen", (void (*)(Fvector2, Fvector&, u16&))& ui2world_offscreen, pure_out_value<2>() + pure_out_value<3>()),
 		def("ui2world_offscreen", (void (*)(Fvector&, Fvector&, u16&))& ui2world_offscreen, pure_out_value<2>() + pure_out_value<3>()),
-		
+		def("top_input_receiver", TopInputReceiver),
 		// demonized: adjust game news time
 		def("change_game_news_show_time", &change_game_news_show_time),
 		def("update_pda_news_from_uiwindow", &update_pda_news_from_uiwindow),

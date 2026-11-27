@@ -62,7 +62,7 @@ public:
 		VERIFY(current_delegate);
 		if (current_delegate)
 		{
-			pending_obj = nullptr;
+			pending_obj = NULL;
 			pending_active = true;
 		}
 	}
@@ -201,7 +201,7 @@ struct parameters_tuple3
 	parameters_tuple3(parameters_tuple3 const& copy) :
 		m_t1(copy.m_t1),
 		m_t2(copy.m_t2),
-		m_t3(copt.m_t3)
+		m_t3(copy.m_t3)
 	{
 	};
 

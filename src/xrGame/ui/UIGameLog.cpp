@@ -16,12 +16,12 @@ CUIGameLog::CUIGameLog()
 {
 	kill_msg_height = 20;
 	txt_color = 0xff000000;
-	m_pFont = nullptr;
+	m_pFont = NULL;
 }
 
 CUITextWnd* CUIGameLog::AddLogMessage(LPCSTR msg)
 {
-	CUITextWnd* pItem = nullptr;
+	CUITextWnd* pItem = NULL;
 	ADD_TEXT_TO_VIEW3(msg, pItem, this);
 	pItem->SetFont(m_pFont);
 	pItem->SetTextColor(txt_color);
@@ -80,6 +80,7 @@ void CUIGameLog::Update()
 	CUIScrollView::Update();
 	toDelList.clear();
 
+	xrCriticalSectionGuard guard(m_pad->csUi);
 	WINDOW_LIST_it it = m_pad->GetChildWndList().begin();
 	WINDOW_LIST_it it_e = m_pad->GetChildWndList().end();
 

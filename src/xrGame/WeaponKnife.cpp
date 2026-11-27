@@ -196,9 +196,9 @@ void CWeaponKnife::MakeShot(Fvector const& pos, Fvector const& dir, float const 
 	                                  SendHit);
 }
 
-void CWeaponKnife::OnMotionMark(u32 state, const motion_marks& M)
+void CWeaponKnife::OnMotionMark(u32 state, const motion_marks& M, float mark_start, float mark_end)
 {
-	inherited::OnMotionMark(state, M);
+	inherited::OnMotionMark(state, M, mark_start, mark_end);
 	if (state == eFire)
 	{
 		m_hit_dist = m_Hit1Distance;
@@ -824,7 +824,7 @@ bool CWeaponKnife::SelectBestHitVictim(Fvector const& f_pos,
 
 	if ((m_eHitType == m_eHitType_2) && (!m_spartial_query_res.empty()))
 	{
-		spartial_base_t::value_type tmp_best_victim = nullptr;
+		spartial_base_t::value_type tmp_best_victim = NULL;
 		best_victim_selector tmp_selector(tmp_parent->ID(),
 		                                  fendpos_dest, spartial_prefetch_radius, tmp_best_victim);
 		std::for_each(
@@ -864,7 +864,7 @@ CObject* CWeaponKnife::TryPick(Fvector const& start_pos, Fvector const& dir, flo
 {
 	collide::ray_defs tmp_rdefs(start_pos, dir, dist, CDB::OPT_FULL_TEST, collide::rqtObject);
 	m_ray_query_results.r_clear();
-	m_last_picked_obj = nullptr;
+	m_last_picked_obj = NULL;
 	VERIFY(H_Parent());
 	m_except_id = H_Parent()->ID();
 	Level().ObjectSpace.RayQuery(
@@ -933,7 +933,7 @@ CWeaponKnife::best_victim_selector::best_victim_selector(
 	m_query_distance(query_distance),
 	m_dest_result(dest_result)
 {
-	m_dest_result = nullptr;
+	m_dest_result = NULL;
 }
 
 CWeaponKnife::best_victim_selector::best_victim_selector(

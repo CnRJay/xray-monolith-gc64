@@ -158,7 +158,7 @@ CSE_ALifeTraderAbstract::CSE_ALifeTraderAbstract(LPCSTR caSection)
 	m_fMaxItemMass = pSettings->r_float(caSection, "max_item_mass");
 
 	m_sCharacterProfile = READ_IF_EXISTS(pSettings, r_string, caSection, "character_profile", "default");
-	m_SpecificCharacter = nullptr;
+	m_SpecificCharacter = NULL;
 
 #ifdef XRGAME_EXPORTS
 	m_community_index = NO_COMMUNITY_INDEX;
@@ -242,10 +242,10 @@ void CSE_ALifeTraderAbstract::STATE_Read(NET_Packet& tNetPacket, u16 size)
 			if (tmp != -1)
 				m_SpecificCharacter = CSpecificCharacter::IndexToId(tmp);
 			else
-				m_SpecificCharacter = nullptr;
+				m_SpecificCharacter = NULL;
 
 #else
-			m_SpecificCharacter = nullptr;
+			m_SpecificCharacter = NULL;
 #endif
 		}
 		else if (m_wVersion >= 98)
@@ -301,7 +301,7 @@ void CSE_ALifeTraderAbstract::STATE_Read(NET_Packet& tNetPacket, u16 size)
 
 void CSE_ALifeTraderAbstract::OnChangeProfile(PropValue* sender)
 {
-	m_SpecificCharacter = nullptr;
+	m_SpecificCharacter = NULL;
 #ifndef AI_COMPILER
 	specific_character();
 #endif
@@ -379,7 +379,7 @@ shared_str CSE_ALifeTraderAbstract::specific_character()
 						spec_char.Reputation() - char_info.data()->m_Reputation) < REPUTATION_DELTA)
 					{
 #ifdef XRGAME_EXPORTS
-						int* count = nullptr;
+						int* count = NULL;
 						if(ai().get_alife())
 							count = ai().alife().registry().get<CSpecificCharacterRegistry>().object(id, true);
 						//если индекс еще не был использован
@@ -526,7 +526,7 @@ void CSE_ALifeTraderAbstract::set_specific_character(shared_str new_spec_char)
 	}
 #else
 	//в редакторе специфический профиль оставляем не заполненым
-	m_SpecificCharacter = nullptr;
+	m_SpecificCharacter = NULL;
 #endif
 }
 
@@ -610,7 +610,7 @@ CSE_ALifeTrader::~CSE_ALifeTrader()
 #ifdef DEBUG
 bool CSE_ALifeTrader::match_configuration	() const
 {
-	return						(!strstr(Core.Params,"-designer"));
+	return						(!Core.ParamsData.test(ECoreParams::designer));
 }
 #endif
 
@@ -1041,7 +1041,7 @@ CSE_ALifeCreatureAbstract::~CSE_ALifeCreatureAbstract()
 #ifdef DEBUG
 bool CSE_ALifeCreatureAbstract::match_configuration	() const
 {
-	return						(!strstr(Core.Params,"-designer"));
+	return						(!Core.ParamsData.test(ECoreParams::designer));
 }
 #endif
 
@@ -1329,11 +1329,7 @@ void CSE_ALifeMonsterAbstract::STATE_Write(NET_Packet& tNetPacket)
 	tNetPacket.w_stringZ(m_out_space_restrictors);
 	tNetPacket.w_stringZ(m_in_space_restrictors);
 	tNetPacket.w_u16(m_smart_terrain_id);
-
-	if (tNetPacket.inistream)
-		tNetPacket.w_u16((m_task_reached) ? 1 : 0);
-	else
-		tNetPacket.w(&m_task_reached, sizeof(m_task_reached));
+	tNetPacket.w(&m_task_reached, sizeof(m_task_reached));
 }
 
 void CSE_ALifeMonsterAbstract::STATE_Read(NET_Packet& tNetPacket, u16 size)
@@ -1351,14 +1347,7 @@ void CSE_ALifeMonsterAbstract::STATE_Read(NET_Packet& tNetPacket, u16 size)
 
 	if (m_wVersion > 113)
 	{
-		if (tNetPacket.inistream)
-		{
-			u16 tmp;
-			tNetPacket.r_u16(tmp);
-			m_task_reached = (tmp != 0);
-		}
-		else
-			tNetPacket.r(&m_task_reached, sizeof(m_task_reached));
+		tNetPacket.r(&m_task_reached, sizeof(m_task_reached));
 	}
 }
 

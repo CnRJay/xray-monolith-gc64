@@ -39,7 +39,6 @@ protected:
 		IC const Fvector& HitPos() const { return cast_fv(m_damege_contact.geom.pos); }
 		void Reinit();
 		dContact m_damege_contact;
-		ICollisionHitCallback* m_hit_callback;
 		u16 m_obj_id;
 		float m_dmc_signum;
 

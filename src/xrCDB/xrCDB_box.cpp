@@ -87,8 +87,7 @@ ICF bool planeBoxOverlap(const Point& normal, const float d, const Point& maxbox
 	if(min>rad || max<-rad) return false;
 
 
-template <bool bClass3, bool bFirst>
-class box_collider
+class _MM_ALIGN16 cform_box_collider
 {
 public:
 	COLLIDER* dest;
@@ -99,6 +98,14 @@ public:
 	Point center, extents;
 
 	Point mLeafVerts [3];
+
+	bool bClass3 = false;
+
+	bool bFirst = false;
+
+	cform_box_collider(bool bClass, bool bFrst) 
+
+		:bClass3(bClass), bFirst(bFrst) {}
 
 	IC void _init(COLLIDER* CL, Fvector* V, TRI* T, const Fvector& C, const Fvector& E)
 	{
@@ -240,42 +247,82 @@ public:
 
 void COLLIDER::box_query(const MODEL* m_def, const Fvector& b_center, const Fvector& b_dim)
 {
-	m_def->syncronize();
+	PROF_EVENT("COLLIDER::box_query", PROF_CAT(Physics));
+	if (!m_def)
+		return;
+	const_cast<MODEL*>(m_def)->syncronize();
 
 	// Get nodes
 	const AABBNoLeafTree* T = (const AABBNoLeafTree*)m_def->tree->GetTree();
 	const AABBNoLeafNode* N = T->GetNodes();
 	r_clear();
 
-	// Binary dispatcher
-	if (box_mode & OPT_FULL_TEST)
+	cform_box_collider BC(!!(box_mode&OPT_FULL_TEST), !!(box_mode&OPT_ONLYFIRST));
+	BC._init(this, m_def->verts, m_def->tris, b_center, b_dim);
+	BC._stab(N);
+}
+
+struct obb_collider
+{
+	COLLIDER* dest;
+	TRI* tris;
+	Fvector* verts;
+	Fobb obb;
+
+	bool bClass3 = false;
+	bool bFirst = false;
+
+	Fvector mLeafVerts[3];
+
+	void _prim(DWORD prim)
 	{
-		if (box_mode & OPT_ONLYFIRST)
-		{
-			box_collider<true, true> BC;
-			BC._init(this, m_def->verts, m_def->tris, b_center, b_dim);
-			BC._stab(N);
-		}
-		else
-		{
-			box_collider<true, false> BC;
-			BC._init(this, m_def->verts, m_def->tris, b_center, b_dim);
-			BC._stab(N);
-		}
+		TRI& T = tris[prim];
+		mLeafVerts[0] = verts[T.verts[0]];
+		mLeafVerts[1] = verts[T.verts[1]];
+		mLeafVerts[2] = verts[T.verts[2]];
+
+		if (!obb.intersectTri(mLeafVerts, bClass3))
+			return;
+
+		RESULT& R = dest->r_add();
+		R.id = prim;
+		R.verts[0] = mLeafVerts[0];
+		R.verts[1] = mLeafVerts[1];
+		R.verts[2] = mLeafVerts[2];
+		R.dummy = T.dummy;
 	}
-	else
+
+	void _stab(const AABBNoLeafNode* node)
 	{
-		if (box_mode & OPT_ONLYFIRST)
-		{
-			box_collider<false, true> BC;
-			BC._init(this, m_def->verts, m_def->tris, b_center, b_dim);
-			BC._stab(N);
-		}
-		else
-		{
-			box_collider<false, false> BC;
-			BC._init(this, m_def->verts, m_def->tris, b_center, b_dim);
-			BC._stab(N);
-		}
+		// Actual OBB-AABB test
+		if (!obb.intersectAABB((Fvector&)node->mAABB.mCenter, (Fvector&)node->mAABB.mExtents)) return;
+
+		// 1st child
+		if (node->HasLeaf())	_prim(node->GetPrimitive());
+		else					_stab(node->GetPos());
+
+		// Early exit for "only first"
+		if (bFirst && dest->r_count()) return;
+
+		// 2nd child
+		if (node->HasLeaf2())	_prim(node->GetPrimitive2());
+		else					_stab(node->GetNeg());
 	}
+};
+
+void COLLIDER::obb_query(const MODEL* m_def, const Fobb& obb)
+{
+	PROF_EVENT("COLLIDER::obb_query", PROF_CAT(Physics));
+	if (!m_def)
+		return;
+
+	const_cast<MODEL*>(m_def)->syncronize();
+
+	// Get nodes
+	const AABBNoLeafTree* T = (const AABBNoLeafTree*)m_def->tree->GetTree();
+	const AABBNoLeafNode* N = T->GetNodes();
+	r_clear();
+
+	obb_collider OC{ this, m_def->tris, m_def->verts, obb, !!(box_mode & OPT_FULL_TEST), !!(box_mode & OPT_ONLYFIRST) };
+	OC._stab(N);
 }

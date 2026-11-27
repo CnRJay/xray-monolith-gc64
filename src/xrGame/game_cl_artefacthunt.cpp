@@ -38,7 +38,7 @@
 
 game_cl_ArtefactHunt::game_cl_ArtefactHunt()
 {
-	m_game_ui = nullptr;
+	m_game_ui = NULL;
 
 	m_bBuyEnabled = FALSE;
 	//---------------------------------
@@ -103,7 +103,7 @@ void game_cl_ArtefactHunt::Init()
 								transform.identity();
 								transform.setXYZ(R.A);
 								transform.translate_over(R.P);
-								CParticlesObject* pStaticParticles			= CParticlesObject::Create(pSettings->r_string("artefacthunt_gamedata", ParticleStr),FALSE,false);
+								CParticlesObject* pStaticParticles			= Particles::Details::Create(pSettings->r_string("artefacthunt_gamedata", ParticleStr),FALSE,false).get();
 								pStaticParticles->UpdateParent	(transform,zero_vel);
 								pStaticParticles->Play			();
 								Level().m_StaticParticles.push_back		(pStaticParticles);
@@ -299,7 +299,7 @@ void game_cl_ArtefactHunt::SetGameUI(CUIGameCustom* uigame)
 CUIGameCustom* game_cl_ArtefactHunt::createGameUI()
 {
 	if (g_dedicated_server)
-		return nullptr;
+		return NULL;
 
 	CLASS_ID clsid = CLSID_GAME_UI_ARTEFACTHUNT;
 	m_game_ui = smart_cast<CUIGameAHunt*>(NEW_INSTANCE(clsid));
@@ -369,8 +369,8 @@ void game_cl_ArtefactHunt::shedule_Update(u32 dt)
 		return;
 
 	//out game information
-	m_game_ui->SetBuyMsgCaption(nullptr);
-	m_game_ui->SetPressBuyMsgCaption(nullptr);
+	m_game_ui->SetBuyMsgCaption(NULL);
+	m_game_ui->SetPressBuyMsgCaption(NULL);
 
 	switch (m_phase)
 	{
@@ -409,12 +409,12 @@ void game_cl_ArtefactHunt::shedule_Update(u32 dt)
 						if (local_player->testFlag(GAME_PLAYER_FLAG_VERY_VERY_DEAD))
 							m_game_ui->SetPressJumpMsgCaption("mp_press_fire2spectator");
 						else
-							m_game_ui->SetPressJumpMsgCaption(nullptr);
+							m_game_ui->SetPressJumpMsgCaption(NULL);
 					};
 				}
 				else
 				{
-					if (m_game_ui) m_game_ui->SetBuyMsgCaption(nullptr);
+					if (m_game_ui) m_game_ui->SetBuyMsgCaption(NULL);
 					if (m_bTeamSelected && m_bSkinSelected)
 					{
 						if (iReinforcementTime != 0)
@@ -426,7 +426,7 @@ void game_cl_ArtefactHunt::shedule_Update(u32 dt)
 							}
 							else
 							{
-								if (m_game_ui) m_game_ui->SetPressJumpMsgCaption(nullptr);
+								if (m_game_ui) m_game_ui->SetPressJumpMsgCaption(NULL);
 							}
 						}
 						else
@@ -595,7 +595,7 @@ char* game_cl_ArtefactHunt::getTeamSection(int Team)
 		NODEFAULT;
 	};
 #ifdef DEBUG
-	return nullptr;
+	return NULL;
 #endif
 };
 
@@ -628,9 +628,7 @@ void game_cl_ArtefactHunt::UpdateMapLocations()
 				if (!Level().MapManager().HasMapLocation(ARTEFACT_NEUTRAL, artefactID))
 				{
 					Level().MapManager().RemoveMapLocationByObjectID(artefactID);
-					CMapLocation* location = Level().MapManager().AddMapLocation(ARTEFACT_NEUTRAL, artefactID);
-					if (location)
-						location->EnablePointer();
+					(Level().MapManager().AddMapLocation(ARTEFACT_NEUTRAL, artefactID))->EnablePointer();
 				};
 			}
 			else
@@ -640,9 +638,7 @@ void game_cl_ArtefactHunt::UpdateMapLocations()
 					if (!Level().MapManager().HasMapLocation(ARTEFACT_FRIEND, artefactID))
 					{
 						Level().MapManager().RemoveMapLocationByObjectID(artefactID);
-						CMapLocation* location = Level().MapManager().AddMapLocation(ARTEFACT_FRIEND, artefactID);
-						if (location)
-							location->EnablePointer();
+						(Level().MapManager().AddMapLocation(ARTEFACT_FRIEND, artefactID))->EnablePointer();
 					}
 				}
 				else
@@ -673,9 +669,7 @@ void game_cl_ArtefactHunt::UpdateMapLocations()
 					if (!OutfitWorkDown && */
 					if (!Level().MapManager().HasMapLocation(ARTEFACT_ENEMY, artefactID))
 					{
-						CMapLocation* location = Level().MapManager().AddMapLocation(ARTEFACT_ENEMY, artefactID);
-						if (location)
-							location->EnablePointer();
+						(Level().MapManager().AddMapLocation(ARTEFACT_ENEMY, artefactID))->EnablePointer();
 					}
 				}
 			};

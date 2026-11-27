@@ -182,14 +182,11 @@ void dx10SamplerStateCache::SetMaxAnisotropy(u32 uiMaxAniso)
 	for (u32 i = 0; i < m_StateArray.size(); ++i)
 	{
 		StateRecord& rec = m_StateArray[i];
-		
-		if (!rec.m_pState)
-		{
-			Msg("! WARNING: Null sampler state at index %d in SetMaxAnisotropy", i);
-			continue;
-		}
-		
 		StateDecs desc;
+
+		if (!rec.m_pState)
+			continue;
+
 		rec.m_pState->GetDesc(&desc);
 
 		//	MaxAnisitropy is reset by ValidateState if not aplicable
@@ -215,14 +212,8 @@ void dx10SamplerStateCache::SetMipLODBias(float uiMipLODBias)
     for (u32 i = 0; i < m_StateArray.size(); ++i)
     {
         StateRecord& rec = m_StateArray[i];
-        
-        if (!rec.m_pState)
-        {
-            Msg("! WARNING: Null sampler state at index %d in SetMipLODBias", i);
-            continue;
-        }
-        
         StateDecs desc;
+
         rec.m_pState->GetDesc(&desc);
 
         desc.MipLODBias = m_uiMipLODBias;

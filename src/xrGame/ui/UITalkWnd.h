@@ -38,7 +38,7 @@ public:
 	void InitTalkWnd();
 
 	virtual bool StopAnyMove() { return true; }
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 
 	virtual void Draw();
 	virtual void Update();
@@ -56,6 +56,8 @@ public:
 	void SwitchToTrade();
 	void SwitchToUpgrade();
 	void AddIconedMessage(LPCSTR caption, LPCSTR text, LPCSTR texture_name, LPCSTR templ_name);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 protected:
 	//диалог

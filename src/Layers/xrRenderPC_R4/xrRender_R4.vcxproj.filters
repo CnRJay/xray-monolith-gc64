@@ -213,12 +213,6 @@
     <ClInclude Include="r4.h">
       <Filter>Core</Filter>
     </ClInclude>
-    <ClInclude Include="r4_R_sun_support.h">
-      <Filter>Core</Filter>
-    </ClInclude>
-    <ClInclude Include="..\xrRender\r__dsgraph_structure.h">
-      <Filter>Core</Filter>
-    </ClInclude>
     <ClInclude Include="..\xrRender\r__dsgraph_types.h">
       <Filter>Core</Filter>
     </ClInclude>
@@ -256,12 +250,6 @@
       <Filter>Lights</Filter>
     </ClInclude>
     <ClInclude Include="..\xrRender\Light_Package.h">
-      <Filter>Lights</Filter>
-    </ClInclude>
-    <ClInclude Include="Light_Render_Direct.h">
-      <Filter>Lights</Filter>
-    </ClInclude>
-    <ClInclude Include="light_smapvis.h">
       <Filter>Lights</Filter>
     </ClInclude>
     <ClInclude Include="..\xrRender\LightTrack.h">
@@ -687,6 +675,9 @@
     <ClInclude Include="..\xrRenderDX10\dx10BufferUtils.h">
       <Filter>dx9 to dx10 Utils</Filter>
     </ClInclude>
+    <ClInclude Include="..\xrRenderDX10\dx10DebugName.h">
+      <Filter>dx9 to dx10 Utils</Filter>
+    </ClInclude>
     <ClInclude Include="..\xrRenderDX10\dx10StateUtils.h">
       <Filter>dx9 to dx10 Utils</Filter>
     </ClInclude>
@@ -795,7 +786,17 @@
     <ClInclude Include="..\xrRenderDX10\dx10EventWrapper.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="..\xrRenderDX10\dx10GpuTimeline.h">
+      <Filter>Core</Filter>
+    </ClInclude>
     <ClInclude Include="..\xrRender\gifPlayer.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\xrRender\CHudInitializer.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\xrRender\r__dsgraph_manager.h" />
+    <ClInclude Include="..\xrRender\R_sun_support.h">
       <Filter>Core</Filter>
     </ClInclude>
   </ItemGroup>
@@ -815,21 +816,6 @@
     <ClCompile Include="..\xrRender\PSLibrary.cpp">
       <Filter>Core</Filter>
     </ClCompile>
-    <ClCompile Include="r2_blenders.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="r2_R_calculate.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="r4_R_lights.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="r2_R_sun.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="r2_sector_detect.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
     <ClCompile Include="r2_test_hw.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -843,9 +829,6 @@
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="r4_R_render.cpp">
-      <Filter>Core</Filter>
-    </ClCompile>
-    <ClCompile Include="r4_R_sun_support.cpp">
       <Filter>Core</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\r__dsgraph_build.cpp">
@@ -912,18 +895,6 @@
       <Filter>Lights</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\Light_Package.cpp">
-      <Filter>Lights</Filter>
-    </ClCompile>
-    <ClCompile Include="Light_Render_Direct.cpp">
-      <Filter>Lights</Filter>
-    </ClCompile>
-    <ClCompile Include="Light_Render_Direct_ComputeXFS.cpp">
-      <Filter>Lights</Filter>
-    </ClCompile>
-    <ClCompile Include="light_smapvis.cpp">
-      <Filter>Lights</Filter>
-    </ClCompile>
-    <ClCompile Include="light_vis.cpp">
       <Filter>Lights</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\LightTrack.cpp">
@@ -1044,9 +1015,6 @@
       <Filter>Models\Visuals</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\r__sector.cpp">
-      <Filter>Visibility\Sector/Portal</Filter>
-    </ClCompile>
-    <ClCompile Include="..\xrRender\r__sector_traversal.cpp">
       <Filter>Visibility\Sector/Portal</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\HOM.cpp">
@@ -1478,8 +1446,36 @@
     <ClCompile Include="..\xrRenderDX10\dx10EventWrapper.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="..\xrRenderDX10\dx10GpuTimeline.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="..\xrRender\gifPlayer.cpp">
       <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\CHudInitializer.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\r__sector_detect.cpp">
+      <Filter>Visibility\Sector/Portal</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\R_calculate.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\r__dsgraph_manager.cpp" />
+    <ClCompile Include="..\xrRender\lights_render.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\R_sun_support.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\R_sun.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\r2_blenders.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\light_vis.cpp">
+      <Filter>Lights</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

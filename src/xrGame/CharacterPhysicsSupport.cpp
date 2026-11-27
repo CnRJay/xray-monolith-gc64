@@ -36,6 +36,7 @@
 #include "inventory.h"
 #include "activatingcharcollisiondelay.h"
 #include "stalker_movement_manager_smart_cover.h"
+#include "script_attachment_manager.h"
 
 #include "../build_config_defines.h"
 
@@ -94,23 +95,23 @@ CCharacterPhysicsSupport::CCharacterPhysicsSupport(EType atype, CEntityAlive* ae
 	  m_PhysicMovementControl(xr_new<CPHMovementControl>(aentity)),
 	  m_eType(atype),
 	  m_eState(esAlive),
-	  m_physics_skeleton(nullptr),
-	  m_ik_controller(nullptr),
+	  m_physics_skeleton(NULL),
+	  m_ik_controller(NULL),
 	  m_BonceDamageFactor(1.f),
-	  m_collision_hit_callback(nullptr),
-	  m_interactive_animation(nullptr),
-	  m_physics_shell_animated(nullptr),
+	  m_collision_hit_callback(NULL),
+	  m_interactive_animation(NULL),
+	  m_physics_shell_animated(NULL),
 	  m_physics_shell_animated_time_destroy(u32(-1)),
 	  m_weapon_attach_bone(0),
 	  m_active_item_obj(0),
 	  m_hit_valide_time(u32(-1)),
-	  m_collision_activating_delay(nullptr)
+	  m_collision_activating_delay(NULL)
 {
 	m_flags.assign(0);
 	m_flags.set(fl_death_anim_on,FALSE);
 	m_flags.set(fl_skeleton_in_shell,FALSE);
 	m_flags.set(fl_use_hit_anims,TRUE);
-	m_pPhysicsShell = nullptr;
+	m_pPhysicsShell = NULL;
 	switch (atype)
 	{
 	case etActor:
@@ -300,7 +301,7 @@ void CCharacterPhysicsSupport::SpawnInitPhysics(CSE_Abstract* e)
 	}
 	else
 	{
-		ActivateShell(nullptr);
+		ActivateShell(NULL);
 	}
 
 	CSE_PHSkeleton* po = smart_cast<CSE_PHSkeleton*>(e);
@@ -389,6 +390,7 @@ void CCharacterPhysicsSupport::UpdateCollisionActivatingDellay()
 
 void CCharacterPhysicsSupport::in_shedule_Update(u32 DT)
 {
+	PROF_EVENT(PROF_CAT(Physics));
 	///VERIFY( 0 );
 
 	//CPHSkeleton::Update(DT);
@@ -657,10 +659,10 @@ void CCharacterPhysicsSupport::in_UpdateCL()
 
 		// demonized: use screen space area to check if need update
 		float perceived_dist = Device.GetPerceivedDist(p);
-		float ssa = Device.CalcSSADynamic(m_EntityAlife.spatial.sphere.P, m_EntityAlife.spatial.sphere.R);
+		float ssa = Device.CalcSSADynamic(m_EntityAlife.SpatialComponent->spatial.sphere.P, m_EntityAlife.SpatialComponent->spatial.sphere.R);
 		if (ssa > IK_CALC_SSA)
 		{
-			if (view_frust.testSphere_dirty(m_EntityAlife.spatial.sphere.P, m_EntityAlife.spatial.sphere.R) || perceived_dist < IK_ALWAYS_CALC_DIST)
+			if (view_frust.testSphere_dirty(m_EntityAlife.SpatialComponent->spatial.sphere.P, m_EntityAlife.SpatialComponent->spatial.sphere.R) || perceived_dist < IK_ALWAYS_CALC_DIST)
 			{
 				update_interactive_anims();
 				ik_controller()->Update();
@@ -1088,6 +1090,30 @@ void CCharacterPhysicsSupport::AddActiveWeaponCollision()
 	//DBG_ClosedCashedDraw( 50000 );
 }
 
+void CCharacterPhysicsSupport::AddAllAttachmentsCollision()
+{
+	CGameObject* obj = smart_cast<CGameObject*>(&m_EntityAlife);
+	VERIFY(obj);
+	auto attachments = obj->GetAttachments();
+	if (!attachments || !attachments->size())
+		return;
+
+	for (auto& pair : *attachments)
+		pair.second->OnParentCreatePhysicsShell();
+}
+
+void CCharacterPhysicsSupport::RemoveAllAttachmentsCollision()
+{
+	CGameObject* obj = smart_cast<CGameObject*>(&m_EntityAlife);
+	VERIFY(obj);
+	auto attachments = obj->GetAttachments();
+	if (!attachments || !attachments->size())
+		return;
+
+	for (auto& pair : *attachments)
+		pair.second->OnParentDestroyPhysicsShell();
+}
+
 void CCharacterPhysicsSupport::CreateShell(CObject* who, Fvector& dp, Fvector& velocity)
 {
 	xr_delete(m_collision_activating_delay);
@@ -1161,7 +1187,7 @@ void CCharacterPhysicsSupport::CreateShell(CObject* who, Fvector& dp, Fvector& v
 	//shell create
 	R_ASSERT2(m_physics_skeleton, "No skeleton created!!");
 	m_pPhysicsShell = m_physics_skeleton;
-	m_physics_skeleton = nullptr;
+	m_physics_skeleton = NULL;
 	m_pPhysicsShell->set_Kinematics(K);
 	m_pPhysicsShell->RunSimulation();
 	m_pPhysicsShell->mXFORM.set(mXFORM);
@@ -1295,6 +1321,11 @@ void CCharacterPhysicsSupport::in_ChangeVisual()
 			m_hit_animations.SetupHitMotions(*KA);
 	}
 
+	RecreateSkeleton();
+}
+
+void CCharacterPhysicsSupport::RecreateSkeleton()
+{
 	if (!m_physics_skeleton && !m_pPhysicsShell) return;
 
 	if (m_pPhysicsShell)
@@ -1312,7 +1343,7 @@ void CCharacterPhysicsSupport::in_ChangeVisual()
 			m_pPhysicsShell->Deactivate();
 		xr_delete(m_pPhysicsShell);
 		if (m_EntityAlife.Visual())
-			ActivateShell(nullptr);
+			ActivateShell(NULL);
 	}
 }
 
@@ -1452,7 +1483,7 @@ void CCharacterPhysicsSupport::in_Die(bool hit)
 	{
 		if (m_EntityAlife.use_simplified_visual())
 			return;
-		ActivateShell(nullptr);
+		ActivateShell(NULL);
 		m_PhysicMovementControl->DestroyCharacter();
 		return;
 	}

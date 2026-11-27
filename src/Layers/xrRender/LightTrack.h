@@ -12,6 +12,7 @@ const int lt_hemisamples = 26;
 
 class CROS_impl : public IRender_ObjectSpecific
 {
+    friend class script_attachment;
 public:
 	enum CubeFaces
 	{
@@ -71,6 +72,8 @@ private:
 	float sun_smooth;
 
 	Fvector approximate;
+
+	xr_vector<ISpatialShared> lstSpatial;
 
 #if RENDER!=R_R1
 	Fvector last_position;

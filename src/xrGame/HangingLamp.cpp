@@ -249,27 +249,30 @@ void CHangingLamp::UpdateCL()
 	if (m_pPhysicsShell)
 		m_pPhysicsShell->InterpolateGlobalTransform(&XFORM());
 
-	if (Alive() && light_render->get_active())
+	if (Alive())
 	{
-		if (Visual()) PKinematics(Visual())->CalculateBones();
-
 		if (NeedUpdate)
 		{
 			// update T&R from light (main) bone
 			Fmatrix xf;
 			if (light_bone != BI_NONE)
 			{
-				Fmatrix& M = smart_cast<IKinematics*>(Visual())->LL_GetTransform(light_bone);
+				Fmatrix& M = smart_cast<IKinematics*>(Visual())->LL_GetTransform_safed(light_bone);
 				xf.mul(XFORM(), M);
-				VERIFY(!fis_zero(DET(xf)));
+				if (fis_zero(DET(xf)))
+					xf = XFORM();
 			}
 			else
 			{
 				xf.set(XFORM());
 			}
-			light_render->set_rotation(xf.k, xf.i);
+			if(light_render->get_type()!=IRender_Light::POINT)
+				light_render->set_rotation(xf.k, xf.i);
+
 			light_render->set_position(xf.c);
-			if (glow_render)glow_render->set_position(xf.c);
+
+			if (glow_render)
+				glow_render->set_position(xf.c);
 
 			// update T&R from ambient bone
 			if (light_ambient)
@@ -278,7 +281,7 @@ void CHangingLamp::UpdateCL()
 				{
 					if (ambient_bone != BI_NONE)
 					{
-						Fmatrix& M = smart_cast<IKinematics*>(Visual())->LL_GetTransform(ambient_bone);
+						Fmatrix& M = smart_cast<IKinematics*>(Visual())->LL_GetTransform_safed(ambient_bone);
 						xf.mul(XFORM(), M);
 						VERIFY(!fis_zero(DET(xf)));
 					}
@@ -313,7 +316,7 @@ void CHangingLamp::UpdateCL()
 		if (isFlickering)
 		{
 			float tg = Device.fTimeGlobal;
-			if (lastFlicker == 0.f) lastFlicker = tg;
+			if (lastFlicker == NULL) lastFlicker = tg;
 			if (tg - lastFlicker >= l_flickerDelay)
 			{
 				int rando = rand() % 100 + 1;
@@ -461,12 +464,11 @@ void CHangingLamp::TurnOff()
 void CHangingLamp::Hit(SHit* pHDS)
 {
 	SHit HDS = *pHDS;
-	const CGameObject* who_object = smart_cast<const CGameObject*>(HDS.who);
 	callback(GameObject::eHit)(
 		lua_game_object(),
 		HDS.power,
 		HDS.dir,
-		who_object ? who_object->lua_game_object() : nullptr,
+		smart_cast<const CGameObject*>(HDS.who)->lua_game_object(),
 		HDS.bone()
 	);
 	BOOL bWasAlive = Alive();
@@ -501,7 +503,7 @@ void CHangingLamp::CreateBody(CSE_ALifeObjectHangingLamp* lamp)
 			string64 fixed_bone;
 			_GetItem(fixed_bones, i, fixed_bone);
 			u16 fixed_bone_id = pKinematics->LL_BoneID(fixed_bone);
-			R_ASSERT2(BI_NONE!=fixed_bone_id, "wrong fixed bone") ;
+			R_ASSERT2(BI_NONE != fixed_bone_id, make_string("wrong fixed bone [%s] for object with visual [%s]", fixed_bone, pKinematics->getDebugName().c_str()).c_str());
 			bone_map.insert(mk_pair(fixed_bone_id, physicsBone()));
 		}
 	}

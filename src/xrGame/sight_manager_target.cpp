@@ -37,7 +37,7 @@ void CSightManager::SetPointLookAngles(const Fvector& tPosition, float& yaw, flo
 }
 
 #include "actor.h"
-void aim_target(shared_str const& aim_bone_id, Fvector& result, const CGameObject* object);
+#include "../xrEngine/CameraBase.h"
 
 bool CSightManager::aim_target(Fvector& my_position, Fvector& aim_target, const CGameObject* object) const
 {
@@ -50,25 +50,26 @@ bool CSightManager::aim_target(Fvector& my_position, Fvector& aim_target, const 
 		return (true);
 	}
 
-	extern CActor* g_actor;
+	CGameObject* GO = const_cast<CGameObject*>(object);
 
-	if (g_actor == object)
+	if (GO && GO->cast_entity() && GO->cast_entity()->g_Alive() && (GO->cast_actor() || GO->cast_stalker()))
 	{
-		::aim_target("bip01_head", aim_target, object);
-		return (true);
-	}
-
-	if (CAI_Stalker const* stalker = smart_cast<CAI_Stalker const*>(object))
-	{
-		if (stalker->g_Alive())
+		if (GO->cast_actor() && GO->cast_actor()->HUDview())
+			aim_target = GO->cast_actor()->cam_Active()->vPosition;
+		else
 		{
-			::aim_target("bip01_head", aim_target, object);
-			return (true);
+			IKinematics* kinematics = PKinematics(object->Visual());
+			u16 bone_id = kinematics->LL_BoneID("bip01_head");
+			kinematics->LL_GetBoneWorldPosition(bone_id, object->XFORM(), aim_target);
 		}
+		return (true);
 	}
 
 	if (!object->use_center_to_aim())
 		return (false);
+
+	if (GO->cast_actor())
+		m_object->Visual()->dcast_PKinematics()->CalculateBBox(FALSE);
 
 	m_object->Center(my_position);
 #if 1

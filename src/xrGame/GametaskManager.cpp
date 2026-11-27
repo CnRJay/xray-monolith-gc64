@@ -1,5 +1,4 @@
 #include "pch_script.h"
-#include "../xrCore/profiler.h"
 #include "GameTaskManager.h"
 #include "alife_registry_wrappers.h"
 #include "ui/xrUIXmlParser.h"
@@ -51,7 +50,7 @@ CGameTaskManager::CGameTaskManager()
 	m_gametasks_wrapper->registry().init(0); // actor's id
 	m_flags.zero();
 	m_flags.set(eChanged, TRUE);
-	m_gametasks = nullptr;
+	m_gametasks = NULL;
 
 	if (g_active_task_id.size())
 	{
@@ -66,7 +65,7 @@ CGameTaskManager::CGameTaskManager()
 CGameTaskManager::~CGameTaskManager()
 {
 	delete_data(m_gametasks_wrapper);
-	g_active_task_id = nullptr;
+	g_active_task_id = NULL;
 }
 
 vGameTasks& CGameTaskManager::GetGameTasks()
@@ -99,7 +98,7 @@ CGameTask* CGameTaskManager::GiveGameTaskToActor(CGameTask* t, u32 timeToComplet
 	{
 		Msg("! task [%s] already inprocess", t->m_ID.c_str());
 		VERIFY2(0, make_string( "give_task : Task [%s] already inprocess!", t->m_ID.c_str()));
-		return nullptr;
+		return NULL;
 	}
 
 	m_flags.set(eChanged, TRUE);
@@ -116,7 +115,7 @@ CGameTask* CGameTaskManager::GiveGameTaskToActor(CGameTask* t, u32 timeToComplet
 
 	//CGameTask* active_task			= ActiveTask();
 
-	//if ( (active_task == nullptr) || (active_task->m_priority < t->m_priority) )
+	//if ( (active_task == NULL) || (active_task->m_priority < t->m_priority) )
 	//{
 	//	SetActiveTask( t );
 	//}
@@ -134,6 +133,7 @@ CGameTask* CGameTaskManager::GiveGameTaskToActor(CGameTask* t, u32 timeToComplet
 
 void CGameTaskManager::SetTaskState(CGameTask* t, ETaskState state)
 {
+	PROF_EVENT("CGameTaskManager::SetTaskState", PROF_CAT(GameLogic));
 	m_flags.set(eChanged, TRUE);
 
 	t->SetTaskState(state);
@@ -161,9 +161,8 @@ void CGameTaskManager::SetTaskState(const shared_str& id, ETaskState state)
 
 void CGameTaskManager::UpdateTasks()
 {
-	PROF_EVENT("CGameTaskManager::UpdateTasks");
-	if (Device.Paused())
-		return;
+	PROF_EVENT("CGameTaskManager::UpdateTasks", PROF_CAT(GameLogic));
+	if (Device.Paused()) return;
 
 	Level().MapManager().DisableAllPointers();
 
@@ -232,17 +231,15 @@ void CGameTaskManager::UpdateActiveTask()
 
 void CGameTaskManager::RPC_UpdateTaskName()
 {
-	Discord_Lock();
 	CGameTask* tr = ActiveTask();
 	if (tr)
 		snprintf(discord_gameinfo.task_name, 128, xr_ToUTF8(*CStringTable().translate(tr->m_Title)));
-	Discord_Unlock();
 }
 
 CGameTask* CGameTaskManager::ActiveTask()
 {
 	const shared_str& t_id = g_active_task_id;
-	if (!t_id.size()) return nullptr;
+	if (!t_id.size()) return NULL;
 	return HasGameTask(t_id, true);
 }
 
@@ -294,7 +291,7 @@ CGameTask* CGameTaskManager::HasGameTask(const CMapLocation* ml, bool only_inpro
 			return gt;
 		}
 	}
-	return nullptr;
+	return NULL;
 }
 
 CGameTask* CGameTaskManager::IterateGet(CGameTask* t, ETaskState state, bool bForward)
@@ -325,10 +322,10 @@ CGameTask* CGameTaskManager::IterateGet(CGameTask* t, ETaskState state, bool bFo
 					return IterateGet(found, state, bForward);
 			}
 			else
-				return nullptr;
+				return NULL;
 		}
 	}
-	return nullptr;
+	return NULL;
 }
 
 u32 CGameTaskManager::GetTaskIndex(CGameTask* t, ETaskState state)

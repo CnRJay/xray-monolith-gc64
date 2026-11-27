@@ -28,7 +28,7 @@
 #include "ui/UIXmlInit.h"
 #include "physicsshellholder.h"
 
-CUIProgressShape* g_MissileForceShape = nullptr;
+CUIProgressShape* g_MissileForceShape = NULL;
 
 #ifdef SPAWN_ANTIFREEZE
 xrCriticalSection force_progress_cs;
@@ -72,7 +72,7 @@ void CMissile::reinit()
 	m_fThrowForce = 0;
 	m_dwDestroyTime = 0xffffffff;
 	SetPending(FALSE);
-	m_fake_missile = nullptr;
+	m_fake_missile = NULL;
 	SetState(eHidden);
 }
 
@@ -103,6 +103,18 @@ void CMissile::Load(LPCSTR section)
 
 	if (pSettings->line_exist(section, "snd_checkout"))
 		m_sounds.LoadSound(section, "snd_checkout", "sndCheckout", false, SOUND_TYPE_WEAPON_RECHARGING);
+
+	if (pSettings->line_exist(section, "checkout_bones"))
+	{
+		m_sCheckoutBones.clear();
+		LPCSTR lineStr = pSettings->r_string(section, "checkout_bones");
+		for (int j = 0, cnt = _GetItemCount(lineStr); j < cnt; ++j)
+		{
+			string128 bone_name;
+			_GetItem(lineStr, j, bone_name);
+			m_sCheckoutBones.push_back(bone_name);
+		}
+	}
 }
 
 BOOL CMissile::net_Spawn(CSE_Abstract* DC)
@@ -536,9 +548,9 @@ void CMissile::setup_throw_params()
 	m_throw_direction.set(trans.k);
 }
 
-void CMissile::OnMotionMark(u32 state, const motion_marks& M)
+void CMissile::OnMotionMark(u32 state, const motion_marks& M, float mark_start, float mark_end)
 {
-	inherited::OnMotionMark(state, M);
+	inherited::OnMotionMark(state, M, mark_start, mark_end);
 	if (state == eThrow && !m_throw)
 	{
 		if (H_Parent())
@@ -563,7 +575,7 @@ void CMissile::Throw()
 	CInventoryOwner* inventory_owner = smart_cast<CInventoryOwner*>(H_Parent());
 	VERIFY(inventory_owner);
 	if (inventory_owner->use_default_throw_force())
-		m_fake_missile->m_fThrowForce = m_constpower ? m_fConstForce : m_fThrowForce;
+		m_fake_missile->m_fThrowForce = inventory_owner->default_missile_throw_force(this);
 	else
 		m_fake_missile->m_fThrowForce = inventory_owner->missile_throw_force();
 
@@ -599,9 +611,9 @@ void CMissile::OnEvent(NET_Packet& P, u16 type)
 			bool IsFakeMissile = false;
 			if (m_fake_missile && (id == m_fake_missile->ID()))
 			{
-				m_fake_missile = nullptr;
+				m_fake_missile = NULL;
 				IsFakeMissile = true;
-				setForceDestroy();
+                setForceDestroy();
 			}
 
 			CMissile* missile = smart_cast<CMissile*>(Level().Objects.net_Find(id));
@@ -759,9 +771,19 @@ void CMissile::activate_physic_shell()
 	m_pPhysicsShell->SetAirResistance(0.f, 0.f);
 	m_pPhysicsShell->set_DynamicScales(1.f, 1.f);
 
-	IKinematics* kinematics = smart_cast<IKinematics*>(Visual());
+	IKinematics* kinematics = PKinematics(Visual());
 	VERIFY(kinematics);
 	kinematics->CalculateBones_Invalidate();
+	if (m_fThrowForce != 0.f && !m_sCheckoutBones.empty())
+	{
+		u16 bone_id;
+		for (const auto& boneName : m_sCheckoutBones)
+		{
+			bone_id = kinematics->LL_BoneID(boneName);
+			if (bone_id != BI_NONE && kinematics->LL_GetBoneVisible(bone_id))
+				kinematics->LL_SetBoneVisible(bone_id, FALSE, TRUE);
+		}
+	}
 	kinematics->CalculateBones(TRUE);
 }
 
@@ -773,7 +795,7 @@ void CMissile::net_Relcase(CObject* O)
 		if (O == smart_cast<CObject*>((CPhysicsShellHolder*)PPhysicsShell()->get_CallbackData()))
 		{
 			PPhysicsShell()->remove_ObjectContactCallback(ExitContactCallback);
-			PPhysicsShell()->set_CallbackData(nullptr);
+			PPhysicsShell()->set_CallbackData(NULL);
 		}
 	}
 }
@@ -789,7 +811,7 @@ void CMissile::setup_physic_shell()
 	R_ASSERT(!m_pPhysicsShell);
 	create_physic_shell();
 	m_pPhysicsShell->Activate(XFORM(), 0, XFORM()); //,true 
-	IKinematics* kinematics = smart_cast<IKinematics*>(Visual());
+	IKinematics *kinematics = PKinematics(Visual());
 	R_ASSERT(kinematics);
 	kinematics->CalculateBones_Invalidate();
 	kinematics->CalculateBones(TRUE);
@@ -823,7 +845,7 @@ void CMissile::render_item_ui()
 void CMissile::ExitContactCallback(bool& do_colide, bool bo1, dContact& c, SGameMtl* /*material_1*/,
                                    SGameMtl* /*material_2*/)
 {
-	dxGeomUserData *gd1 = nullptr, *gd2 = nullptr;
+	dxGeomUserData *gd1 = NULL, *gd2 = NULL;
 	if (bo1)
 	{
 		gd1 = PHRetrieveGeomUserData(c.geom.g1);

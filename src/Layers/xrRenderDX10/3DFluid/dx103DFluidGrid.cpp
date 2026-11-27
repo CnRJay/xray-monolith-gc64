@@ -33,25 +33,17 @@ namespace
 #define VERTICES_PER_LINE 2
 #define LINES_PER_SLICE 4
 
-dx103DFluidGrid::dx103DFluidGrid()
-{
-	m_pRenderQuadBuffer = 0;
-	m_pSlicesBuffer = 0;
-	m_pBoundarySlicesBuffer = 0;
-	m_pBoundaryLinesBuffer = 0;
-
-	m_vDim.set(0, 0, 0);
-	m_iMaxDim = 0;
-	m_iCols = 0;
-	m_iRows = 0;
-	m_iNumVerticesRenderQuad = 0;
-	m_iNumVerticesSlices = 0;
-	m_iNumVerticesBoundarySlices = 0;
-	m_iNumVerticesBoundaryLines = 0;
-}
+dx103DFluidGrid::dx103DFluidGrid() {}
 
 dx103DFluidGrid::~dx103DFluidGrid() { DestroyVertexBuffers(); }
 
+void dx103DFluidGrid::DestroyVertexBuffers()
+{
+	_RELEASE(m_pRenderQuadBuffer);
+	_RELEASE(m_pSlicesBuffer);
+	_RELEASE(m_pBoundarySlicesBuffer);
+	_RELEASE(m_pBoundaryLinesBuffer);
+}
 
 void dx103DFluidGrid::Initialize(int gridWidth, int gridHeight, int gridDepth)
 {
@@ -75,8 +67,6 @@ void dx103DFluidGrid::CreateVertexBuffers()
 	//	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32B32_FLOAT,       0,12, D3Dxx_INPUT_PER_VERTEX_DATA, 0 }, 
 	//};
 
-	DestroyVertexBuffers();
-
 	static D3DVERTEXELEMENT9 layoutDesc[] =
 	{
 		{0, 0, D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
@@ -90,10 +80,10 @@ void dx103DFluidGrid::CreateVertexBuffers()
 	//CreateLayout( layoutDesc, numElements, technique, &layout);
 
 	int index = 0;
-	VS_INPUT_FLUIDSIM_STRUCT* renderQuad = nullptr;
-	VS_INPUT_FLUIDSIM_STRUCT* slices = nullptr;
-	VS_INPUT_FLUIDSIM_STRUCT* boundarySlices = nullptr;
-	VS_INPUT_FLUIDSIM_STRUCT* boundaryLines = nullptr;
+	VS_INPUT_FLUIDSIM_STRUCT* renderQuad = NULL;
+	VS_INPUT_FLUIDSIM_STRUCT* slices = NULL;
+	VS_INPUT_FLUIDSIM_STRUCT* boundarySlices = NULL;
+	VS_INPUT_FLUIDSIM_STRUCT* boundaryLines = NULL;
 
 	m_iNumVerticesRenderQuad = VERTICES_PER_SLICE * m_vDim[2];
 	renderQuad = xr_alloc<VS_INPUT_FLUIDSIM_STRUCT>(m_iNumVerticesRenderQuad);
@@ -157,20 +147,13 @@ void dx103DFluidGrid::CreateVertexBuffers()
 	xr_free(renderQuad);
 
 	xr_free(slices);
-	slices = nullptr;
+	slices = NULL;
 
 	xr_free(boundarySlices);
-	boundarySlices = nullptr;
+	boundarySlices = NULL;
 
 	xr_free(boundaryLines);
-	boundaryLines = nullptr;
-}
-
-void dx103DFluidGrid::DestroyVertexBuffers() {
-	_RELEASE(m_pRenderQuadBuffer);
-	_RELEASE(m_pSlicesBuffer);
-	_RELEASE(m_pBoundarySlicesBuffer);
-	_RELEASE(m_pBoundaryLinesBuffer);
+	boundaryLines = NULL;
 }
 
 void dx103DFluidGrid::InitScreenSlice(VS_INPUT_FLUIDSIM_STRUCT** vertices, int z, int& index)

@@ -34,6 +34,7 @@
 #include "artefact.h"
 #include "sight_manager_space.h"
 #include "script_attachment_manager.h"
+#include "WeaponBinoculars.h"
 
 using namespace luabind;
 
@@ -64,6 +65,57 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("patrol_path_make_inactual", SAFE_WRAP(&CScriptGameObject::patrol_path_make_inactual))
 		.def("enable_memory_object", SAFE_WRAP(&CScriptGameObject::enable_memory_object))
 		.def("set_vision_speed", SAFE_WRAP(&CScriptGameObject::set_vision_speed))
+		.def("set_visible_enemy_bias", SAFE_WRAP(&CScriptGameObject::set_visible_enemy_bias))
+		.def("set_hit_redirect", SAFE_WRAP(&CScriptGameObject::set_hit_redirect))
+		.def("set_view_distance_factor", SAFE_WRAP(&CScriptGameObject::set_view_distance_factor))
+		.def("set_health_restore_boost", SAFE_WRAP(&CScriptGameObject::set_health_restore_boost))
+		.def("set_movement_hold", SAFE_WRAP(&CScriptGameObject::set_movement_hold))
+		.def("get_monster_state", SAFE_WRAP(&CScriptGameObject::get_monster_state))
+		.def("is_monster_jumping", SAFE_WRAP(&CScriptGameObject::is_monster_jumping))
+		.def("get_monster_jump_flags", SAFE_WRAP(&CScriptGameObject::get_monster_jump_flags))
+		.def("get_burer_shield_active", SAFE_WRAP(&CScriptGameObject::get_burer_shield_active))
+		.def("get_chimera_attack_phase", SAFE_WRAP(&CScriptGameObject::get_chimera_attack_phase))
+		.def("get_poltergeist_hidden", SAFE_WRAP(&CScriptGameObject::get_poltergeist_hidden))
+		.def("get_poltergeist_subtype", SAFE_WRAP(&CScriptGameObject::get_poltergeist_subtype))
+		.def("get_monster_rank", SAFE_WRAP(&CScriptGameObject::get_monster_rank))
+		.def("ability_invisibility", SAFE_WRAP(&CScriptGameObject::ability_invisibility))
+		.def("ability_can_drag", SAFE_WRAP(&CScriptGameObject::ability_can_drag))
+		.def("ability_psi_attack", SAFE_WRAP(&CScriptGameObject::ability_psi_attack))
+		.def("ability_earthquake", SAFE_WRAP(&CScriptGameObject::ability_earthquake))
+		.def("ability_can_jump", SAFE_WRAP(&CScriptGameObject::ability_can_jump))
+		.def("ability_distant_feel", SAFE_WRAP(&CScriptGameObject::ability_distant_feel))
+		.def("ability_run_attack", SAFE_WRAP(&CScriptGameObject::ability_run_attack))
+		.def("ability_rotation_jump", SAFE_WRAP(&CScriptGameObject::ability_rotation_jump))
+		.def("ability_jump_over_physics", SAFE_WRAP(&CScriptGameObject::ability_jump_over_physics))
+		.def("can_attack_on_move", SAFE_WRAP(&CScriptGameObject::can_attack_on_move))
+		.def("get_monster_morale", SAFE_WRAP(&CScriptGameObject::get_monster_morale))
+		.def("get_psy_influence", SAFE_WRAP(&CScriptGameObject::get_psy_influence))
+		.def("get_radiation_influence", SAFE_WRAP(&CScriptGameObject::get_radiation_influence))
+		.def("get_fire_influence", SAFE_WRAP(&CScriptGameObject::get_fire_influence))
+		.def("get_monster_cover_vertex", SAFE_WRAP(&CScriptGameObject::get_monster_cover_vertex))
+		.def("set_monster_attack_dist", SAFE_WRAP(&CScriptGameObject::set_monster_attack_dist))
+		.def("set_monster_jump_params", SAFE_WRAP(&CScriptGameObject::set_monster_jump_params))
+		.def("set_chimera_attack_params", SAFE_WRAP(&CScriptGameObject::set_chimera_attack_params))
+		.def("set_burer_gravi_params", SAFE_WRAP(&CScriptGameObject::set_burer_gravi_params))
+		.def("set_burer_tele_params", SAFE_WRAP(&CScriptGameObject::set_burer_tele_params))
+		.def("set_controller_tube_params", SAFE_WRAP(&CScriptGameObject::set_controller_tube_params))
+		.def("set_controller_stamina_hit", SAFE_WRAP(&CScriptGameObject::set_controller_stamina_hit))
+		.def("set_poltergeist_detection_params", SAFE_WRAP(&CScriptGameObject::set_poltergeist_detection_params))
+		.def("set_poltergeist_height_params", SAFE_WRAP(&CScriptGameObject::set_poltergeist_height_params))
+		.def("set_monster_attack_on_move_params", SAFE_WRAP(&CScriptGameObject::set_monster_attack_on_move_params))
+		.def("set_monster_run_attack_params", SAFE_WRAP(&CScriptGameObject::set_monster_run_attack_params))
+		.def("set_monster_jump_flags", SAFE_WRAP(&CScriptGameObject::set_monster_jump_flags))
+		.def("set_monster_aura_params", SAFE_WRAP(&CScriptGameObject::set_monster_aura_params))
+		.def("set_bloodsucker_vis_timing", SAFE_WRAP(&CScriptGameObject::set_bloodsucker_vis_timing))
+		.def("set_monster_turn_factor", SAFE_WRAP(&CScriptGameObject::set_monster_turn_factor))
+		.def("set_monster_dest", SAFE_WRAP(&CScriptGameObject::set_monster_dest))
+		.def("clear_monster_dest", SAFE_WRAP(&CScriptGameObject::clear_monster_dest))
+		.def("try_monster_jump", SAFE_WRAP(&CScriptGameObject::try_monster_jump))
+		.def("try_monster_rotation_jump", SAFE_WRAP(&CScriptGameObject::try_monster_rotation_jump))
+		.def("try_monster_run_attack", SAFE_WRAP(&CScriptGameObject::try_monster_run_attack))
+		.def("try_monster_threaten", SAFE_WRAP(&CScriptGameObject::try_monster_threaten))
+		.def("monster_capture_control", SAFE_WRAP(&CScriptGameObject::monster_capture_control))
+		.def("monster_release_control", SAFE_WRAP(&CScriptGameObject::monster_release_control))
 		.def("active_sound_count", SAFE_WRAP((int (CScriptGameObject::*)())(&CScriptGameObject::active_sound_count)))
 		.def("active_sound_count", SAFE_WRAP((int (CScriptGameObject::*)(bool))(&CScriptGameObject::active_sound_count)))
 		.def("best_cover", SAFE_WRAP(&CScriptGameObject::best_cover))
@@ -144,8 +196,10 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 
 		.def("bone_transform", SAFE_WRAP((Fmatrix(CScriptGameObject::*)(u16))(&CScriptGameObject::bone_transform)))
 		.def("bone_transform", SAFE_WRAP((Fmatrix(CScriptGameObject::*)(u16, bool))(&CScriptGameObject::bone_transform)))
+		.def("bone_transform", SAFE_WRAP((Fmatrix(CScriptGameObject::*)(u16, bool, bool))(&CScriptGameObject::bone_transform)))
 		.def("bone_transform", SAFE_WRAP((Fmatrix(CScriptGameObject::*)(LPCSTR))(&CScriptGameObject::bone_transform)))
 		.def("bone_transform", SAFE_WRAP((Fmatrix(CScriptGameObject::*)(LPCSTR, bool))(&CScriptGameObject::bone_transform)))
+		.def("bone_transform", SAFE_WRAP((Fmatrix(CScriptGameObject::*)(LPCSTR, bool, bool))(&CScriptGameObject::bone_transform)))
 
 		.def("bone_parent", SAFE_WRAP((u16(CScriptGameObject::*)(u16))(&CScriptGameObject::bone_parent)))
 		.def("bone_parent", SAFE_WRAP((u16(CScriptGameObject::*)(u16, bool))(&CScriptGameObject::bone_parent)))
@@ -164,6 +218,11 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 
 		// demonized: list all bones
 		.def("list_bones", SAFE_WRAP(&CScriptGameObject::list_bones))
+
+#ifdef CBULLETMANAGER_EX
+		.def("GetBulletCheckVisual", SAFE_WRAP(&CScriptGameObject::GetBulletCheckVisual))
+		.def("SetBulletCheckVisual", SAFE_WRAP(&CScriptGameObject::SetBulletCheckVisual))
+#endif
 
 		//////////////////////////////////////////////////////////////////////////
 		// Space restrictions
@@ -267,7 +326,7 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 
 		.def("item_allow_trade", &CScriptGameObject::ItemAllowTrade)
 		.def("item_deny_trade", &CScriptGameObject::ItemDenyTrade)
-	
+
 		.def("switch_to_trade", &CScriptGameObject::SwitchToTrade)
 		.def("switch_to_upgrade", &CScriptGameObject::SwitchToUpgrade)
 		.def("switch_to_talk", &CScriptGameObject::SwitchToTalk)
@@ -461,6 +520,7 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("can_kill_enemy", SAFE_WRAP(&CScriptGameObject::can_kill_enemy))
 		.def("can_kill_member", SAFE_WRAP(&CScriptGameObject::can_kill_member))
 		.def("fire_make_sense", SAFE_WRAP(&CScriptGameObject::fire_make_sense))
+		.def("is_hit_anim_playing", SAFE_WRAP(&CScriptGameObject::is_hit_anim_playing))
 
 		.def("aim_bone_id", SAFE_WRAP((void (CScriptGameObject::*)(LPCSTR))&CScriptGameObject::aim_bone_id))
 		.def("aim_bone_id", SAFE_WRAP((LPCSTR (CScriptGameObject::*)() const)&CScriptGameObject::aim_bone_id))
@@ -505,9 +565,11 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("has_upgrade", SAFE_WRAP(&CScriptGameObject::HasUpgrade))
 		.def("iterate_installed_upgrades", &CScriptGameObject::IterateInstalledUpgrades)
 		.def("weapon_in_grenade_mode", &CScriptGameObject::WeaponInGrenadeMode)
+		.def("get_launch_speed", SAFE_WRAP(&CScriptGameObject::GetLaunchSpeed))
 		// For CHudItem
 		.def("play_hud_motion", SAFE_WRAP(&CScriptGameObject::PlayHudMotion))
 		.def("switch_state", SAFE_WRAP(&CScriptGameObject::SwitchState))
+		.def("get_current_motion", SAFE_WRAP(&CScriptGameObject::GetCurrentMotion))
 		.def("get_state", SAFE_WRAP(&CScriptGameObject::GetState))
 		.def("hud_fire_point", SAFE_WRAP(&CScriptGameObject::hud_fire_point))
 		.def("hud_fire_point2", SAFE_WRAP(&CScriptGameObject::hud_fire_point2))
@@ -527,6 +589,8 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("set_hud_fire_bone2", SAFE_WRAP((void (CScriptGameObject::*)(LPCSTR))(&CScriptGameObject::set_hud_fire_bone2)))
 		.def("set_hud_fire_bone_silencer", SAFE_WRAP((void (CScriptGameObject::*)(u16))(&CScriptGameObject::set_hud_fire_bone_silencer)))
 		.def("set_hud_fire_bone_silencer", SAFE_WRAP((void (CScriptGameObject::*)(LPCSTR))(&CScriptGameObject::set_hud_fire_bone_silencer)))
+		.def("hud_inertion_enabled", SAFE_WRAP(&CScriptGameObject::hud_inertion_enabled))
+		.def("set_hud_inertion_enabled", SAFE_WRAP(&CScriptGameObject::set_hud_inertion_enabled))
 		// For EatableItem
 		.def("set_remaining_uses", SAFE_WRAP(&CScriptGameObject::SetRemainingUses))
 		.def("get_remaining_uses", SAFE_WRAP(&CScriptGameObject::GetRemainingUses))
@@ -552,6 +616,7 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("cast_Ammo", &CScriptGameObject::cast_Ammo)
 		.def("cast_Weapon", &CScriptGameObject::cast_Weapon)
 		.def("cast_Knife", &CScriptGameObject::cast_Knife)
+		.def("cast_Binoculars", &CScriptGameObject::cast_Binoculars)
 		.def("cast_WeaponMagazined", &CScriptGameObject::cast_WeaponMagazined)
 		.def("cast_WeaponMagazinedWGrenade", &CScriptGameObject::cast_WeaponMagazinedWGrenade)
 		.def("cast_EatableItem", SAFE_WRAP(&CScriptGameObject::cast_EatableItem))
@@ -622,8 +687,9 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("update_weight", SAFE_WRAP(&CScriptGameObject::UpdateWeight))
 		.def("get_total_weight_force_update", SAFE_WRAP(&CScriptGameObject::GetTotalWeightForceUpdate))
 
-		// demonized: get luminosity as displayed in ui
-		.def("get_actor_ui_luminosity", &CScriptGameObject::GetActorUILuminosity)
+        // NLTP_ASHES : get_actor_ui_luminosity deprecated. Prefer using get_actor_visibility, which better describes what the value represents
+		.def("get_actor_ui_luminosity", &CScriptGameObject::GetActorVisibility)
+        .def("get_actor_visibility", &CScriptGameObject::GetActorVisibility)
 
 		.def("weight", SAFE_WRAP(&CScriptGameObject::Weight))
 
@@ -661,6 +727,13 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("get_actor_lookout_coef", SAFE_WRAP(&CScriptGameObject::GetActorLookoutCoef))
 		.def("set_actor_lookout_coef", SAFE_WRAP(&CScriptGameObject::SetActorLookoutCoef))
 
+        // Boeker: adjust zoom inertia factor
+        .def("set_zoom_inertion_factor", SAFE_WRAP(&CScriptGameObject::SetZoomInertionFactor))
+
+        // verdatim: Adjust damager stagger time factor
+        .def("get_actor_damage_stagger_time_factor", SAFE_WRAP(&CScriptGameObject::GetActorDamageStaggerTimeFactor))
+        .def("set_actor_damage_stagger_time_factor", SAFE_WRAP(&CScriptGameObject::SetActorDamageStaggerTimeFactor))
+
 		// demonized: add getters and setters for pathfinding for npcs around anomalies and damage for npcs
 		.def("get_enable_anomalies_pathfinding", SAFE_WRAP(&CScriptGameObject::get_enable_anomalies_pathfinding))
 		.def("set_enable_anomalies_pathfinding", SAFE_WRAP(&CScriptGameObject::set_enable_anomalies_pathfinding))
@@ -674,6 +747,7 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		// demonized: get current scope texture
 		.def("get_scope_ui", &CScriptGameObject::get_scope_ui)
 		.def("set_scope_ui", &CScriptGameObject::set_scope_ui)
+		.def("reset_scope_ui", &CScriptGameObject::reset_scope_ui)
 #endif
 
 		.def("set_can_be_harmed", SAFE_WRAP(&CScriptGameObject::SetCanBeHarmed))
@@ -686,9 +760,16 @@ class_<CScriptGameObject> script_register_game_object2(class_<CScriptGameObject>
 		.def("remove_attachment", SAFE_WRAP((void (CScriptGameObject::*)(script_attachment*)) &CScriptGameObject::RemoveAttachment))
 		.def("iterate_attachments", SAFE_WRAP(&CScriptGameObject::IterateAttachments))
 
+        // Lucy: Shader/Texture
 		.def("get_shaders", SAFE_WRAP(&CScriptGameObject::GetShaders))
 		.def("get_default_shaders", SAFE_WRAP(&CScriptGameObject::GetDefaultShaders))
 		.def("set_shader", SAFE_WRAP(&CScriptGameObject::SetShaderTexture))
 		.def("reset_shader", SAFE_WRAP(&CScriptGameObject::ResetShaderTexture))
+		.def("get_hud_motion_item_shaders", SAFE_WRAP(&CScriptGameObject::GetHudMotionItemShaders))
+		.def("set_hud_motion_item_shader", SAFE_WRAP(&CScriptGameObject::SetHudMotionItemShader))
+		.def("reset_hud_motion_item_shader", SAFE_WRAP(&CScriptGameObject::ResetHudMotionItemShader))
+		.def("get_legs_shaders", SAFE_WRAP(&CScriptGameObject::GetLegsShaders))
+		.def("set_legs_shader", SAFE_WRAP(&CScriptGameObject::SetLegsShader))
+		.def("reset_legs_shader", SAFE_WRAP(&CScriptGameObject::ResetLegsShader))
 		;
 }

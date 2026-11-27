@@ -54,18 +54,8 @@ void CMovementManager::show_game_path_info()
 
 void CMovementManager::process_game_path()
 {
-	START_PROFILE("Build Path/Process Game Path")
+	START_PROFILE("Build Path/Process Game Path", PROF_CAT(Navigation))
 		;
-
-		if (!ai().game_graph().valid_vertex_id(object().ai_location().game_vertex_id()))
-		{
-			Msg("! Object [%s] is in invalid game vertex [%d]", *object().cName(),
-				object().ai_location().game_vertex_id());
-			return;
-		}
-		ai().game_graph().vertex(
-			game_path().intermediate_vertex_id()
-		)->level_vertex_id();
 
 		if (m_path_state != ePathStateTeleport)
 		{

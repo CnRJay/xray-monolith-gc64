@@ -7,7 +7,11 @@
 #include "../../include/xrRender/RenderVisual.h"
 #include "../../xrEngine/xr_object.h"
 #include "../xrRender/lighttrack.h"
+#include "../xrServerEntities/smart_cast.h"
 
+#ifndef _EDITOR
+#include "../../xrCPU_Pipe/ttapi.h"
+#endif
 
 
 // tir2.xrdemo		-> 45.2
@@ -52,13 +56,13 @@ CLightProjector::~CLightProjector()
 	RT.destroy();
 }
 
-void CLightProjector::set_object(IRenderable* O)
+void CLightProjector::set_object(IRenderable* O, IDSGraphManager& DM)
 {
+	xrCriticalSectionGuard guard(&cs);
 	if ((0 == O) || (receivers.size() >= P_o_count)) current = 0;
 	else
 	{
-		if (!O->renderable_ShadowReceive() || RImplementation.val_bInvisible || ((CROS_impl*)O->renderable_ROS())->
-			shadow_recv_frame == Device.dwFrame)
+		if (!O->renderable_ShadowReceive() || DM.i_mask[IDSGraphManager::fl_invisible] || ((CROS_impl*)O->renderable_ROS())->shadow_recv_frame == Device.dwFrame)
 		{
 			current = 0;
 			return;
@@ -75,14 +79,14 @@ void CLightProjector::set_object(IRenderable* O)
 
 		if (current)
 		{
-			ISpatial* spatial = fast_dynamic_cast<ISpatial*>(O);
+			ISpatialShared spatial = O->SpatialComponent;
 			if (0 == spatial) current = 0;
 			else
 			{
 				spatial->spatial_updatesector();
 				if (0 == spatial->spatial.sector)
 				{
-					CObject* obj = fast_dynamic_cast<CObject*>(O);
+					CObject* obj = smart_cast<CObject*>(O);
 					if (obj) Msg("! Invalid object '%s' position. Outside of sector structure.", obj->cName().c_str());
 					current = 0;
 				}
@@ -129,13 +133,87 @@ void CLightProjector::OnAppActivate()
 
 //
 #include "../xrRender/SkeletonCustom.h"
+#include "../xrRender/FHierrarhyVisual.h"
+#include "../xrRender/SkeletonCustom.h"
+#include "../../xrEngine/Fmesh.h"
+#include "../xrRender/FLOD.h"
+
+void r_dsgraph_render_R1_box(xr_vector<dxRender_Visual*>& lstVisuals, CSector* _S, Fbox& BB, int sh)
+{
+	CSector* S = _S;
+	lstVisuals.clear();
+	lstVisuals.push_back(S->root());
+
+	for (u32 i = 0; i < lstVisuals.size(); ++i)
+	{
+        auto V = lstVisuals[i];
+		// Visual is 100% visible - simply add it
+		switch (V->Type)
+		{
+		case MT_HIERRARHY:
+		{
+			// Add all children
+			FHierrarhyVisual* pV = (FHierrarhyVisual*)V;
+			auto I = pV->children.begin();
+			auto E = pV->children.end();
+			for (; I != E; ++I)
+			{
+				dxRender_Visual* T = (dxRender_Visual*)*I;
+				if (BB.intersect(T->vis.box)) lstVisuals.push_back(T);
+			}
+		}
+		break;
+		case MT_SKELETON_ANIM:
+		case MT_SKELETON_RIGID:
+		{
+			// Add all children	(s)
+			CKinematics* pV = (CKinematics*)V;
+			pV->CalculateBones(TRUE);
+			auto I = pV->children.begin();
+			auto E = pV->children.end();
+			for (; I != E; ++I)
+			{
+				dxRender_Visual* T = (dxRender_Visual*)*I;
+				if (BB.intersect(T->vis.box)) lstVisuals.push_back(T);
+			}
+		}
+		break;
+		case MT_LOD:
+		{
+			FLOD* pV = (FLOD*)V;
+			auto I = pV->children.begin();
+			auto E = pV->children.end();
+			for (; I != E; ++I)
+			{
+				dxRender_Visual* T = (dxRender_Visual*)*I;
+				if (BB.intersect(T->vis.box)) lstVisuals.push_back(T);
+			}
+		}
+		break;
+		default:
+		{
+			// Renderable visual
+			ShaderElement* E_ = V->shader->E[sh]._get();
+			if (E_ && !(E_->flags.bDistort))
+			{
+				for (u32 pass = 0; pass < E_->passes.size(); pass++)
+				{
+					RCache.set_Element(E_, pass);
+					V->Render(-1.f);
+				}
+			}
+		}
+		break;
+		}
+	}
+}
 
 void CLightProjector::calculate()
 {
 #ifdef _GPA_ENABLED
 	TAL_SCOPED_TASK_NAMED("CLightProjector::calculate()");
 #endif // _GPA_ENABLED
-
+	xrCriticalSectionGuard guard(&cs);
 	if (receivers.empty()) return;
 
 	// perform validate / markup
@@ -235,7 +313,7 @@ void CLightProjector::calculate()
 		v.sub(v_Cs, v_C);;
 #ifdef DEBUG
 		if ((v.x * v.x + v.y * v.y + v.z * v.z) <= flt_zero) {
-			CObject* OO = fast_dynamic_cast<CObject*>(R.O);
+			CObject* OO = smart_cast<CObject*>(R.O);
 			Msg("Object[%s] Visual[%s] has invalid position. ", *OO->cName(), *OO->cNameVisual());
 			Fvector cc;
 			OO->Center(cc);
@@ -250,7 +328,7 @@ void CLightProjector::calculate()
 			Log("v_Cs", v_Cs);
 
 			Log("all bones transform:--------");
-			CKinematics* K = fast_dynamic_cast<CKinematics*>(OO->Visual());
+			CKinematics* K = smart_cast<CKinematics*>(OO->Visual());
 
 			for (u16 ii = 0; ii < K->LL_BoneCount(); ++ii) {
 				Fmatrix tr;
@@ -278,7 +356,7 @@ void CLightProjector::calculate()
 		// Select slot, set viewport
 		int s_x = c_it % P_o_line;
 		int s_y = c_it / P_o_line;
-		D3DVIEWPORT9 VP = { static_cast<DWORD>(s_x * P_o_size), static_cast<DWORD>(s_y * P_o_size), P_o_size, P_o_size, 0, 1 };
+		D3DVIEWPORT9 VP = { s_x * P_o_size, s_y * P_o_size, P_o_size, P_o_size, 0, 1 };
 		CHK_DX(HW.pDevice->SetViewport(&VP));
 
 		// Clear color to ambience
@@ -315,12 +393,12 @@ void CLightProjector::calculate()
 		BB.set(min, max);
 		R.UVclamp_min.set(min).add(.05f); // shrink a little
 		R.UVclamp_max.set(max).sub(.05f); // shrink a little
-		ISpatial* spatial = fast_dynamic_cast<ISpatial*>(O);
+		ISpatialShared spatial = O->SpatialComponent;
 		if (spatial)
 		{
 			spatial->spatial_updatesector();
-			if (spatial->spatial.sector) RImplementation.r_dsgraph_render_R1_box(
-				spatial->spatial.sector, BB, SE_R1_LMODELS);
+			if (spatial->spatial.sector)
+				r_dsgraph_render_R1_box(lstVisuals, (CSector*)spatial->spatial.sector, BB, SE_R1_LMODELS);
 		}
 		//if (spatial)		RImplementation.r_dsgraph_render_subspace	(spatial->spatial.sector,mCombine,v_C,FALSE);
 	}
@@ -336,7 +414,7 @@ void CLightProjector::calculate()
 
 		// Actual rendering (pass0, temp2real)
 		RCache.set_RT				(RT->pRT);
-		RCache.set_ZB				(nullptr);
+		RCache.set_ZB				(NULL);
 		RCache.set_Shader			(sh_BlurTR	);
 		RCache.set_Geometry			(geom_Blur	);
 		RCache.Render				(D3DPT_TRIANGLELIST,Offset,0,4,0,2);

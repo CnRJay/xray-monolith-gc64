@@ -67,7 +67,7 @@ void PrintStack()
 void FlushLogs()
 {
 	//#ifdef DEBUG
-	FlushLog();
+	xrLogger::FlushLog();
 #ifdef LUA_DEBUG_PRINT //DEBUG
     ai().script_engine().flush_log();
 #endif // DEBUG

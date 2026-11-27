@@ -3,6 +3,8 @@
 
 #include "QueryHelper.h"
 
+extern ECORE_API BOOL occq_debug;
+
 R_occlusion::R_occlusion(void)
 {
 	enabled = TRUE;
@@ -15,7 +17,7 @@ R_occlusion::~R_occlusion(void)
 
 void R_occlusion::occq_create(u32 limit)
 {
-	enabled = strstr(Core.Params, "-no_occq") ? FALSE : TRUE;
+	enabled = !Core.ParamsData.test(ECoreParams::no_occq);
 	pool.reserve(limit);
 	used.reserve(limit);
 	fids.reserve(limit);
@@ -46,16 +48,51 @@ void R_occlusion::occq_destroy()
 	fids.clear();
 }
 
+void R_occlusion::occq_refresh()
+{
+	if (!enabled) return;
+	
+	PROF_EVENT("R_occlusion::occq_refresh", PROF_CAT(Visibility));
+	if (!used.empty())
+	{
+		while	(!used.empty())	{
+			_RELEASE(used.back().Q);
+			used.pop_back	();
+		}
+		used.clear	();
+	}
+	if (!fids.empty())
+		fids.clear	();
+}
+
+void R_occlusion::occq_stats()
+{
+	if (occq_debug)
+		Msg("R_occlusion::occq_stats: pool: %d fids: %d used: %d", pool.size(), fids.size(), used.size());
+}
+
 u32 R_occlusion::occq_begin(u32& ID)
 {
+	PROF_EVENT("R_occlusion::occq_begin", PROF_CAT(Visibility));
 	if (!enabled) return 0;
 
 	//	Igor: prevent release crash if we issue too many queries
 	if (pool.empty())
 	{
-		//		if ((Device.dwFrame % 40) == 0)
-		//			Msg(" RENDER [Warning]: Too many occlusion queries were issued(>1536)!!!");
+		if (occq_debug && Device.dwFrame % 40 == 0)
+			Msg(" RENDER [Warning]: Too many occlusion queries were issued(>1536)!!!");
 		ID = iInvalidHandle;
+
+		//HACK: recreate HWOCC
+		occq_destroy();
+		occq_create(occq_size);
+
+		if (pool.empty()) //error in recreating stage :(
+		{
+			occq_destroy();
+			enabled = FALSE;
+		}
+
 		return 0;
 	}
 
@@ -84,6 +121,7 @@ u32 R_occlusion::occq_begin(u32& ID)
 
 void R_occlusion::occq_end(u32& ID)
 {
+	PROF_EVENT("R_occlusion::occq_end", PROF_CAT(Visibility));
 	if (!enabled) return;
 
 	//	Igor: prevent release crash if we issue too many queries
@@ -94,7 +132,8 @@ void R_occlusion::occq_end(u32& ID)
 	CHK_DX(EndQuery(used[ID].Q));
 }
 
-void R_occlusion::occq_close(u32& ID) {
+void R_occlusion::occq_close(u32& ID)
+{
 	if (ID == iInvalidHandle || ID >= used.size())
 		return;
 
@@ -113,7 +152,7 @@ void R_occlusion::occq_close(u32& ID) {
 		pool.insert(pool.begin() + it + 1, Q);
 	}
 
-	// remove from used and shrink as nesessary
+	// remove from used and shrink as necessary
 	used[ID].Q = 0;
 	fids.push_back(ID);
 	ID = 0;
@@ -124,23 +163,27 @@ R_occlusion::occq_try_result R_occlusion::occq_try_get(u32 ID)
 {
 	occq_result fragments = 0;
 
-	if (enabled && ID != iInvalidHandle) {
+	if (enabled && ID != iInvalidHandle)
+	{
 		auto status = GetData(used[ID].Q, &fragments, sizeof(fragments));
 
-		if (status == S_FALSE) {
+		if (status == S_FALSE)
+		{
 			return { false, fragments };
 		}
 
-		if (status == S_OK) {
+		if (status == S_OK)
+		{
 			if (0 == fragments) RImplementation.stats.o_culled++;
 		}
 	}
 	occq_close(ID);
-	return  { true, fragments };
+	return { true, fragments };
 }
 
 R_occlusion::occq_result R_occlusion::occq_get(u32& ID)
 {
+	PROF_EVENT("R_occlusion::occq_get", PROF_CAT(Visibility));
 	if (!enabled) return 0xffffffff;
 
 	//	Igor: prevent release crash if we issue too many queries
@@ -155,6 +198,25 @@ R_occlusion::occq_result R_occlusion::occq_get(u32& ID)
 	Device.Statistic->RenderDUMP_Wait.Begin();
 	//while	((hr=used[ID].Q->GetData(&fragments,sizeof(fragments),D3DGETDATA_FLUSH))==S_FALSE) {
 	VERIFY2(ID<used.size(), make_string("_Pos = %d, size() = %d ", ID, used.size()));
+#if XRCORE_PROFILER == PROFILER_OPTICK
+	// One zone around the spin, only when the first result is not ready
+	if ((hr = GetData(used[ID].Q, &fragments, sizeof(fragments))) == S_FALSE)
+	{
+		PROF_EVENT("GPU::GetData", PROF_CAT(Wait));
+		do
+		{
+			if (!SwitchToThread())
+				Sleep(ps_r2_wait_sleep);
+
+			if (T.GetElapsed_ms() > 500)
+			{
+				fragments = (occq_result)-1;
+				break;
+			}
+		}
+		while ((hr = GetData(used[ID].Q, &fragments, sizeof(fragments))) == S_FALSE);
+	}
+#else
 	while ((hr = GetData(used[ID].Q, &fragments, sizeof(fragments))) == S_FALSE)
 	{
 		if (!SwitchToThread())
@@ -166,6 +228,7 @@ R_occlusion::occq_result R_occlusion::occq_get(u32& ID)
 			break;
 		}
 	}
+#endif
 	Device.Statistic->RenderDUMP_Wait.End();
 	if (hr == D3DERR_DEVICELOST) fragments = 0xffffffff;
 

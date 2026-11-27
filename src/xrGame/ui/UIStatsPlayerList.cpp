@@ -18,10 +18,10 @@ CUIStatsPlayerList::CUIStatsPlayerList()
 	m_bStatus_mode = false;
 
 	m_header = xr_new<CUIStatic>();
-	m_header_team = nullptr;
-	m_header_text = nullptr;
+	m_header_team = NULL;
+	m_header_text = NULL;
 	m_i.c = 0xff000000;
-	m_i.f = nullptr;
+	m_i.f = NULL;
 	m_i.h = 16;
 	m_h = m_i;
 	m_t = m_i;
@@ -114,7 +114,7 @@ LPCSTR CUIStatsPlayerList::GetST_entry(LPCSTR itm)
 		NODEFAULT;
 
 #ifdef DEBUG
-	return nullptr;
+	return NULL;
 #endif // DEBUG
 }
 
@@ -273,14 +273,15 @@ void CUIStatsPlayerList::Update()
 	std::sort(items.begin(), items.end(), DM_Compare_Players);
 
 	int n = (int)items.size();
-	n -= m_pad->GetChildWndList().size();
+	n -= (int)m_pad->GetChildNum();
 
 	if (n < 0)
 	{
 		n = abs(n);
+		xrCriticalSectionGuard guard(m_pad->csUi);
 		for (int i = 0; i < n; i++)
 			m_pad->DetachChild(*(m_pad->GetChildWndList().begin()));
-		m_flags.set(eNeedRecalc,TRUE);
+		m_flags.set(eNeedRecalc, TRUE);
 	}
 	else
 	{
@@ -289,12 +290,13 @@ void CUIStatsPlayerList::Update()
 			CUIStatsPlayerInfo* pi = xr_new<CUIStatsPlayerInfo>(&m_field_info, m_i.f, m_i.c);
 			pi->InitPlayerInfo(Fvector2().set(0, 0), Fvector2().set(this->GetDesiredChildWidth(), m_i.h));
 			CUIScrollView::AddWindow(pi, true);
-			m_flags.set(eNeedRecalc,TRUE);
+			m_flags.set(eNeedRecalc, TRUE);
 		}
 	}
 
-	R_ASSERT(items.size() == m_pad->GetChildWndList().size());
+	R_ASSERT(items.size() == m_pad->GetChildNum());
 
+	xrCriticalSectionGuard guard(m_pad->csUi);
 	WINDOW_LIST_it it = m_pad->GetChildWndList().begin();
 	ItemIt itit = items.begin();
 
@@ -342,7 +344,7 @@ void CUIStatsPlayerList::RecalcSize()
 	if (GetHeight() < m_pad->GetHeight())
 	{
 		SetHeight(m_pad->GetHeight());
-		GetMessageTarget()->SendMessage(this, CHILD_CHANGED_SIZE, nullptr);
+		GetMessageTarget()->SendMessage(this, CHILD_CHANGED_SIZE, NULL);
 	}
 }
 

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "RenderVisual.h"
+#include "../../xrCore/intrusive_ptr.h"
 
 typedef void (* UpdateCallback)(IKinematics* P);
 
@@ -14,12 +15,15 @@ class ISpatial;
 class CBoneInstance;
 struct SEnumVerticesCallback;
 
+using ISpatialShared = intrusive_ptr<ISpatial>;
+
 // 10 fps
 #define UCalc_Interval		(u32(100))
 
 class IKinematics
 {
 public:
+    xrCriticalSection UCalc_Mutex;
 	typedef xr_vector<std::pair<shared_str, u16>> accel;
 
 	struct pick_result
@@ -32,7 +36,7 @@ public:
 public:
 
 #ifdef OPTIMIZE_CALCULATE_BONES
-	ISpatial* spatialParent = nullptr;
+	ISpatialShared spatialParent = nullptr;
 #endif
 
 	virtual void Bone_Calculate(CBoneData* bd, Fmatrix* parent) = 0;
@@ -60,7 +64,13 @@ public:
 	virtual u16 LL_VisibleBoneCount() = 0;
 
 	virtual ICF Fmatrix& _BCL LL_GetTransform(u16 bone_id) = 0;
+	virtual ICF Fmatrix& _BCL LL_GetTransform_safed(u16 bone_id) = 0;
 	virtual ICF const Fmatrix& _BCL LL_GetTransform(u16 bone_id) const = 0;
+	virtual ICF void _BCL LL_GetBoneLocalPosition(u16 bone_id, Fvector& result) {}
+	virtual ICF void _BCL LL_GetBoneLocalTransform(u16 bone_id, Fmatrix& result) {}
+	virtual ICF void _BCL LL_GetBoneWorldPosition(u16 bone_id, const Fmatrix& xform, Fvector& result) {}
+	virtual ICF void _BCL LL_GetBoneWorldTransform(u16 bone_id, const Fmatrix& xform, Fmatrix& result) {}
+	virtual ICF void _BCL CalculateBBox(BOOL bforce = TRUE) {}
 
 	virtual ICF Fmatrix& LL_GetTransform_R(u16 bone_id) = 0;
 	virtual Fobb& LL_GetBox(u16 bone_id) = 0;
@@ -84,6 +94,8 @@ public:
 	// Main functionality
 	virtual void CalculateBones(BOOL bForceExact = FALSE) = 0; // Recalculate skeleton
 	virtual void CalculateBones_Invalidate() = 0;
+	// Copy the current bone transforms of another model
+	virtual bool CopyBonesFrom(IKinematics* from) = 0;
 	virtual void Callback(UpdateCallback C, void* Param) = 0;
 
 	//	Callback: data manipulation
@@ -101,8 +113,8 @@ public:
 	// debug
 #ifdef DEBUG
 	virtual void						DebugRender			(Fmatrix& XFORM) = 0;
-	virtual shared_str			_BCL	getDebugName		() = 0;
 #endif
+	virtual shared_str getDebugName() = 0;
 };
 
 IC IKinematics* PKinematics(IRenderVisual* V) { return V ? V->dcast_PKinematics() : 0; }

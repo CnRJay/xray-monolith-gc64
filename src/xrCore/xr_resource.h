@@ -1,4 +1,5 @@
 #pragma once
+#include "_thread_types.h"
 #include <fast_dynamic_cast/fast_dynamic_cast.hpp>
 #include "_thread_types.h"
 
@@ -129,6 +130,7 @@ public:
 	typedef T* (resptr_core::*unspecified_bool_type)() const;
 	operator unspecified_bool_type() const { return p_ == 0 ? 0 : &resptr_core::_get; }
 	bool operator!() const { return p_ == 0; }
+	operator bool() const { return p_ != 0; }
 
 	// fast swapping
 	void swap(self& rhs)
@@ -190,4 +192,4 @@ template <class T, class U, typename D>
 resptr_core<T, D> static_pointer_cast(resptr_core<U, D> const& p) { return static_cast<T*>(p.get()); }
 
 template <class T, class U, typename D>
-resptr_core<T, D> dynamic_pointer_cast(resptr_core<U, D> const& p) { return dynamic_cast<T*>(p.get()); }
+resptr_core<T, D> dynamic_pointer_cast(resptr_core<U, D> const& p) { return fast_dynamic_cast<T*>(p.get()); }

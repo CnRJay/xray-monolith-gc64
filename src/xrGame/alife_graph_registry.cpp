@@ -9,9 +9,11 @@
 #include "stdafx.h"
 #include "alife_graph_registry.h"
 #include "../xrEngine/x_ray.h"
+#include "level.h"
 
 using namespace ALife;
 
+xr_task_group level_load;
 CALifeGraphRegistry::CALifeGraphRegistry()
 {
 	m_level = 0;
@@ -26,16 +28,6 @@ CALifeGraphRegistry::~CALifeGraphRegistry()
 
 void CALifeGraphRegistry::on_load()
 {
-	for (int i = 0; i < GameGraph::LOCATION_TYPE_COUNT; ++i)
-	{
-		{
-			for (int j = 0; j < GameGraph::LOCATION_COUNT; ++j)
-				m_terrain[i][j].clear();
-		}
-		for (GameGraph::_GRAPH_ID j = 0; j < (GameGraph::_GRAPH_ID)ai().game_graph().header().vertex_count(); ++j)
-			m_terrain[i][ai().game_graph().vertex(j)->vertex_type()[i]].push_back(j);
-	}
-
 	m_objects.resize(ai().game_graph().header().vertex_count());
 
 	{
@@ -60,14 +52,28 @@ void CALifeGraphRegistry::update(CSE_ALifeDynamicObject* object)
 	if (m_actor && !m_level)
 		setup_current_level();
 
-	CSE_ALifeInventoryItem* item = object->cast_inventory_item();
+	CSE_ALifeInventoryItem* item = smart_cast<CSE_ALifeInventoryItem*>(object);
 	if (!item || !item->attached())
 		add(object, object->m_tGraphID);
 }
 
 void CALifeGraphRegistry::setup_current_level()
 {
-	m_level = xr_new<CALifeLevelRegistry>(ai().game_graph().vertex(actor()->m_tGraphID)->level_id());
+	u8 level_id = ai().game_graph().vertex(actor()->m_tGraphID)->level_id();
+
+	GameGraph::LEVEL_MAP::const_iterator I = ai().game_graph().header().levels().find(level_id);
+	Level().set_name((*I).second.name());
+	int levelid = pApp->Level_ID(*(*I).second.name(), "1.0", true);
+	static DWORD this_thread_id = 0;
+	this_thread_id = GetCurrentThreadId();
+	level_load.run([=]()
+	{
+		if (this_thread_id != GetCurrentThreadId()) { PROF_THREAD("X-Ray PPL Thread") }
+		PROF_EVENT("CALifeGraphRegistry level_load", PROF_CAT(Scene));
+		Level().Load(levelid);
+	});
+
+	m_level = xr_new<CALifeLevelRegistry>(level_id);
 	level().set_process_time(m_process_time);
 	for (int i = 0, n = ai().game_graph().header().vertex_count(); i < n; ++i)
 		if (ai().game_graph().vertex(i)->level_id() == level().level_id())
@@ -86,12 +92,9 @@ void CALifeGraphRegistry::setup_current_level()
 
 		m_temp.clear();
 	}
-	GameGraph::LEVEL_MAP::const_iterator I = ai().game_graph().header().levels().find(
-		ai().game_graph().vertex(actor()->m_tGraphID)->level_id());
 	R_ASSERT2(ai().game_graph().header().levels().end() != I, "Graph point level ID not found!");
 
-	int id = pApp->Level_ID(*(*I).second.name(), "1.0", true);
-	VERIFY3(id >= 0, "Level is corrupted or doesn't exist", *(*I).second.name());
+	VERIFY3(levelid >= 0, "Level is corrupted or doesn't exist", *(*I).second.name());
 	ai().load(*(*I).second.name());
 }
 

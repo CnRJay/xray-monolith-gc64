@@ -28,7 +28,7 @@ CCustomOutfit::CCustomOutfit()
 
 	m_boneProtection = xr_new<SBoneProtections>();
 	m_artefact_count = 0;
-	m_BonesProtectionSect = nullptr;
+	m_BonesProtectionSect = NULL;
 }
 
 CCustomOutfit::~CCustomOutfit()
@@ -95,7 +95,7 @@ void CCustomOutfit::Load(LPCSTR section)
 	if (pSettings->line_exist(section, "actor_visual"))
 		m_ActorVisual = pSettings->r_string(section, "actor_visual");
 	else
-		m_ActorVisual = nullptr;
+		m_ActorVisual = NULL;
 
 	m_ef_equipment_type = pSettings->r_u32(section, "ef_equipment_type");
 	m_fPowerLoss = READ_IF_EXISTS(pSettings, r_float, section, "power_loss", 1.0f);
@@ -159,7 +159,7 @@ float CCustomOutfit::GetBoneArmor(s16 element)
 #pragma optimize( "", off )
 float CCustomOutfit::HitThroughArmor(float hit_power, s16 element, float ap, bool& add_wound, ALife::EHitType hit_type)
 {
-	if (strstr(Core.Params, "-dbgbullet"))
+	if (Core.ParamsData.test(ECoreParams::dbgbullet))
 		Msg("CCustomOutfit::HitThroughArmor hit_type=%d | unmodified hit_power=%f", (u32)hit_type, hit_power);
 
 	float NewHitPower = hit_power;
@@ -186,7 +186,7 @@ float CCustomOutfit::HitThroughArmor(float hit_power, s16 element, float ap, boo
 
 				NewHitPower *= d_hit_power;
 
-				if (strstr(Core.Params, "-dbgbullet"))
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
 					Msg("CHelmet::HitThroughArmor AP(%f) <= bone_armor(%f) [HitFracActor=%f] modified hit_power=%f", ap,
 						BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
 			}
@@ -202,7 +202,7 @@ float CCustomOutfit::HitThroughArmor(float hit_power, s16 element, float ap, boo
 
 				NewHitPower *= d_hit_power;
 
-				if (strstr(Core.Params, "-dbgbullet"))
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
 					Msg("CHelmet::HitThroughArmor AP(%f) > bone_armor(%f) [HitFracActor=%f] modified hit_power=%f", ap,
 						BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
 			}
@@ -219,9 +219,10 @@ float CCustomOutfit::HitThroughArmor(float hit_power, s16 element, float ap, boo
 				//пуля НЕ пробила бронь
 				NewHitPower *= m_boneProtection->m_fHitFracActor;
 				//add_wound = false; 	//раны нет
-				if (strstr(Core.Params, "-dbgbullet"))
-					Msg("CHelmet::HitThroughArmor AP(%f) <= bone_armor(%f) [HitFracActor=%f] modified hit_power=%f", ap,
-						BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
+
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
+					Msg("CCustomOutfit::HitThroughArmor AP(%f) <= bone_armor(%f) [HitFracActor=%f] modified hit_power=%f",
+						ap, BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
 			}
 			else
 			{
@@ -230,9 +231,9 @@ float CCustomOutfit::HitThroughArmor(float hit_power, s16 element, float ap, boo
 
 				NewHitPower *= d_hit_power;
 
-				if (strstr(Core.Params, "-dbgbullet"))
-					Msg("CHelmet::HitThroughArmor AP(%f) > bone_armor(%f) [HitFracActor=%f] modified hit_power=%f", ap,
-						BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
+					Msg("CCustomOutfit::HitThroughArmor AP(%f) > bone_armor(%f) [HitFracActor=%f] modified hit_power=%f",
+						ap, BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
 			}
 		}
 	}
@@ -252,14 +253,14 @@ float CCustomOutfit::HitThroughArmor(float hit_power, s16 element, float ap, boo
 		if (NewHitPower < 0.f)
 			NewHitPower = 0.f;
 
-		if (strstr(Core.Params, "-dbgbullet"))
+		if (Core.ParamsData.test(ECoreParams::dbgbullet))
 			Msg("CCustomOutfit::HitThroughArmor hit_type=%d | After HitTypeProtection(%f) hit_power=%f", (u32)hit_type,
 			    protect * one, NewHitPower);
 	}
 	//увеличить изношенность костюма
 	Hit(hit_power, hit_type);
 
-	if (strstr(Core.Params, "-dbgbullet"))
+	if (Core.ParamsData.test(ECoreParams::dbgbullet))
 		Msg("CCustomOutfit::HitThroughArmor hit_type=%d | After Immunities hit_power=%f", (u32)hit_type, NewHitPower);
 
 	return NewHitPower;
@@ -302,7 +303,7 @@ void CCustomOutfit::ApplySkinModel(CActor* pActor, bool bDress, bool bHUDOnly)
 	{
 		if (!bHUDOnly && m_ActorVisual.size())
 		{
-			shared_str NewVisual = nullptr;
+			shared_str NewVisual = NULL;
 			char* TeamSection = Game().getTeamSection(pActor->g_Team());
 			if (TeamSection)
 			{

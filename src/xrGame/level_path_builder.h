@@ -78,7 +78,7 @@ public:
 			return;
 
 		m_object->m_wait_for_distributed_computation = true;
-		Device.seqParallel.push_back(fastdelegate::FastDelegate0<>(this, &CLevelPathBuilder::process));
+		Device.seqParallel.push_back(xr_make_delegate(this, &CLevelPathBuilder::process));
 	}
 
 	void process_impl(bool separate_compute = false)
@@ -112,6 +112,7 @@ public:
 
 	void __stdcall process()
 	{
+		PROF_EVENT("CLevelPathBuilder::process", PROF_CAT(Navigation));
 		// demonized: disable the check since we already do it in register_to_process
 		/*if (Device.dwTimeGlobal < m_next_retry_time)
 			return;*/
@@ -125,7 +126,7 @@ public:
 			m_object->m_wait_for_distributed_computation = false;
 
 		Device.remove_from_seq_parallel(
-			fastdelegate::FastDelegate0<>(
+			xr_make_delegate(
 				this,
 				&CLevelPathBuilder::process
 			)

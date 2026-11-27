@@ -24,8 +24,8 @@
 UIProperty::UIProperty()
 {
 	m_text[0] = 0;
-	m_ui_icon = nullptr;
-	m_ui_text = nullptr;
+	m_ui_icon = NULL;
+	m_ui_text = NULL;
 }
 
 UIProperty::~UIProperty()
@@ -62,7 +62,7 @@ UIProperty::Property_type* UIProperty::get_property()
 {
 	if (!ai().get_alife())
 	{
-		return nullptr;
+		return NULL;
 	}
 	Property_type* proper = ai().alife().inventory_upgrade_manager().get_property(m_property_id);
 	VERIFY(proper);
@@ -184,6 +184,7 @@ void UIInvUpgPropertiesWnd::init_from_xml(LPCSTR xml_name)
 		if (!ui_property->init_property(property_id))
 		{
 			Msg("! Invalid property <%s> in inventory upgrade manager!", property_id);
+			xr_delete(ui_property);
 			continue;
 		}
 

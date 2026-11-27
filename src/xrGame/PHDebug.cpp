@@ -30,7 +30,7 @@ bool		draw_frame=0;
 
 //LPCSTR	dbg_trace_object_name					=NULL;
 string64 s_dbg_trace_obj_name					="none";
-CObject	 *trace_object							= nullptr;
+CObject	 *trace_object							= NULL;
 u32	 	dbg_bodies_num							=0;
 u32	 	dbg_joints_num							=0;
 u32	 	dbg_islands_num							=0;
@@ -68,7 +68,7 @@ struct SPHObjDBGDraw:public SPHDBGDrawAbsract
 	SPHObjDBGDraw(const CPHObject* obj)
 	{
 		AABB.set(obj->AABB);
-		AABB_center.set(obj->spatial.sphere.P);
+		AABB_center.set(obj->SpatialComponent->spatial.sphere.P);
 	}
 	void render		( )
 	{
@@ -965,7 +965,7 @@ public:
 void DBG_PH_NetRelcase( CObject* obj )
 {
 	if( trace_object == obj )
-		trace_object = nullptr;
+		trace_object = NULL;
 }
 
 bool is_trace_obj( CPHObject *obj )

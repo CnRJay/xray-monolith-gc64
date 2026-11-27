@@ -3,15 +3,13 @@
 
 IC CStreamReader::CStreamReader()
 {
-	m_base_address = nullptr;
 }
 
 IC CStreamReader::CStreamReader(const CStreamReader& object) :
 	m_start_offset(object.m_start_offset),
 	m_file_size(object.m_file_size),
 	m_archive_size(object.m_archive_size),
-	m_window_size(object.m_window_size),
-	m_base_address(object.m_base_address)
+	m_window_size(object.m_window_size)
 {
 	// should be never called
 }
@@ -29,8 +27,6 @@ IC const HANDLE& CStreamReader::file_mapping_handle() const
 
 IC void CStreamReader::unmap()
 {
-	if (m_base_address)
-		return;
 	UnmapViewOfFile(m_current_map_view_of_file);
 }
 

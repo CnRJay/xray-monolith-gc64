@@ -39,4 +39,6 @@ public:
 	void HideDialog();
 
 	virtual bool IR_process();
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 };

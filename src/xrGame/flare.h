@@ -14,7 +14,7 @@ private:
 
 	CLAItem* light_lanim;
 	ref_light light_render;
-	CParticlesObject* m_pFlareParticles;
+	intrusive_ptr<CParticlesObject> m_pFlareParticles;
 	float m_work_time_sec;
 	void SwitchOn();
 	void SwitchOff();
@@ -34,4 +34,6 @@ public:
 	void ActivateFlare();
 	void DropFlare();
 	bool IsFlareActive();
+
+	virtual CFlare* cast_flare() { return this; }
 };

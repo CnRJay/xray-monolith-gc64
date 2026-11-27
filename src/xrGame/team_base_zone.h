@@ -33,6 +33,9 @@ public:
 	virtual bool feel_touch_contact(CObject* O);
 
 	virtual u8 GetZoneTeam() { return m_Team; };
+
+	virtual CTeamBaseZone* cast_team_base_zone() { return this; };
+
 #ifdef DEBUG
 	virtual	void	OnRender			();
 #endif

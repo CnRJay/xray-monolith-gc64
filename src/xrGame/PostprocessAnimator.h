@@ -175,6 +175,7 @@ public:
 	IC LPCSTR Name() { return *m_Name; }
 	virtual void Stop(float speed);
 	void SetDesiredFactor(float f, float sp);
+    float GetCurrentFactor();
 	void SetCurrentFactor(float f);
 	void SetCyclic(bool b) { m_bCyclic = b; }
 	float GetLength();
@@ -197,9 +198,9 @@ virtual	BOOL		Process							(float dt, SPPInfo &PPInfo);
 class CPostprocessAnimatorLerp : public CPostprocessAnimator
 {
 protected:
-	fastdelegate::FastDelegate0<float> m_get_factor_func;
+	xr_delegate<float()> m_get_factor_func;
 public:
-	void SetFactorFunc(fastdelegate::FastDelegate0<float> f) { m_get_factor_func = f; }
+	void SetFactorFunc(xr_delegate<float()> f) { m_get_factor_func = f; }
 	virtual BOOL Process(SPPInfo& PPInfo);
 };
 

@@ -15,6 +15,8 @@ public:
 	void InitFromXml(CUIXml& xml);
 	void SetInfo(const shared_str& section);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	UIBoosterInfoItem* m_booster_items[eBoostExplImmunity];
 	UIBoosterInfoItem* m_booster_satiety;
@@ -35,6 +37,8 @@ public:
 	void Init(CUIXml& xml, LPCSTR section);
 	void SetCaption(LPCSTR name);
 	void SetValue(float value);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 private:
 	CUIStatic* m_caption;

@@ -1,5 +1,4 @@
-#ifndef XRSHEDULER_H_INCLUDED
-#define XRSHEDULER_H_INCLUDED
+#pragma once
 
 #include "ISheduled.h"
 
@@ -8,11 +7,10 @@ class ENGINE_API CSheduler
 private:
 	struct Item
 	{
+		shared_str scheduled_name;
 		u32 dwTimeForExecute;
 		u32 dwTimeOfLastExecute;
-		shared_str scheduled_name;
 		ISheduled* Object;
-		u32 dwPadding; // for align-issues
 
 		IC bool operator <(Item& I)
 		{
@@ -30,13 +28,21 @@ private:
 private:
 	xr_vector<Item> ItemsRT;
 	xr_vector<Item> Items;
-	xr_vector<Item> ItemsProcessed;
 	xr_vector<ItemReg> Registration;
-	ISheduled* m_current_step_obj;
-	bool m_processing_now;
 
+	xrSRWLock ItemsLock;
+
+	volatile ISheduled* m_current_step_obj;
+
+	bool m_processing_now;
+	bool m_processing_nowRT;
+
+	IC void PushImpl(Item& I);
+	IC void PushImpl(Item&& I);
 	IC void Push(Item& I);
+	IC void Push(Item&& I);
 	IC void Pop();
+	IC void PopImpl();
 	IC Item& Top()
 	{
 		return Items.front();
@@ -48,9 +54,15 @@ private:
 public:
 	u64 cycles_start;
 	u64 cycles_limit;
+	volatile bool m_bTerminating;
 public:
 	void ProcessStep();
 	void Process();
+
+	void UpdateInit();
+	void UpdateRT();
+	void UpdateDeferred();
+	void UpdateFinalize();
 	void Update();
 
 #ifdef DEBUG
@@ -63,5 +75,3 @@ public:
 	void Initialize();
 	void Destroy();
 };
-
-#endif // XRSHEDULER_H_INCLUDED

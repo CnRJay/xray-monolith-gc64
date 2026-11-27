@@ -17,7 +17,7 @@
 
 CUILines::CUILines()
 {
-	m_pFont = nullptr;
+	m_pFont = NULL;
 	m_eTextAlign = CGameFont::alLeft;
 	m_eVTextAlign = valTop;
 	m_dwTextColor = 0xffffffff;
@@ -137,7 +137,7 @@ void CUILines::ParseText(bool force)
 
 	Reset();
 
-	CUILine* line = nullptr;
+	CUILine* line = NULL;
 	if (uFlags.test(flColoringMode))
 		line = ParseTextToColoredLine(m_text.c_str());
 	else
@@ -159,14 +159,14 @@ void CUILines::ParseText(bool force)
 			VERIFY(vsz);
 			for (int i = 0; i < vsz; i++)
 			{
-				char* pszTemp = nullptr;
+				char* pszTemp = NULL;
 				const u32 tcolor = line->m_subLines[i].m_color;
-				char szTempLine[ MAX_MB_CHARS ], *pszSearch = nullptr;
+				char szTempLine[ MAX_MB_CHARS ], *pszSearch = NULL;
 				size_t llen = xr_strlen(line->m_subLines[i].m_text.c_str());
 				VERIFY(llen < MAX_MB_CHARS);
 				xr_strcpy(szTempLine, line->m_subLines[i].m_text.c_str());
 				pszSearch = szTempLine;
-				while ((pszTemp = strstr(pszSearch, "\\n")) != nullptr)
+				while ((pszTemp = strstr(pszSearch, "\\n")) != NULL)
 				{
 					bNewLines = TRUE;
 					*pszTemp = '\0';
@@ -401,10 +401,8 @@ void CUILines::Draw(float x, float y)
 		text_pos.set(0, 0);
 
 		text_pos.x = x + GetIndentByAlign();
-		//		text_pos.y = y + GetVIndentByAlign();
-		text_pos.y = y;
+		text_pos.y = y + GetVIndentByAlign();
 		UI().ClientToScreenScaled(text_pos);
-		text_pos.y += GetVIndentByAlign();
 
 		if (uFlags.test(flPasswordMode))
 		{
@@ -514,9 +512,16 @@ u32 CUILines::GetColorFromText(const xr_string& str) const
 	end = str.find(END, begin);
 	if (begin == npos || end == npos)
 		return m_dwTextColor;
-	// try default color
-	if (npos != str.find("%c[default]", begin, end - begin))
-		return m_dwTextColor;
+	// try default color. find()'s third argument is how many characters of the needle to use, so the
+	// old find("%c[default]", begin, end - begin) read past the 12-byte literal for any tag longer than
+	// it, e.g. %c[0,250,250,250] (ASAN global-buffer-overflow). Same match as before, bounded to the
+	// literal: the tag's text up to ']' is a prefix of "%c[default" (a longer tag never matched it)
+	{
+		static const char default_tag[] = "%c[default]";
+		const StrSize tag_len = end - begin;
+		if (tag_len < sizeof(default_tag) && npos != str.find(default_tag, begin, tag_len))
+			return m_dwTextColor;
+	}
 
 	// Try predefined in XML colors
 	for (CUIXmlInit::ColorDefs::const_iterator it = CUIXmlInit::GetColorDefs()->begin(); it != CUIXmlInit::
@@ -610,4 +615,26 @@ void CUILines::CutFirstColoredTextEntry(xr_string& entry, u32& color, xr_string&
 		entry.replace(begin, end - begin + 1, "");
 		text.replace(0, begin2, "");
 	}
+}
+
+float CUILines::GetTextWidth(bool per_line)
+{
+    float _len = m_pFont->SizeOf_(GetText());
+    float size = per_line ? m_lines.size() : 1.f;
+    UI().ClientToScreenScaledWidth(_len);
+    float width = 0;
+    if (_len)
+        width = _len / size;
+    return per_line ? width : _len;
+}
+
+float CUILines::GetTextHeight(bool per_line)
+{
+    float size = per_line ? m_lines.size() : 1.f;
+    return GetVisibleHeight() * size;
+}
+
+Fvector2 CUILines::GetTextSize(bool per_line_width, bool per_line_height)
+{
+    return Fvector2().set(GetTextWidth(per_line_width), GetTextHeight(per_line_height));
 }

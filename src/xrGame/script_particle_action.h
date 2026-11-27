@@ -28,7 +28,7 @@ public:
 	shared_str m_caParticleToRun;
 	shared_str m_caBoneName;
 	EGoalType m_tGoalType;
-	CParticlesObject* m_tpParticleSystem;
+	intrusive_ptr<CParticlesObject> m_tpParticleSystem;
 	bool m_bStartedToPlay;
 	Fvector m_tParticlePosition;
 	Fvector m_tParticleAngles;

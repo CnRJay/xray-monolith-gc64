@@ -67,13 +67,9 @@ private:
 	float m_anomaly_factor;
 	float m_world_factor;
 
-	// Optimization: Sound processing limits
-	u32 m_processed_sound_count;
-	u32 m_last_processed_frame;
-
 private:
 #ifdef USE_SELECTED_SOUND
-	CSoundObject* m_selected_sound;
+	CSoundObject				*m_selected_sound;
 #endif
 
 private:
@@ -92,7 +88,7 @@ public:
 	virtual void reinit();
 	virtual void reload(LPCSTR section);
 	virtual void feel_sound_new(CObject* who, int eType, CSound_UserDataPtr user_data, const Fvector& Position,
-		float power);
+	                            float power);
 	virtual void update();
 	void remove_links(CObject* object);
 
@@ -102,7 +98,7 @@ public:
 public:
 	IC const SOUNDS& objects() const;
 #ifdef USE_SELECTED_SOUND
-	IC		const CSoundObject* sound() const;
+	IC		const CSoundObject	*sound					() const;
 #endif
 	IC void set_squad_objects(SOUNDS* squad_objects);
 

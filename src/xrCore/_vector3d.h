@@ -834,4 +834,27 @@ IC BOOL exact_normalize(float* a)
 IC BOOL exact_normalize(Fvector3& a) { return exact_normalize(&a.x); }
 #pragma warning(pop)
 
+ICF u32 GetFvectorHash(const Fvector& pos)
+{
+    // 1. Read bits directly (bypasses slow float-to-int CPU conversions)
+    u32 x = *(const u32*)&pos.x;
+    u32 y = *(const u32*)&pos.y;
+    u32 z = *(const u32*)&pos.z;
+
+    // 2. Mix axes using large, distinct prime numbers
+    // This separates the axes so X, Y, and Z don't cancel each other out
+    u32 h = (x * 73856093u) ^ (y * 19349663u) ^ (z * 83492791u);
+
+    // 3. Murmur3 Avalanche step
+    // Forces a single bit change in the input to cascade across all 32 bits of the output,
+    // completely shattering the IEEE 754 float memory layout.
+    h ^= h >> 16;
+    h *= 0x85ebca6bu;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35u;
+    h ^= h >> 16;
+
+    return h;
+}
+
 #endif

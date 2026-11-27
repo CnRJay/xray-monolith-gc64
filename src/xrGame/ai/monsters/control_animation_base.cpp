@@ -387,7 +387,13 @@ void CControlAnimationBase::FX_Play(EHitSide side, float amount)
 		break;
 	}
 
-	if (p_str && p_str->size()) smart_cast<IKinematicsAnimated*>(m_object->Visual())->PlayFX(*(*p_str), amount);
+	if (p_str && p_str->size()) 
+	{
+		if (anim_it->fxs.may_not_exist[side])
+			smart_cast<IKinematicsAnimated*>(m_object->Visual())->PlayFX_Safe(*(*p_str), amount);
+		else
+			smart_cast<IKinematicsAnimated*>(m_object->Visual())->PlayFX(*(*p_str), amount);
+	}
 
 	fx_time_last_play = m_object->m_dwCurrentTime;
 }
@@ -526,6 +532,7 @@ void CControlAnimationBase::ValidateAnimation()
 void CControlAnimationBase::UpdateAnimCount()
 {
 	IKinematicsAnimated* skel = smart_cast<IKinematicsAnimated*>(m_object->Visual());
+	xr_vector<u32> subjectsToDelete;
 
 	for (ANIM_ITEM_VECTOR_IT it = m_anim_storage.begin(); it != m_anim_storage.end(); it++)
 	{
@@ -551,11 +558,32 @@ void CControlAnimationBase::UpdateAnimCount()
 			else break;
 		}
 
-		if (count != 0) (*it)->count = count;
+		if (count != 0)
+		{
+			(*it)->count = count;
+		}
+		else if ((*it)->target_may_not_exist)
+		{
+			subjectsToDelete.push_back(std::distance(m_anim_storage.begin(), it));
+		}
 		else
 		{
 			xr_sprintf(s, "Error! No animation: %s for monster %s", *((*it)->target_name), *m_object->cName());
 			R_ASSERT2(count != 0, s);
+		}
+	}
+	for (u32 idx : subjectsToDelete)
+	{
+		xr_delete(m_anim_storage[idx]);
+		while (true)
+		{
+			auto it = std::find_if(m_tReplacedAnims.begin(), m_tReplacedAnims.end(), [idx](const SReplacedAnim& ranim)
+			{
+				return ranim.cur_anim == idx || ranim.new_anim == idx;
+			});
+			if (it == m_tReplacedAnims.end())
+				break;
+			m_tReplacedAnims.erase_fast(it);
 		}
 	}
 }
@@ -668,25 +696,30 @@ void CControlAnimationBase::check_hit(MotionID motion, float time_perc)
 
 void parse_anim_params(LPCSTR val, SAAParam& anim)
 {
-	auto ParseFloatLambda = [](const char* str, float& out)
-	{
-		char* end;
-		out = std::strtof(str, &end);
-		return (*end == ',') ? end + 1 : end;
-	};
+	string16 cur_elem;
 
-	const char* ptr = val;
-	ptr = ParseFloatLambda(ptr, anim.time);
-	ptr = ParseFloatLambda(ptr, anim.hit_power);
-	ptr = ParseFloatLambda(ptr, anim.impulse);
-	ptr = ParseFloatLambda(ptr, anim.impulse_dir.x);
-	ptr = ParseFloatLambda(ptr, anim.impulse_dir.y);
-	ptr = ParseFloatLambda(ptr, anim.impulse_dir.z);
-	ptr = ParseFloatLambda(ptr, anim.foh.from_yaw);
-	ptr = ParseFloatLambda(ptr, anim.foh.to_yaw);
-	ptr = ParseFloatLambda(ptr, anim.foh.from_pitch);
-	ptr = ParseFloatLambda(ptr, anim.foh.to_pitch);
-	ParseFloatLambda(ptr, anim.dist);
+	_GetItem(val, 0, cur_elem);
+	anim.time = float(atof(cur_elem));
+	_GetItem(val, 1, cur_elem);
+	anim.hit_power = float(atof(cur_elem));
+	_GetItem(val, 2, cur_elem);
+	anim.impulse = float(atof(cur_elem));
+	_GetItem(val, 3, cur_elem);
+	anim.impulse_dir.x = float(atof(cur_elem));
+	_GetItem(val, 4, cur_elem);
+	anim.impulse_dir.y = float(atof(cur_elem));
+	_GetItem(val, 5, cur_elem);
+	anim.impulse_dir.z = float(atof(cur_elem));
+	_GetItem(val, 6, cur_elem);
+	anim.foh.from_yaw = float(atof(cur_elem));
+	_GetItem(val, 7, cur_elem);
+	anim.foh.to_yaw = float(atof(cur_elem));
+	_GetItem(val, 8, cur_elem);
+	anim.foh.from_pitch = float(atof(cur_elem));
+	_GetItem(val, 9, cur_elem);
+	anim.foh.to_pitch = float(atof(cur_elem));
+	_GetItem(val, 10, cur_elem);
+	anim.dist = float(atof(cur_elem));
 
 	anim.impulse_dir.normalize();
 

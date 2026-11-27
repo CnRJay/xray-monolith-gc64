@@ -48,7 +48,7 @@ namespace luabind { namespace detail { namespace free_functions {
         bool ambiguous = false;
         int min_match = std::numeric_limits<int>::max();
         int match_index = -1;
-        bool ret;
+        [[maybe_unused]]bool ret;
 
 #ifdef LUABIND_NO_ERROR_CHECKING
         if (rep->overloads().size() == 1)
@@ -136,6 +136,19 @@ namespace luabind { namespace detail { namespace free_functions {
             lua_error(L);
         }
 #endif
+        // a call that matched no overload raises an error instead of indexing before the overload table
+        if (match_index < 0)
+        {
+            {
+                string_class msg = "no matching overload for '";
+                msg += rep->name();
+                msg += "'";
+                lua_pushstring(L, msg.c_str());
+            }
+
+            lua_error(L);
+        }
+
         overload_rep const& ov_rep = rep->overloads()[match_index];
 
 #ifndef LUABIND_NO_EXCEPTIONS
@@ -170,3 +183,4 @@ namespace luabind { namespace detail { namespace free_functions {
 
     
 }}} // namespace luabind::detail::free_functions
+

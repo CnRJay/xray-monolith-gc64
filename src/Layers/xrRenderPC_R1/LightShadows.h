@@ -13,7 +13,7 @@ class CLightShadows
 {
 private:
 	//
-	typedef R_dsgraph::_MatrixItem NODE;
+	typedef R_dsgraph::mapDSGraphItemsMap<u32, false>::TNode NODE;
 
 	struct caster
 	{
@@ -36,13 +36,13 @@ private:
 		float E;
 	};
 
-public:
 	struct tess_tri
 	{
 		Fvector v[3];
 		Fvector N;
 	};
 
+public:
 	struct cache_item
 	{
 		IRenderable* O;
@@ -79,9 +79,10 @@ private:
 	ref_geom geom_World;
 	ref_shader sh_Screen;
 	ref_geom geom_Screen;
+	xrCriticalSection cs;
 private:
 public:
-	void set_object(IRenderable* O);
+	void set_object(IRenderable* O, IDSGraphManager& DM);
 	void add_element(NODE& N);
 	void calculate();
 	void render();

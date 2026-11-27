@@ -21,7 +21,7 @@ IC CSQuadTree::CQuadTree(const Fbox& box, float min_cell_size, u32 max_node_coun
 
 	VERIFY(!fis_zero(min_cell_size));
 	VERIFY(m_radius > min_cell_size);
-	m_max_depth = iFloor(log(2.f * m_radius / min_cell_size) / log(2.f) + .5f);
+	m_max_depth = std::abs(iFloor(log(2.f * m_radius / min_cell_size) / log(2.f) + .5f));
 
 	m_nodes = xr_new<CQuadNodeStorage>(max_node_count);
 	m_list_items = xr_new<CListItemStorage>(max_list_item_count);
@@ -38,7 +38,7 @@ CSQuadTree::~CQuadTree()
 TEMPLATE_SPECIALIZATION
 IC void CSQuadTree::clear()
 {
-	START_PROFILE("Covers/clear")
+	START_PROFILE("Covers/clear", PROF_CAT(Navigation))
 		m_nodes->clear();
 		m_list_items->clear();
 		m_root = 0;
@@ -91,7 +91,7 @@ IC u32 CSQuadTree::neighbour_index(const Fvector& position, Fvector& center, flo
 TEMPLATE_SPECIALIZATION
 IC void CSQuadTree::insert(_object_type* object)
 {
-	START_PROFILE("Covers/insert")
+	START_PROFILE("Covers/insert", PROF_CAT(Navigation))
 		Fvector center = m_center;
 		float distance = m_radius;
 		CQuadNode** node = &m_root;
@@ -150,7 +150,7 @@ IC _object_type*CSQuadTree::find(const Fvector& position) const
 TEMPLATE_SPECIALIZATION
 IC void CSQuadTree::nearest(const Fvector& position, float radius, xr_vector<_object_type*>& objects, bool clear) const
 {
-	START_PROFILE("Covers/nearest")
+	START_PROFILE("Covers/nearest", PROF_CAT(Navigation))
 		if (clear)
 			objects.clear();
 		nearest(position, radius, objects, m_root, m_center, m_radius, 0);
@@ -264,7 +264,7 @@ IC void CSQuadTree::nearest(const Fvector& position, float radius, xr_vector<_ob
 TEMPLATE_SPECIALIZATION
 IC _object_type*CSQuadTree::remove(const _object_type* object)
 {
-	START_PROFILE("Covers/remove")
+	START_PROFILE("Covers/remove", PROF_CAT(Navigation))
 		_object_type* _object = remove(object, m_root, m_center, m_radius, 0);
 		return (_object);
 	STOP_PROFILE

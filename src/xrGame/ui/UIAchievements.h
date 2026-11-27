@@ -36,6 +36,8 @@ public:
 	virtual void DrawHint();
 	virtual void Reset();
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	bool ParentHasMe();
 };

@@ -2,8 +2,6 @@
 
 #include "light.h"
 
-class light; // Forward declaration
-
 class light_Package
 {
 public:
@@ -12,5 +10,4 @@ public:
 	xr_vector<light*> v_shadowed;
 public:
 	void clear();
-	void sort();
 };

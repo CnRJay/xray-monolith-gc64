@@ -33,7 +33,7 @@ public:
 	}
 };
 
-typedef fastdelegate::FastDelegate0<float> GET_KOEFF_FUNC;
+typedef xr_delegate<float()> GET_KOEFF_FUNC;
 
 void AddEffector(CActor* A, int type, const shared_str& sect_name);
 void AddEffector(CActor* A, int type, const shared_str& sect_name, float factor);
@@ -47,7 +47,7 @@ protected:
 	CEffectorCam* m_ce;
 	CEffectorPP* m_pe;
 public:
-	CEffectorController(): m_ce(nullptr), m_pe(nullptr)
+	CEffectorController(): m_ce(NULL), m_pe(NULL)
 	{
 	}
 
@@ -72,6 +72,8 @@ public:
 	bool m_bAbsolutePositioning;
 	float m_fov;
 	float m_power;
+    // ver, allow setting speed of a camera anim
+    float m_speed;
 
 	CAnimatorCamEffector();
 	virtual ~CAnimatorCamEffector();
@@ -79,6 +81,8 @@ public:
 	virtual BOOL ProcessCam(SCamEffectorInfo& info);
 	void SetCyclic(bool b) { m_bCyclic = b; }
 	void SetPower(float p) { m_power = p; }
+    // ver, allow setting speed of a camera anim
+    void SetSpeed(float s) {m_speed = s;}
 	float GetPower() { return m_power; }
 	virtual BOOL Valid();
 	float GetAnimatorLength() { return fLifeTime; };

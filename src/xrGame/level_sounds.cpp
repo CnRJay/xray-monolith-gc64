@@ -5,6 +5,20 @@
 
 #include "level.h"
 #include "level_sounds.h"
+#include "ai_space.h"
+#include "../xrServerEntities/script_engine.h"
+
+// { volume_mult = number } from a sound hook's return; 1.0 (vanilla) when nil, not a table, or not a number
+static float ambient_hook_volume_mult(const ::luabind::object& output)
+{
+	if (output && output.type() == LUA_TTABLE)
+	{
+		auto volume_mult_obj = output["volume_mult"];
+		if (volume_mult_obj.type() == LUA_TNUMBER)
+			return ::luabind::object_cast<float>(volume_mult_obj);
+	}
+	return 1.0f;
+}
 
 //-----------------------------------------------------------------------------
 // static level sounds
@@ -129,7 +143,16 @@ BOOL SMusicTrack::in(u32 game_time)
 void SMusicTrack::Play()
 {
 	m_SourceStereo.play_at_pos(0, Fvector().set(0.0f, 0.0f, 0.0f), sm_Intro);
-	SetVolume(1.0f);
+
+	// Level-music hook: volume-only (a skip would make the manager re-select every frame); absent global = vanilla
+	float music_volume_mult = 1.0f;
+	::luabind::functor<::luabind::object> music_funct;
+	if (ai().script_engine().functor("_G.COnLevelMusic", music_funct))
+	{
+		LPCSTR music_file = m_SourceStereo._handle() ? m_SourceStereo._handle()->file_name() : "";
+		music_volume_mult = ambient_hook_volume_mult(music_funct(music_file));
+	}
+	SetVolume(music_volume_mult);
 }
 
 BOOL SMusicTrack::IsPlaying()
@@ -219,6 +242,7 @@ void CLevelSoundManager::Unload()
 
 void CLevelSoundManager::Update()
 {
+	PROF_EVENT("CLevelSoundManager::Update", PROF_CAT(Audio));
 	if (Device.Paused()) return;
 	if (Device.dwPrecacheFrame != 0) return;
 	// static sounds
@@ -232,8 +256,18 @@ void CLevelSoundManager::Update()
 	}
 
 	// music track
+	const bool skip_music = m_SkipMusicTrack.exchange(false, std::memory_order_relaxed);
 	if (!m_MusicTracks.empty())
 	{
+		const int skipped_track = skip_music ? m_CurrentTrack : -1;
+		if (skip_music)
+		{
+			if (m_CurrentTrack >= 0)
+				m_MusicTracks[m_CurrentTrack].Stop();
+			m_CurrentTrack = -1;
+			m_NextTrackTime = 0;
+		}
+
 		if (m_CurrentTrack < 0 && engine_time > m_NextTrackTime)
 		{
 			U32Vec indices;
@@ -256,6 +290,17 @@ void CLevelSoundManager::Update()
 					*/
 				}
 			}
+			// A manual skip starts a new playlist cycle immediately when needed.
+			if (skip_music && indices.empty())
+			{
+				m_PlayedMusicIndices.clear();
+				for (u32 k = 0; k < m_MusicTracks.size(); ++k)
+					if (int(k) != skipped_track && m_MusicTracks[k].in(game_time))
+						indices.push_back(k);
+				if (indices.empty() && skipped_track >= 0 && m_MusicTracks[skipped_track].in(game_time))
+					indices.push_back(skipped_track);
+			}
+
 			if (!indices.empty())
 			{
 				//u32 idx = Random.randI(indices.size());

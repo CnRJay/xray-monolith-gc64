@@ -25,7 +25,7 @@
 
 
 CUIGameSP::CUIGameSP()
-	: m_game(nullptr), m_game_objective(nullptr)
+	: m_game(NULL), m_game_objective(NULL)
 {
 	TalkMenu = xr_new<CUITalkWnd>();
 	UIChangeLevelWnd = xr_new<CChangeLevelWnd>();
@@ -82,7 +82,7 @@ void CUIGameSP::OnFrame()
 		{
 			RemoveCustomStatic("main_task");
 			RemoveCustomStatic("secondary_task");
-			m_game_objective = nullptr;
+			m_game_objective = NULL;
 		}
 	}
 }
@@ -257,6 +257,12 @@ void CUIGameSP::StartCarBody(CInventoryOwner* pActorInv, CInventoryBox* pBox) //
 
 	ActorMenu->SetMenuMode(mmDeadBodySearch);
 	ActorMenu->ShowDialog(true);
+}
+
+void CUIGameSP::TalkMenuSetVisible(bool vis)
+{
+	if (TalkMenu)
+		TalkMenu->SetVisible(vis);
 }
 
 

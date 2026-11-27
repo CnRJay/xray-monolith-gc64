@@ -215,7 +215,7 @@ void PPM_CONTEXT::makeSuffix()
 void PPM_CONTEXT::read(_PPMD_FILE* fp, UINT PrevSym)
 {
 	STATE* p;
-	Suffix = nullptr;
+	Suffix = NULL;
 	NumStats = _PPMD_E_GETC(fp);
 	Flags = 0x10 * (PrevSym >= 0x40);
 	if (!NumStats)
@@ -229,7 +229,7 @@ void PPM_CONTEXT::read(_PPMD_FILE* fp, UINT PrevSym)
 			p->Successor = (PPM_CONTEXT*)AllocContext();
 			p->Successor->read(fp, p->Symbol);
 		}
-		else p->Successor = nullptr;
+		else p->Successor = NULL;
 		return;
 	}
 	Stats = (PPM_CONTEXT::STATE*)AllocUnits((NumStats + 2) >> 1);
@@ -248,7 +248,7 @@ void PPM_CONTEXT::read(_PPMD_FILE* fp, UINT PrevSym)
 			p->Successor = (PPM_CONTEXT*)AllocContext();
 			p->Successor->read(fp, p->Symbol);
 		}
-		else p->Successor = nullptr;
+		else p->Successor = NULL;
 		p->Freq = (p == Stats) ? (64) : (p[-1].Freq - p[0].Freq);
 		SummFreq += p->Freq;
 	}
@@ -276,7 +276,7 @@ PPM_CONTEXT::write( int o, FILE* fp )
     if ( !NumStats ) {
         f=(p=&oneState())->Freq;
         if ( EscFreq )                      f=(2*f)/EscFreq;
-        f=CLAMP(f,1,127) | 0x80*(p->Successor != nullptr);
+        f=CLAMP(f,1,127) | 0x80*(p->Successor != NULL);
         putc(f,fp);                         putc(p->Symbol,fp);
         if ( p->Successor )                 p->Successor->write(o+1,fp);
         return;
@@ -292,12 +292,12 @@ PPM_CONTEXT::write( int o, FILE* fp )
         }
     }
     a=Stats->Freq+!Stats->Freq;             f=(64*EscFreq+(b=a >> 1))/a;
-    f=CLAMP(f,1,127) | 0x80*(Stats->Successor != nullptr);
+    f=CLAMP(f,1,127) | 0x80*(Stats->Successor != NULL);
     putc(f,fp);                             c=64;
     for (p=Stats;p <= Stats+NumStats;p++) {
         f=(64*p->Freq+b)/a;                 f += !f;
         if (p != Stats)
-            putc((c-f) | 0x80*(p->Successor != nullptr),fp);
+            putc((c-f) | 0x80*(p->Successor != NULL),fp);
         c=f;                                putc(p->Symbol,fp);
     }
     for (p=Stats;p <= Stats+NumStats;p++)
@@ -334,7 +334,7 @@ PPM_CONTEXT* PPM_CONTEXT::cutOff(int Order)
 		{
 			if (Order < MaxOrder)
 				P_CALL(cutOff);
-			else p->Successor = nullptr;
+			else p->Successor = NULL;
 			if (!p->Successor && Order > O_BOUND)
 				goto REMOVE;
 			return this;
@@ -342,7 +342,7 @@ PPM_CONTEXT* PPM_CONTEXT::cutOff(int Order)
 		else
 		{
 		REMOVE: SpecialFreeUnit(this);
-			return nullptr;
+			return NULL;
 		}
 	}
 	PrefetchData(Stats);
@@ -350,12 +350,12 @@ PPM_CONTEXT* PPM_CONTEXT::cutOff(int Order)
 	for (p = Stats + (i = NumStats); p >= Stats; p--)
 		if ((BYTE*)p->Successor < UnitsStart)
 		{
-			p->Successor = nullptr;
+			p->Successor = NULL;
 			SWAP(*p, Stats[i--]);
 		}
 		else if (Order < MaxOrder)
 			P_CALL(cutOff);
-		else p->Successor = nullptr;
+		else p->Successor = NULL;
 	if (i != NumStats && Order)
 	{
 		NumStats = i;
@@ -385,11 +385,11 @@ PPM_CONTEXT* PPM_CONTEXT::removeBinConts(int Order)
 		p = &oneState();
 		if ((BYTE*)p->Successor >= UnitsStart && Order < MaxOrder)
 			P_CALL(removeBinConts);
-		else p->Successor = nullptr;
+		else p->Successor = NULL;
 		if (!p->Successor && (!Suffix->NumStats || Suffix->Flags == 0xFF))
 		{
 			FreeUnits(this, 1);
-			return nullptr;
+			return NULL;
 		}
 		else return this;
 	}
@@ -397,7 +397,7 @@ PPM_CONTEXT* PPM_CONTEXT::removeBinConts(int Order)
 	for (p = Stats + NumStats; p >= Stats; p--)
 		if ((BYTE*)p->Successor >= UnitsStart && Order < MaxOrder)
 			P_CALL(removeBinConts);
-		else p->Successor = nullptr;
+		else p->Successor = NULL;
 	return this;
 }
 
@@ -652,7 +652,7 @@ NO_LOOP:
 	do
 	{
 		PPM_CONTEXT* pc1 = (PPM_CONTEXT*)AllocContext();
-		if (!pc1) return nullptr;
+		if (!pc1) return NULL;
 		((DWORD*)pc1)[0] = ((DWORD*)&ct)[0];
 		((DWORD*)pc1)[1] = ((DWORD*)&ct)[1];
 		pc1->Suffix = pc;
@@ -665,7 +665,7 @@ NO_LOOP:
 
 static inline void UpdateModel(PPM_CONTEXT* MinContext)
 {
-	PPM_CONTEXT::STATE* p = nullptr;
+	PPM_CONTEXT::STATE* p = NULL;
 	PPM_CONTEXT* FSuccessor = FoundState->Successor;
 	PPM_CONTEXT* pc = MinContext->Suffix;
 	PPM_CONTEXT* pc1 = MaxContext;
@@ -828,7 +828,7 @@ inline void PPM_CONTEXT::encodeBinSymbol(int symbol)
 		InitEsc = ExpEscape[bs >> 10];
 		CharMask[rs.Symbol] = EscCount;
 		NumMasked = PrevSuccess = 0;
-		FoundState = nullptr;
+		FoundState = NULL;
 	}
 }
 
@@ -855,7 +855,7 @@ inline void PPM_CONTEXT::decodeBinSymbol() const
 		InitEsc = ExpEscape[bs >> 10];
 		CharMask[rs.Symbol] = EscCount;
 		NumMasked = PrevSuccess = 0;
-		FoundState = nullptr;
+		FoundState = NULL;
 	}
 }
 
@@ -898,7 +898,7 @@ inline void PPM_CONTEXT::encodeSymbol1(int symbol)
 			SubRange.low = LoCnt;
 			CharMask[p->Symbol] = EscCount;
 			i = NumMasked = NumStats;
-			FoundState = nullptr;
+			FoundState = NULL;
 			do { CharMask[(--p)->Symbol] = EscCount; }
 			while (--i);
 			SubRange.high = SubRange.scale;
@@ -935,7 +935,7 @@ inline void PPM_CONTEXT::decodeSymbol1()
 			SubRange.low = HiCnt;
 			CharMask[p->Symbol] = EscCount;
 			i = NumMasked = NumStats;
-			FoundState = nullptr;
+			FoundState = NULL;
 			do { CharMask[(--p)->Symbol] = EscCount; }
 			while (--i);
 			SubRange.high = SubRange.scale;
@@ -1233,7 +1233,7 @@ static void _STDCALL StartModelRare(int MaxOrder, MR_METHOD MRMethod)
 		}
 
 		MaxContext = (PPM_CONTEXT*)AllocContext();
-		MaxContext->Suffix = nullptr;
+		MaxContext->Suffix = NULL;
 
 		if (!trained_model || _PPMD_E_GETC(trained_model) > MaxOrder)
 		{
@@ -1243,7 +1243,7 @@ static void _STDCALL StartModelRare(int MaxOrder, MR_METHOD MRMethod)
 			{
 				MaxContext->Stats[i].Symbol = i;
 				MaxContext->Stats[i].Freq = 1;
-				MaxContext->Stats[i].Successor = nullptr;
+				MaxContext->Stats[i].Successor = NULL;
 			}
 		}
 		else
@@ -1267,7 +1267,7 @@ static void _STDCALL StartModelRare(int MaxOrder, MR_METHOD MRMethod)
 		///        InitSubAllocator();
 		RunLength = InitRL = -((MaxOrder < 12) ? MaxOrder : 12) - 1;
 		///        MaxContext = (PPM_CONTEXT*) AllocContext();
-		///        MaxContext->Suffix = nullptr;
+		///        MaxContext->Suffix = NULL;
 
 		MaxContext = context;
 		FoundState = 0;

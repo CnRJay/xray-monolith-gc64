@@ -22,9 +22,12 @@ XRCORE_API u32 g_file_mapped_memory = 0;
 u32 g_file_mapped_count = 0;
 typedef xr_map<u32, std::pair<u32, shared_str> > FILE_MAPPINGS;
 FILE_MAPPINGS g_file_mappings;
+static xrCriticalSection CSFileMapping;
 
 void register_file_mapping(void* address, const u32& size, LPCSTR file_name)
 {
+    xrCriticalSectionGuard guard(CSFileMapping);
+
     FILE_MAPPINGS::const_iterator I = g_file_mappings.find(*(u32*)&address);
     VERIFY(I == g_file_mappings.end());
     g_file_mappings.insert(std::make_pair(*(u32*)&address, std::make_pair(size, shared_str(file_name))));
@@ -43,6 +46,8 @@ void register_file_mapping(void* address, const u32& size, LPCSTR file_name)
 
 void unregister_file_mapping(void* address, const u32& size)
 {
+    xrCriticalSectionGuard guard(CSFileMapping);
+
     FILE_MAPPINGS::iterator I = g_file_mappings.find(*(u32*)&address);
     VERIFY(I != g_file_mappings.end());
     // VERIFY2 ((*I).second.first == size,make_string("file mapping sizes are different: %d -> %d",(*I).second.first,size));
@@ -336,7 +341,7 @@ void IWriter::w_printf(const char* format, ...)
 #ifndef _EDITOR
 	vsprintf_s(buf, format, mark);
 #else
-    vsprintf_s(buf, sizeof(buf), format, mark);
+    vsprintf(buf, format, mark);
 #endif
 	va_end(mark);
 
@@ -407,7 +412,7 @@ IReader* IReader::open_chunk_iterator(u32& ID, IReader* _prev)
 	}
 
 	// open
-	if (elapsed() < 8) return nullptr;
+	if (elapsed() < 8) return NULL;
 	ID = r_u32();
 	u32 _size = r_u32();
 	if (ID & CFS_CompressMark)
@@ -558,7 +563,7 @@ CVirtualFileRW::CVirtualFileRW(const char* cFileName)
 	// Open the file
 	hSrcFile = CreateFile(cFileName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
 	R_ASSERT3(hSrcFile != INVALID_HANDLE_VALUE, cFileName, Debug.error2string(GetLastError()));
-	Size = (int)GetFileSize(hSrcFile, nullptr);
+	Size = (int)GetFileSize(hSrcFile, NULL);
 	R_ASSERT3(Size, cFileName, Debug.error2string(GetLastError()));
 
 	hSrcMap = CreateFileMapping(hSrcFile, 0, PAGE_READWRITE, 0, 0, 0);
@@ -588,7 +593,7 @@ CVirtualFileReader::CVirtualFileReader(const char* cFileName)
 	// Open the file
 	hSrcFile = CreateFile(cFileName, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, 0, 0);
 	R_ASSERT3(hSrcFile != INVALID_HANDLE_VALUE, cFileName, Debug.error2string(GetLastError()));
-	Size = (int)GetFileSize(hSrcFile, nullptr);
+	Size = (int)GetFileSize(hSrcFile, NULL);
 	R_ASSERT3(Size, cFileName, Debug.error2string(GetLastError()));
 
 	hSrcMap = CreateFileMapping(hSrcFile, 0, PAGE_READONLY, 0, 0, 0);

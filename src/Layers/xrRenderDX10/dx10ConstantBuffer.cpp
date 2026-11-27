@@ -6,7 +6,8 @@
 
 dx10ConstantBuffer::~dx10ConstantBuffer()
 {
-	DEV->_DeleteConstantBuffer(this);
+	if (Device.m_pRender && DEV)
+		DEV->_DeleteConstantBuffer(this);
 	//	Flush();
 	_RELEASE(m_pBuffer);
 	xr_free(m_pBufferData);

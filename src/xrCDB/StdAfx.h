@@ -8,6 +8,7 @@
 //#pragma once
 
 #include "../xrCore/xrCore.h"
+#include "../xrCore/profiler.h"
 
 #ifdef USE_ARENA_ALLOCATOR
 //	extern doug_lea_allocator	g_collision_allocator;
@@ -54,7 +55,7 @@ IC void cdelete(T* & ptr)
 	if (ptr)
 	{
 		cspecial_free<is_polymorphic<T>::result, T>()(ptr);
-		ptr = nullptr;
+		ptr = NULL;
 	}
 }
 

@@ -22,7 +22,7 @@ public:
 	virtual bool OnMouseAction(float x, float y, EUIMessages mouse_action);
 	virtual bool OnKeyboardAction(int dik, EUIMessages keyboard_action);
 
-	bool AddItem(LPCSTR str, void* pData = nullptr, u32 tag_value = 0);
+	bool AddItem(LPCSTR str, void* pData = NULL, u32 tag_value = 0);
 	bool AddItem_script(LPCSTR str) { return AddItem(str); };
 	bool AddItem_script_tag(LPCSTR str, u32 tag_value) { return AddItem(str, NULL, tag_value); };
 	void AddHeader_script(LPCSTR str) { AddHeader(str); };
@@ -62,7 +62,9 @@ private:
 	void ShowSubMenuForItem(CUIListBoxItem* item);
 	void HideActiveSubmenu();
 	void ClearSubmenus();
-	bool CursorOverTree();
+
+	CUIPropertiesBox* BoxUnderCursor();
+	bool HandleMouse(float x, float y, EUIMessages mouse_action);
 
 DECLARE_SCRIPT_REGISTER_FUNCTION
 };

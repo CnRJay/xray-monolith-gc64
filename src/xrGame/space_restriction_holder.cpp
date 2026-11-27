@@ -29,7 +29,32 @@ CSpaceRestrictionHolder::~CSpaceRestrictionHolder()
 
 void CSpaceRestrictionHolder::clear()
 {
-	delete_data(m_restrictions);
+	// FX: Сначала нужно удалять групповые рестрикторы, 
+	// т.к. они используют ref_counter. Если чистить простые, то в IntrusivePtr остаются битые указатели
+	// что приводит к порче памяти
+
+	for (auto& [_, SharedPtr] : m_restrictions)
+	{
+		if (CSpaceRestrictionComposition* Obj = smart_cast<CSpaceRestrictionComposition*>(SharedPtr->m_object))
+		{
+			if (Obj->m_restrictions.size() > 0)
+			{
+				xr_delete(SharedPtr);
+			}
+		}
+		continue;
+	}
+
+	for (auto& [_, SharedPtr] : m_restrictions)
+	{
+		if (SharedPtr == nullptr)
+			continue;
+
+		xr_delete(SharedPtr);
+	}
+
+	m_restrictions.clear();
+
 	m_default_out_restrictions = "";
 	m_default_in_restrictions = "";
 }
@@ -182,12 +207,20 @@ bool try_remove_string(shared_str& search_string, const shared_str& string_to_se
 
 void CSpaceRestrictionHolder::unregister_restrictor(CSpaceRestrictor* space_restrictor)
 {
+    if (m_restrictions.empty())
+        return;
+
 	shared_str restrictor_id = space_restrictor->cName();
 	RESTRICTIONS::iterator I = m_restrictions.find(restrictor_id);
-	VERIFY(I != m_restrictions.end());
-
+    if (I == m_restrictions.end())
+    {
+        return;
+    }
+    
 	CSpaceRestrictionBridge* bridge = (*I).second;
 	m_restrictions.erase(I);
+    if (!bridge)
+        return;
 
 	if (try_remove_string(m_default_out_restrictions, restrictor_id))
 		on_default_restrictions_changed();

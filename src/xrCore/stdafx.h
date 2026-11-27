@@ -10,6 +10,7 @@
 
 #include "xrCore.h"
 #include "xrCore_platform.h"
+#include "profiler.h"
 //.#include "../../Include/xrAPI/xrAPI.h"
 #endif
 

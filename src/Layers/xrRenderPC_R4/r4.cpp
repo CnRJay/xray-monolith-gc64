@@ -12,6 +12,7 @@
 #include "../xrRender/dxUIShader.h"
 
 #include "../xrRenderDX10/3DFluid/dx103DFluidManager.h"
+#include "../xrRenderDX10/dx10GpuTimeline.h"
 #include "../xrRender/ShaderResourceTraits.h"
 
 #include "../../xrCore/profiler.h"
@@ -202,12 +203,12 @@ void CRender::create()
 {
 	Device.seqFrame.Add(this,REG_PRIORITY_HIGH + 0x12345678);
 
-	m_skinning = -1;
+	Engine.External.SetSkinningMode();
 	m_MSAASample = -1;
-	o.volsize = 8;
-	if (strstr(Core.Params, "-volumetric1")) o.volsize = 1;
-	if (strstr(Core.Params, "-volumetric2")) o.volsize = 2;
-	if (strstr(Core.Params, "-volumetric4")) o.volsize = 4;
+    o.volsize = 8;
+	if (Core.ParamsData.test(ECoreParams::volumetric1)) o.volsize = 1;
+    if (Core.ParamsData.test(ECoreParams::volumetric2)) o.volsize = 2;
+    if (Core.ParamsData.test(ECoreParams::volumetric4)) o.volsize = 4;
 
 	// hardware
 	o.smapsize = 2048;
@@ -303,9 +304,9 @@ void CRender::create()
 	o.fp16_blend = true;
 
 	// search for ATI formats
-	if (!o.HW_smap && (0 == strstr(Core.Params, "-nodf24")))
+	if (!o.HW_smap && !Core.ParamsData.test(ECoreParams::nodf24))
 	{
-		o.HW_smap = HW.support((D3DFORMAT)(MAKEFOURCC('D', 'F', '2', '4')), D3DRTYPE_TEXTURE,D3DUSAGE_DEPTHSTENCIL);
+		o.HW_smap = HW.support((D3DFORMAT)(MAKEFOURCC('D', 'F', '2', '4')), D3DRTYPE_TEXTURE, D3DUSAGE_DEPTHSTENCIL);
 		if (o.HW_smap)
 		{
 			o.HW_smap_FORMAT = MAKEFOURCC('D', 'F', '2', '4');
@@ -316,7 +317,7 @@ void CRender::create()
 	}
 
 	// emulate ATI-R4xx series
-	if (strstr(Core.Params, "-r4xx"))
+	if (Core.ParamsData.test(ECoreParams::r4xx))
 	{
 		o.mrtmixdepth = FALSE;
 		o.HW_smap = FALSE;
@@ -332,8 +333,8 @@ void CRender::create()
 
 	// nvstencil on NV40 and up
 	o.nvstencil = FALSE;
-	//if ((HW.Caps.id_vendor==0x10DE)&&(HW.Caps.id_device>=0x40))	o.nvstencil = TRUE;
-	if (strstr(Core.Params, "-nonvs")) o.nvstencil = FALSE;
+	if (Core.ParamsData.test(ECoreParams::nonvs))
+		o.nvstencil = FALSE;
 
 	// nv-dbt
 	//	DX10 disabled
@@ -341,47 +342,42 @@ void CRender::create()
 	o.nvdbt = false;
 	if (o.nvdbt) Msg("* NV-DBT supported and used");
 
-	o.no_ram_textures = (strstr(Core.Params, "-noramtex")) ? TRUE : ps_r__common_flags.test(RFLAG_NO_RAM_TEXTURES);
+	o.no_ram_textures = Core.ParamsData.test(ECoreParams::noramtex) ? TRUE : ps_r__common_flags.test(RFLAG_NO_RAM_TEXTURES);
 	if (o.no_ram_textures)
 		Msg("* Managed textures disabled");
 	else
 		Msg("* Managed textures enabled");
 
 	// options (smap-pool-size)
-	if (strstr(Core.Params, "-smap1536")) o.smapsize = 1536;
-	if (strstr(Core.Params, "-smap2048")) o.smapsize = 2048;
-	if (strstr(Core.Params, "-smap2560")) o.smapsize = 2560;
-	if (strstr(Core.Params, "-smap3072")) o.smapsize = 3072;
-	if (strstr(Core.Params, "-smap4096")) o.smapsize = 4096;
+	if (Core.ParamsData.test(ECoreParams::smap1536)) o.smapsize = 1536;
+	if (Core.ParamsData.test(ECoreParams::smap2048)) o.smapsize = 2048;
+	if (Core.ParamsData.test(ECoreParams::smap2560)) o.smapsize = 2560;
+	if (Core.ParamsData.test(ECoreParams::smap3072)) o.smapsize = 3072;
+	if (Core.ParamsData.test(ECoreParams::smap4096)) o.smapsize = 4096;
 	if (strstr(Core.Params, "-smap8192")) o.smapsize = 8192;
 
 	// gloss
 	char* g = strstr(Core.Params, "-gloss ");
-	o.forcegloss = g ? TRUE : FALSE;
+	o.forcegloss = Core.ParamsData.test(ECoreParams::gloss);
 	if (g)
 	{
 		o.forcegloss_v = float(atoi(g + xr_strlen("-gloss "))) / 255.f;
 	}
 
 	// options
-	o.bug = (strstr(Core.Params, "-bug")) ? TRUE : FALSE;
-	o.sunfilter = (strstr(Core.Params, "-sunfilter")) ? TRUE : FALSE;
-	//.	o.sunstatic			= (strstr(Core.Params,"-sunstatic"))?	TRUE	:FALSE	;
+	o.bug = Core.ParamsData.test(ECoreParams::bug);
+	o.sunfilter = Core.ParamsData.test(ECoreParams::sunfilter);
 	o.sunstatic = r2_sun_static;
 	o.advancedpp = r2_advanced_pp;
 	o.volumetricfog = ps_r2_ls_flags.test(R3FLAG_VOLUMETRIC_SMOKE);
-	o.sjitter = (strstr(Core.Params, "-sjitter")) ? TRUE : FALSE;
-	o.depth16 = (strstr(Core.Params, "-depth16")) ? TRUE : FALSE;
-	if (strstr(Core.Params, "-noshadows") || strstr(Core.Params, "-r4_dev"))
-		o.noshadows = TRUE;
-	else
-		o.noshadows = FALSE;
-	o.Tshadows = (strstr(Core.Params, "-tsh")) ? TRUE : FALSE;
-
-	o.distortion_enabled = (strstr(Core.Params, "-nodistort")) ? FALSE : TRUE;
+	o.sjitter = Core.ParamsData.test(ECoreParams::sjitter);
+	o.depth16 = Core.ParamsData.test(ECoreParams::depth16);
+	o.noshadows = Core.ParamsData.test(ECoreParams::noshadows) || Core.ParamsData.test(ECoreParams::r4_dev);
+	o.Tshadows = Core.ParamsData.test(ECoreParams::tsh);
+	o.distortion_enabled = !Core.ParamsData.test(ECoreParams::nodistort);
 	o.distortion = o.distortion_enabled;
-	o.disasm = (strstr(Core.Params, "-disasm")) ? TRUE : FALSE;
-	o.forceskinw = (strstr(Core.Params, "-skinw")) ? TRUE : FALSE;
+	o.disasm = Core.ParamsData.test(ECoreParams::disasm);
+	o.forceskinw = Core.ParamsData.test(ECoreParams::skinw);
 
 	o.ssao_blur_on = ps_r2_ls_flags_ext.test(R2FLAGEXT_SSAO_BLUR) && (ps_r_ssao != 0);
 	o.ssao_opt_data = ps_r2_ls_flags_ext.test(R2FLAGEXT_SSAO_OPT_DATA) && (ps_r_ssao != 0);
@@ -407,7 +403,8 @@ void CRender::create()
 	// HDR10
 	o.dx11_hdr10 = !!ps_r4_hdr10_on;
 
-	o.dx10_msaa = 0; 
+	// True PIP requires MSAA disabled
+	o.dx10_msaa = 0;
 	o.dx10_msaa_samples = 1;
 
 	o.dx10_msaa_opt = ps_r2_ls_flags.test(R3FLAG_MSAA_OPT);
@@ -536,51 +533,20 @@ void CRender::create()
 	m_bMakeAsyncSS = false;
 
 	initializeTargets();
-	
+
 	Models = xr_new<CModelPool>();
 	PSLibrary.OnCreate();
 	HWOCC.occq_create(occq_size);
 
 	rmNormal();
-	marker = 0;
-	D3D_QUERY_DESC qdesc;
-	qdesc.MiscFlags = 0;
-	qdesc.Query = D3D_QUERY_EVENT;
-	ZeroMemory(q_sync_point, sizeof(q_sync_point));
-	//R_CHK						(HW.pDevice->CreateQuery(&qdesc,&q_sync_point[0]));
-	//R_CHK						(HW.pDevice->CreateQuery(&qdesc,&q_sync_point[1]));
-	//	Prevent error on first get data
-	//q_sync_point[0]->End();
-	//q_sync_point[1]->End();
-	//R_CHK						(HW.pDevice->CreateQuery(D3DQUERYTYPE_EVENT,&q_sync_point[0]));
-	//R_CHK						(HW.pDevice->CreateQuery(D3DQUERYTYPE_EVENT,&q_sync_point[1]));
-	for (u32 i = 0; i < HW.Caps.iGPUNum; ++i)
-		R_CHK(HW.pDevice->CreateQuery(&qdesc,&q_sync_point[i]));
-	HW.pContext->End(q_sync_point[0]);
 
-	::PortalTraverser.initialize();
+	GMBase.initialize();
+	GMBaseSVP.initialize();
 	FluidManager.Initialize(70, 70, 70);
 	//	FluidManager.Initialize( 100, 100, 100 );
 	FluidManager.SetScreenSize(Device.dwWidth, Device.dwHeight);
-}
 
-void CRender::destroy()
-{
-	m_bMakeAsyncSS = false;
-	FluidManager.Destroy();
-	::PortalTraverser.destroy();
-	//_RELEASE					(q_sync_point[1]);
-	//_RELEASE					(q_sync_point[0]);
-	for (u32 i = 0; i < HW.Caps.iGPUNum; ++i)
-	_RELEASE(q_sync_point[i]);
-
-	deleteTargets();
-	HWOCC.occq_destroy();
-	xr_delete(Models);
-	PSLibrary.OnDestroy();
-	Device.seqFrame.Remove(this);
-	r_dsgraph_destroy();
-
+	Device.ModelDefferClear = xr_make_delegate(Models, &CModelPool::DeleteQueuedDeffer);
 }
 
 void CRender::initializeTargets()
@@ -597,6 +563,22 @@ void CRender::deleteTargets()
 	xr_delete(TargetSVP);
 }
 
+void CRender::destroy()
+{
+	m_bMakeAsyncSS = false;
+	FluidManager.Destroy();
+	GMBase.destroy();
+	GMBaseSVP.destroy();
+
+	deleteTargets();
+	HWOCC.occq_destroy();
+	xr_delete(Models);
+	gpu_timeline::destroy();
+	PSLibrary.OnDestroy();
+	Device.seqFrame.Remove(this);
+	Device.ModelDefferClear = nullptr;
+}
+
 void CRender::reset_begin()
 {
 	//AVO: let's reload details while changed details options on vid_restart
@@ -610,26 +592,10 @@ void CRender::reset_begin()
 
 	deleteTargets();
 	HWOCC.occq_destroy();
-	//_RELEASE					(q_sync_point[1]);
-	//_RELEASE					(q_sync_point[0]);
-	for (u32 i = 0; i < HW.Caps.iGPUNum; ++i)
-	_RELEASE(q_sync_point[i]);
 }
 
 void CRender::reset_end()
 {
-	D3D_QUERY_DESC qdesc;
-	qdesc.MiscFlags = 0;
-	qdesc.Query = D3D_QUERY_EVENT;
-	//R_CHK						(HW.pDevice->CreateQuery(&qdesc,&q_sync_point[0]));
-	//R_CHK						(HW.pDevice->CreateQuery(&qdesc,&q_sync_point[1]));
-	for (u32 i = 0; i < HW.Caps.iGPUNum; ++i)
-		R_CHK(HW.pDevice->CreateQuery(&qdesc,&q_sync_point[i]));
-	//	Prevent error on first get data
-	HW.pContext->End(q_sync_point[0]);
-	//q_sync_point[1]->End();
-	//R_CHK						(HW.pDevice->CreateQuery(D3DQUERYTYPE_EVENT,&q_sync_point[0]));
-	//R_CHK						(HW.pDevice->CreateQuery(D3DQUERYTYPE_EVENT,&q_sync_point[1]));
 	HWOCC.occq_create(occq_size);
 
 	initializeTargets();
@@ -650,31 +616,16 @@ void CRender::reset_end()
 	m_bFirstFrameAfterReset = true;
 }
 
-/*
 void CRender::OnFrame()
 {
-Models->DeleteQueue			();
-if (ps_r2_ls_flags.test(R2FLAG_EXP_MT_CALC))	{
-Device.seqParallel.insert	(Device.seqParallel.begin(),
-fastdelegate::FastDelegate0<>(&HOM,&CHOM::MT_RENDER));
-}
-}*/
-void CRender::OnFrame()
-{
-	PROF_EVENT("CRender::OnFrame()");
+	PROF_EVENT("CRender::OnFrame()", PROF_CAT(Rendering));
+	
 	Models->DeleteQueue();
-	Models->DeleteQueuedDeffer();
-	if (ps_r2_ls_flags.test(R2FLAG_EXP_MT_CALC))
-	{
-		// MT-details (@front)
-		if (Details)
-			Device.seqParallelRender.insert(Device.seqParallelRender.begin(),
-				fastdelegate::FastDelegate0<>(Details, &CDetailManager::MT_CALC));
 
-		// MT-HOM (@front)
-		Device.seqParallelRender.insert(Device.seqParallelRender.begin(),
-			fastdelegate::FastDelegate0<>(&HOM, &CHOM::MT_RENDER));
-	}
+	//Lights Delete queue
+	for (light* L : v_all_lights_dque)
+		xr_delete(L);
+	v_all_lights_dque.clear();
 
 	if (Details)
 		g_pGamePersistent->GrassBendersUpdateAnimations();
@@ -705,10 +656,11 @@ IRenderVisual* CRender::model_Create(LPCSTR name, IReader* data) { return Models
 IRenderVisual* CRender::model_CreateChild(LPCSTR name, IReader* data) { return Models->CreateChild(name, data); }
 IRenderVisual* CRender::model_Duplicate(IRenderVisual* V) { return Models->Instance_Duplicate((dxRender_Visual*)V); }
 
-void CRender::model_Delete(IRenderVisual* & V, BOOL bDiscard)
+void CRender::model_Delete(IRenderVisual*& V, BOOL bDiscard)
 {
 	dxRender_Visual* pVisual = (dxRender_Visual*)V;
-	Models->Delete(pVisual, bDiscard);
+    if (Models)
+	    Models->Delete(pVisual, bDiscard);
 	V = 0;
 }
 
@@ -733,7 +685,7 @@ void CRender::model_Delete(IRender_DetailModel* & F)
 		CDetail* D = (CDetail*)F;
 		D->Unload();
 		xr_delete(D);
-		F = nullptr;
+		F = NULL;
 	}
 }
 
@@ -759,7 +711,7 @@ IRenderVisual* CRender::model_CreateParticles(LPCSTR name)
 void CRender::models_Prefetch() { Models->Prefetch(); }
 void CRender::models_PrefetchOne(LPCSTR name, bool assert) { Models->Prefetch_One(name, assert); }
 void CRender::models_Clear(BOOL b_complete) { Models->ClearPool(b_complete); }
-bool CRender::models_Exists(LPCSTR name) { return Models->Exists(name); }
+bool CRender::models_Exists(LPCSTR name, bool no_prefetch) { return Models->Exists(name, no_prefetch); }
 
 ref_shader CRender::getShader(int id)
 {
@@ -775,8 +727,10 @@ IRender_Portal* CRender::getPortal(int id)
 
 IRender_Sector* CRender::getSector(int id)
 {
-	VERIFY(id<int(Sectors.size()));
-	return Sectors[id];
+	if (id >= 0 && id < int(Sectors.size()))
+		return Sectors[id];
+
+	return NULL;
 }
 
 IRender_Sector* CRender::getSectorActive() { return pLastSector; }
@@ -840,14 +794,11 @@ IRender_Target* CRender::getTarget() { return Target; }
 IRender_Light* CRender::light_create() { return Lights.Create(); }
 IRender_Glow* CRender::glow_create() { return xr_new<CGlow>(); }
 
-void CRender::flush() { r_dsgraph_render_graph(0); }
+void CRender::flush() { RImplementation.GMBase.r_dsgraph_render_graph(0); }
 
 BOOL CRender::occ_visible(vis_data& P) { return HOM.visible(P); }
 BOOL CRender::occ_visible(sPoly& P) { return HOM.visible(P); }
 BOOL CRender::occ_visible(Fbox& P) { return HOM.visible(P); }
-
-void CRender::add_Visual(IRenderVisual* V) { add_leafs_Dynamic((dxRender_Visual*)V); }
-void CRender::add_Geometry(IRenderVisual* V) { add_Static((dxRender_Visual*)V, View->getMask()); }
 
 // demonized: add user defined rotation to wallmark
 void CRender::add_StaticWallmark(ref_shader& S, const Fvector& P, float s, CDB::TRI* T, Fvector* verts, float ttl, bool ignore_opt, bool random_rotation)
@@ -906,22 +857,17 @@ void CRender::add_SkeletonWallmark(const Fmatrix* xf, IKinematics* obj, IWallMar
 
 void CRender::remove_SkeletonWallmarksFromObject(IKinematics* obj)
 {
-	Wallmarks->RemoveSkeletonWallmarksFromObject((CKinematics*)obj);
+    Wallmarks->RemoveSkeletonWallmarksFromObject(static_cast<CKinematics*>(obj));
 }
 
 void CRender::update_Wallmarks()
 {
-	Wallmarks->UpdateWallmarks();
+    Wallmarks->UpdateWallmarks();
 }
 
 void CRender::add_Occluder(Fbox2& bb_screenspace)
 {
 	HOM.occlude(bb_screenspace);
-}
-
-void CRender::set_Object(IRenderable* O)
-{
-	val_pObject = O;
 }
 
 void CRender::rmNear()
@@ -959,9 +905,11 @@ CRender::CRender()
 {
 	init_cacades();
 
-	Device.m_SecondViewport.get_bone_matrix = [](IKinematics* k, IRenderVisual* v, Fmatrix& m) -> bool {
+	Device.m_SecondViewport.get_bone_matrix = [](IKinematics* k, IRenderVisual* v, Fmatrix& m) -> bool
+	{
 		auto s = dynamic_cast<CSkeletonX*>(v);
-		if (s && k) {
+		if (s && k)
+		{
 			m = k->LL_GetTransform_R(s->get_RMS_boneid());
 			return true;
 		}
@@ -969,11 +917,9 @@ CRender::CRender()
 	};
 }
 
-// slide window items memory leak fix (CnR)
 CRender::~CRender()
 {
-	for (auto& it : SWIs)
-	{
+	for (auto& it : SWIs) {
 		xr_free(it.sw);
 		it.sw = nullptr;
 		it.count = 0;
@@ -983,12 +929,33 @@ CRender::~CRender()
 
 #include "../../xrEngine/GameFont.h"
 
+#if XRCORE_PROFILER == PROFILER_OPTICK
+// Render counters at the last profiler tag, copied again after the stats screen zeroes them
+CRender::_stats g_prof_stats_tagged = {};
+#endif
+
 void CRender::Statistics(CGameFont* _F)
 {
 	CGameFont& F = *_F;
 	F.OutNext(" **** LT:%2d,LV:%2d **** ", stats.l_total, stats.l_visible);
 	stats.l_visible = 0;
 	F.OutNext("    S(%2d)   | (%2d)NS   ", stats.l_shadowed, stats.l_unshadowed);
+	F.OutNext("LP sh(in:%u,vis:%u,r:%u) pk(%u/%u)", stats.ls_shadowed_in, stats.ls_shadowed_after_vis,
+	          stats.ls_shadowed_rendered, stats.ls_shadowed_peak_in, stats.ls_shadowed_peak_after_vis);
+	F.OutNext("LP uns p(in:%u,r:%u) s(in:%u,r:%u)", stats.ls_unshadowed_point_in, stats.ls_unshadowed_point_rendered,
+	          stats.ls_unshadowed_spot_in, stats.ls_unshadowed_spot_rendered);
+	F.OutNext("LP sh skip: pend[%u] inv[%u]", stats.ls_shadowed_pending_skipped, stats.ls_shadowed_invisible_skipped);
+	stats.ls_shadowed_in = 0;
+	stats.ls_shadowed_after_vis = 0;
+	stats.ls_shadowed_rendered = 0;
+	stats.ls_shadowed_pending_skipped = 0;
+	stats.ls_shadowed_invisible_skipped = 0;
+	stats.ls_shadowed_peak_in = 0;
+	stats.ls_shadowed_peak_after_vis = 0;
+	stats.ls_unshadowed_point_in = 0;
+	stats.ls_unshadowed_spot_in = 0;
+	stats.ls_unshadowed_point_rendered = 0;
+	stats.ls_unshadowed_spot_rendered = 0;
 	F.OutNext("smap use[%2d], merge[%2d], finalclip[%2d]", stats.s_used, stats.s_merged - stats.s_used,
 	          stats.s_finalclip);
 	stats.s_used = 0;
@@ -1009,6 +976,9 @@ void CRender::Statistics(CGameFont* _F)
 	stats.ic_culled = 0;
 #ifdef DEBUG
 	HOM.stats	();
+#endif
+#if XRCORE_PROFILER == PROFILER_OPTICK
+	g_prof_stats_tagged = stats;
 #endif
 }
 
@@ -1333,6 +1303,7 @@ HRESULT CRender::shader_compile(
 	char c_ssr_quality[32];
 	char c_rain_quality[32];
 	char c_inter_grass[32];
+	char c_shader_bus[32];
 
 	char sh_name[MAX_PATH] = "";
 
@@ -1343,6 +1314,7 @@ HRESULT CRender::shader_compile(
 
 	u32 len = xr_strlen(sh_name);
 	// options
+	const int m_skinning = Engine.External.GetSkinningMode();
 	{
 		xr_sprintf(c_smapsize, "%04d", u32(o.smapsize));
 		defines[def_it].Name = "SMAP_size";
@@ -1980,6 +1952,14 @@ HRESULT CRender::shader_compile(
 		++len;
 	}
 
+	// the bus version, in the cache name too so each version keeps its own build
+	xr_sprintf(c_shader_bus, "%d", ShaderBus::version());
+	defines[def_it].Name = "SHADER_BUS";
+	defines[def_it].Definition = c_shader_bus;
+	def_it++;
+	xr_strcat(sh_name, c_shader_bus);
+	len += xr_strlen(c_shader_bus);
+
 	sh_name[len] = 0;
 
 	// finish
@@ -2107,8 +2087,8 @@ HRESULT CRender::shader_compile(
 	if (FAILED(_result))
 	{
 		includer Includer;
-		LPD3DBLOB pShaderBuf = nullptr;
-		LPD3DBLOB pErrorBuf = nullptr;
+		LPD3DBLOB pShaderBuf = NULL;
+		LPD3DBLOB pErrorBuf = NULL;
 		_result =
 			D3DCompile(
 				pSrcData,

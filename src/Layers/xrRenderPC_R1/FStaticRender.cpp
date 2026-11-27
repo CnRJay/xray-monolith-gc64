@@ -6,12 +6,11 @@
 #include "../../xrEngine/igame_persistent.h"
 #include "../../xrEngine/environment.h"
 #include "../xrRender/fbasicvisual.h"
+#include "../../Include/xrRender/RenderVisual.h"
 #include "../../xrEngine/CustomHUD.h"
 #include "../../xrEngine/xr_object.h"
 #include "../../xrEngine/fmesh.h"
 #include "../xrRender/SkeletonCustom.h"
-#include <tbb/parallel_for.h>
-#include <tbb/blocked_range.h>
 #include "../xrRender/lighttrack.h"
 #include "../xrRender/dxRenderDeviceRender.h"
 #include "../xrRender/dxWallMarkArray.h"
@@ -19,8 +18,11 @@
 #include "../../xrCore/ShaderSourceCRC.h"
 //#include "../../xrServerEntities/smart_cast.h"
 
+#ifndef _EDITOR
+#include "../../xrCPU_Pipe/ttapi.h"
+#endif
 
-
+#include "../../xrParticles/ParticlesAsyncManager.h"
 using namespace R_dsgraph;
 
 CRender RImplementation;
@@ -30,7 +32,7 @@ ShaderElement* CRender::rimp_select_sh_dynamic(dxRender_Visual* pVisual, float c
 {
 	switch (phase)
 	{
-	case PHASE_NORMAL: return (RImplementation.L_Projector->shadowing()
+case PHASE_NORMAL: return (L_Projector->shadowing()
 		                           ? pVisual->shader->E[SE_R1_NORMAL_HQ]
 		                           : pVisual->shader->E[SE_R1_NORMAL_LQ])._get();
 	case PHASE_POINT: return pVisual->shader->E[SE_R1_LPOINT]._get();
@@ -76,26 +78,22 @@ void CRender::create()
 	// distortion
 	u32 v_dev = CAP_VERSION(HW.Caps.raster_major, HW.Caps.raster_minor);
 	u32 v_need = CAP_VERSION(1, 4);
-	if (v_dev >= v_need) o.distortion = TRUE;
-	else o.distortion = FALSE;
-	if (strstr(Core.Params, "-nodistort")) o.distortion = FALSE;
+	o.distortion = v_dev >= v_need && !Core.ParamsData.test(ECoreParams::nodistort);
 	Msg("* distortion: %s, dev(%d),need(%d)", o.distortion ? "used" : "unavailable", v_dev, v_need);
 
 	//	Color mapping
-	if (v_dev >= v_need) o.color_mapping = TRUE;
-	else o.color_mapping = FALSE;
-	if (strstr(Core.Params, "-nocolormap")) o.color_mapping = FALSE;
+	o.color_mapping = v_dev >= v_need && !Core.ParamsData.test(ECoreParams::nocolormap);
 	Msg("* color_mapping: %s, dev(%d),need(%d)", o.color_mapping ? "used" : "unavailable", v_dev, v_need);
 
-	m_skinning = -1;
+	Engine.External.SetSkinningMode();
 
 	// disasm
-	o.disasm = (strstr(Core.Params, "-disasm")) ? TRUE : FALSE;
-	o.forceskinw = (strstr(Core.Params, "-skinw")) ? TRUE : FALSE;
+	o.disasm = Core.ParamsData.test(ECoreParams::disasm);
+	o.forceskinw = Core.ParamsData.test(ECoreParams::skinw);
 	o.no_detail_textures = !ps_r2_ls_flags.test(R1FLAG_DETAIL_TEXTURES);
 	c_ldynamic_props = "L_dynamic_props";
 
-	o.no_ram_textures = (strstr(Core.Params, "-noramtex")) ? TRUE : ps_r__common_flags.test(RFLAG_NO_RAM_TEXTURES);
+	o.no_ram_textures = Core.ParamsData.test(ECoreParams::noramtex) ? TRUE : ps_r__common_flags.test(RFLAG_NO_RAM_TEXTURES);
 	if (o.no_ram_textures)
 		Msg("* Managed textures disabled");
 	else
@@ -112,13 +110,14 @@ void CRender::create()
 	PSLibrary.OnCreate();
 	//.	HWOCC.occq_create			(occq_size);
 
-	::PortalTraverser.initialize();
+	GMBase.initialize();
+	Device.ModelDefferClear = xr_make_delegate(Models, &CModelPool::DeleteQueuedDeffer);
 }
 
 void CRender::destroy()
 {
 	m_bMakeAsyncSS = false;
-	::PortalTraverser.destroy();
+	GMBase.destroy();
 	//.	HWOCC.occq_destroy			();
 	PSLibrary.OnDestroy();
 
@@ -129,7 +128,7 @@ void CRender::destroy()
 	xr_delete(Target);
 	Device.seqFrame.Remove(this);
 
-	r_dsgraph_destroy();
+	Device.ModelDefferClear = nullptr;
 }
 
 void CRender::reset_begin()
@@ -154,7 +153,7 @@ void CRender::reset_end()
 	// let's reload details while changed details options on vid_restart
 	if (b_loaded && (dm_current_size != dm_size || ps_r__Detail_density != ps_current_detail_density))
 	{
-		Details = new CDetailManager();
+		Details = xr_new<CDetailManager>();
 		Details->Load();
 	}
 
@@ -166,17 +165,12 @@ void CRender::reset_end()
 void CRender::OnFrame()
 {
 	Models->DeleteQueue();
-	Models->DeleteQueuedDeffer();
 
-	if (ps_r2_ls_flags.test(R2FLAG_EXP_MT_CALC))
-	{
-		// MT-details (@front)
-		Device.seqParallelRender.insert(
-			Device.seqParallelRender.begin(), fastdelegate::FastDelegate0<>(Details, &CDetailManager::MT_CALC));
+	//Lights Delete queue
+	for (light* L : v_all_lights_dque)
+		xr_delete(L);
 
-		// MT-HOM (@front)
-		Device.seqParallelRender.insert(Device.seqParallelRender.begin(), fastdelegate::FastDelegate0<>(&HOM, &CHOM::MT_RENDER));
-	}
+	v_all_lights_dque.clear();
 }
 
 // Implementation
@@ -189,11 +183,12 @@ IRenderVisual* CRender::model_Duplicate(IRenderVisual* V) { return Models->Insta
 void CRender::model_Delete(IRenderVisual* & V, BOOL bDiscard)
 {
 	dxRender_Visual* pVisual = (dxRender_Visual*)V;
-	Models->Delete(pVisual, bDiscard);
+    if (Models)
+        Models->Delete(pVisual, bDiscard);
 	V = 0;
 }
 
-void CRender::model_Delete_Deffered(IRenderVisual*& V)
+void CRender::model_Delete_Deffered(IRenderVisual* & V)
 {
 	dxRender_Visual* pVisual = (dxRender_Visual*)V;
 	Models->DeleteDeffered(pVisual);
@@ -214,7 +209,7 @@ void CRender::model_Delete(IRender_DetailModel* & F)
 		CDetail* D = (CDetail*)F;
 		D->Unload();
 		xr_delete(D);
-		F = nullptr;
+		F = NULL;
 	}
 }
 
@@ -240,7 +235,7 @@ IRenderVisual* CRender::model_CreateParticles(LPCSTR name)
 void CRender::models_Prefetch() { Models->Prefetch(); }
 void CRender::models_PrefetchOne(LPCSTR name, bool assert) { Models->Prefetch_One(name, assert); }
 void CRender::models_Clear(BOOL b_complete) { Models->ClearPool(b_complete); }
-bool CRender::models_Exists(LPCSTR name) { return Models->Exists(name); }
+bool CRender::models_Exists(LPCSTR name, bool no_prefetch) { return Models->Exists(name, no_prefetch); }
 
 ref_shader CRender::getShader(int id)
 {
@@ -298,20 +293,11 @@ IRender_Light* CRender::light_create() { return L_DB->Create(); }
 
 IRender_Glow* CRender::glow_create() { return xr_new<CGlow>(); }
 
-void CRender::flush() { r_dsgraph_render_graph(0); }
+void CRender::flush() { RImplementation.GMBase.r_dsgraph_render_graph(0); }
 
 BOOL CRender::occ_visible(vis_data& P) { return HOM.visible(P); }
 BOOL CRender::occ_visible(sPoly& P) { return HOM.visible(P); }
 BOOL CRender::occ_visible(Fbox& P) { return HOM.visible(P); }
-ENGINE_API extern BOOL g_bRendering;
-
-void CRender::add_Visual(IRenderVisual* V)
-{
-	VERIFY(g_bRendering);
-	add_leafs_Dynamic((dxRender_Visual*)V);
-}
-
-void CRender::add_Geometry(IRenderVisual* V) { add_Static((dxRender_Visual*)V, View->getMask()); }
 
 // demonized: add user defined rotation to wallmark
 void CRender::add_StaticWallmark(ref_shader& S, const Fvector& P, float s, CDB::TRI* T, Fvector* verts, float ttl, bool ignore_opt, bool random_rotation)
@@ -371,12 +357,12 @@ void CRender::add_SkeletonWallmark(const Fmatrix* xf, IKinematics* obj, IWallMar
 
 void CRender::remove_SkeletonWallmarksFromObject(IKinematics* obj)
 {
-	Wallmarks->RemoveSkeletonWallmarksFromObject((CKinematics*)obj);
+    Wallmarks->RemoveSkeletonWallmarksFromObject(static_cast<CKinematics*>(obj));
 }
 
 void CRender::update_Wallmarks()
 {
-	Wallmarks->UpdateWallmarks();
+    Wallmarks->UpdateWallmarks();
 }
 
 void CRender::add_Occluder(Fbox2& bb_screenspace)
@@ -387,47 +373,19 @@ void CRender::add_Occluder(Fbox2& bb_screenspace)
 
 #include "../../xrEngine/PS_instance.h"
 
-void CRender::set_Object(IRenderable* O)
-{
-	VERIFY(g_bRendering);
-	val_pObject = O; // NULL is OK, trust me :)
-	if (val_pObject)
-	{
-		VERIFY(fast_dynamic_cast<CObject*>(O) || fast_dynamic_cast<CPS_Instance*>(O));
-		if (O->renderable.pROS) { VERIFY(fast_dynamic_cast<CROS_impl*>(O->renderable.pROS)); }
-	}
-	if (PHASE_NORMAL == phase)
-	{
-		if (L_Shadows)
-			L_Shadows->set_object(O);
-
-		if (L_Projector)
-			L_Projector->set_object(O);
-	}
-	else
-	{
-		if (L_Shadows)
-			L_Shadows->set_object(0);
-
-		if (L_Projector)
-			L_Projector->set_object(0);
-	}
-}
-
 void CRender::apply_object(IRenderable* O)
 {
+	RCache.bus_object.apply(O);
 	if (0 == O) return;
 	if (O->renderable_ROS())
 	{
 		CROS_impl& LT = *((CROS_impl*)O->renderable.pROS);
-		VERIFY(fast_dynamic_cast<CObject*>(O) || fast_dynamic_cast<CPS_Instance*>(O));
-		VERIFY(fast_dynamic_cast<CROS_impl*>(O->renderable.pROS));
 		float o_hemi = 0.5f * LT.get_hemi();
 		float o_sun = 0.5f * LT.get_sun();
 		RCache.set_c(c_ldynamic_props, o_sun, o_sun, o_sun, o_hemi);
 		// shadowing
 		if ((LT.shadow_recv_frame == Device.dwFrame) && O->renderable_ShadowReceive())
-			RImplementation.L_Projector->setup(LT.shadow_recv_slot);
+			L_Projector->setup(LT.shadow_recv_slot);
 	}
 }
 
@@ -453,7 +411,6 @@ CRender::CRender()
 {
 }
 
-// slide window items memory leak fix (CnR)
 CRender::~CRender()
 {
 	for (auto& it : SWIs) {
@@ -469,13 +426,6 @@ extern float r_ssaDONTSORT;
 extern float r_ssaLOD_A, r_ssaLOD_B;
 extern float r_ssaGLOD_start, r_ssaGLOD_end;
 extern float r_ssaHZBvsTEX;
-
-ICF bool pred_sp_sort(ISpatial* _1, ISpatial* _2)
-{
-	float d1 = _1->spatial.sphere.P.distance_to_sqr(Device.vCameraPosition);
-	float d2 = _2->spatial.sphere.P.distance_to_sqr(Device.vCameraPosition);
-	return d1 < d2;
-}
 
 void CRender::Calculate()
 {
@@ -499,12 +449,7 @@ void CRender::Calculate()
 
 	// Frustum & HOM rendering
 	ViewBase.CreateFromMatrix(Device.mFullTransform, FRUSTUM_P_LRTB | FRUSTUM_P_FAR);
-	View = 0;
-	if (!ps_r2_ls_flags.test(R2FLAG_EXP_MT_CALC))
-	{
-		HOM.Enable();
-		HOM.Render(ViewBase);
-	}
+    HOM.MT_RENDER();
 	gm_SetNearer(FALSE);
 	phase = PHASE_NORMAL;
 
@@ -520,232 +465,17 @@ void CRender::Calculate()
 		vLastCameraPos.set(Device.vCameraPosition);
 	}
 
-	// Check if camera is too near to some portal - if so force DualRender
-	if (rmPortals)
-	{
-		Fvector box_radius;
-		box_radius.set(EPS_L * 2, EPS_L * 2, EPS_L * 2);
-		Sectors_xrc.box_options(CDB::OPT_FULL_TEST);
-		Sectors_xrc.box_query(rmPortals, Device.vCameraPosition, box_radius);
-		for (int K = 0; K < Sectors_xrc.r_count(); K++)
-		{
-			CPortal* pPortal = (CPortal*)Portals[rmPortals->get_tris()[Sectors_xrc.r_begin()[K].id].dummy];
-			pPortal->bDualRender = TRUE;
-		}
-	}
 	//
 	if (L_DB)
 		L_DB->Update();
 
 	// Main process
-	marker++;
-	if (pLastSector)
-	{
-		// Traverse sector/portal structure
-		PortalTraverser.traverse
-		(
-			pLastSector,
-			ViewBase,
-			Device.vCameraPosition,
-			Device.mFullTransform,
-			CPortalTraverser::VQ_HOM + CPortalTraverser::VQ_SSA + CPortalTraverser::VQ_FADE
-		);
+	GMBase.traverse(pLastSector, ViewBase, Device.vCameraPosition, Device.mFullTransform);
+	GMBase.r_dsgraph_capture(true, true);
 
-		// Determine visibility for static geometry hierrarhy
-		if (psDeviceFlags.test(rsDrawStatic))
-		{
-			for (u32 s_it = 0; s_it < PortalTraverser.r_sectors.size(); s_it++)
-			{
-				CSector* sector = (CSector*)PortalTraverser.r_sectors[s_it];
-				dxRender_Visual* root = sector->root();
-				for (u32 v_it = 0; v_it < sector->r_frustums.size(); v_it++)
-				{
-					set_Frustum(&(sector->r_frustums[v_it]));
-					add_Geometry(root);
-				}
-			}
-		}
-
-		// Traverse object database
-		if (psDeviceFlags.test(rsDrawDynamic))
-		{
-			g_SpatialSpace->q_frustum
-			(
-				lstRenderables,
-				ISpatial_DB::O_ORDERED,
-				STYPE_RENDERABLE + STYPE_LIGHTSOURCE,
-				ViewBase
-			);
-
-			// Exact sorting order (front-to-back)
-			std::sort(lstRenderables.begin(), lstRenderables.end(), pred_sp_sort);
-
-			// Determine visibility for dynamic part of scene
-			set_Object(0);
-			g_hud->Render_First(); // R1 shadows
-			g_hud->Render_Last();
-			u32 uID_LTRACK = 0xffffffff;
-			if (phase == PHASE_NORMAL)
-			{
-				uLastLTRACK++;
-				if (lstRenderables.size()) uID_LTRACK = uLastLTRACK % lstRenderables.size();
-
-				// update light-vis for current entity / actor
-				CObject* O = g_pGameLevel->CurrentViewEntity();
-				if (O)
-				{
-					CROS_impl* R = (CROS_impl*)O->ROS();
-					if (R) R->update(O);
-				}
-			}
-
-			// skeleton pre calc before frustum
-			{
-				xr_vector<CKinematics*> skeletons_to_update;
-				skeletons_to_update.reserve(lstRenderables.size());
-
-				for (u32 o_it = 0; o_it < lstRenderables.size(); o_it++)
-				{
-					ISpatial* spatial = lstRenderables[o_it];
-					spatial->spatial_updatesector();
-					CSector* sector = (CSector*)spatial->spatial.sector;
-					if (!sector) continue;
-
-					if (PortalTraverser.i_marker != sector->r_marker) continue;
-
-					if (!(spatial->spatial.type & STYPE_RENDERABLE)) continue;
-
-					// Check if it is a skeleton
-					IRenderable* renderable = spatial->dcast_Renderable();
-					if (!renderable) continue;
-
-					dxRender_Visual* V = (dxRender_Visual*)renderable->renderable.visual;
-					if (V->Type != MT_SKELETON_ANIM && V->Type != MT_SKELETON_RIGID) continue;
-
-					// Check frustums
-					bool visible_in_frustum = false;
-					for (u32 v_it = 0; v_it < sector->r_frustums.size(); v_it++)
-					{
-						CFrustum& view = sector->r_frustums[v_it];
-						if (view.testSphere_dirty(spatial->spatial.sphere.P, spatial->spatial.sphere.R)) {
-							visible_in_frustum = true;
-							break;
-						}
-					}
-					if (!visible_in_frustum) continue;
-
-					// Check HOM
-					vis_data& v_orig = V->vis;
-					if (Device.dwFrame < v_orig.hom_frame) {
-						skeletons_to_update.push_back((CKinematics*)V);
-					}
-					else {
-						vis_data v_copy = v_orig;
-						v_copy.box.xform(renderable->renderable.xform);
-						if (HOM.visible(v_copy.box)) {
-							skeletons_to_update.push_back((CKinematics*)V);
-						}
-					}
-				}
-
-				tbb::parallel_for(tbb::blocked_range<size_t>(0, skeletons_to_update.size()),
-					[&](const tbb::blocked_range<size_t>& range) {
-						for (size_t i = range.begin(); i != range.end(); ++i) {
-							skeletons_to_update[i]->CalculateBones(TRUE);
-						}
-					});
-			}
-
-			for (u32 o_it = 0; o_it < lstRenderables.size(); o_it++)
-			{
-				ISpatial* spatial = lstRenderables[o_it];
-				spatial->spatial_updatesector();
-				CSector* sector = (CSector*)spatial->spatial.sector;
-				if (0 == sector)
-					continue; // disassociated from S/P structure
-
-				// Filter only not light spatial
-				if (PortalTraverser.i_marker != sector->r_marker && (spatial->spatial.type & STYPE_RENDERABLE)) continue
-					; // inactive (untouched) sector
-
-				if (spatial->spatial.type & STYPE_RENDERABLE)
-				{
-					for (u32 v_it = 0; v_it < sector->r_frustums.size(); v_it++)
-					{
-						set_Frustum(&(sector->r_frustums[v_it]));
-
-						if (!View->testSphere_dirty(spatial->spatial.sphere.P, spatial->spatial.sphere.R)
-							/*&& (spatial->spatial.type & STYPE_RENDERABLE)*/) continue;
-						// renderable
-						IRenderable* renderable = spatial->dcast_Renderable();
-						if (0 == renderable)
-						{
-							// It may be an glow
-							CGlow* glow = fast_dynamic_cast<CGlow*>(spatial);
-							VERIFY(glow);
-							L_Glows->add(glow);
-						}
-						else
-						{
-							// Occlusiond
-							vis_data& v_orig = renderable->renderable.visual->getVisData();
-							vis_data v_copy = v_orig;
-							v_copy.box.xform(renderable->renderable.xform);
-							BOOL bVisible = HOM.visible(v_copy);
-							v_orig.accept_frame = v_copy.accept_frame;
-							v_orig.marker = v_copy.marker;
-							v_orig.hom_frame = v_copy.hom_frame;
-							v_orig.hom_tested = v_copy.hom_tested;
-							if (!bVisible) break; // exit loop on frustums
-
-							// rendering
-							if (o_it == uID_LTRACK && renderable->renderable_ROS())
-							{
-								// track lighting environment
-								CROS_impl* T = (CROS_impl*)renderable->renderable_ROS();
-								T->update(renderable);
-							}
-							set_Object(renderable);
-							renderable->renderable_Render();
-							set_Object(0); //? is it needed at all
-						}
-						break; // exit loop on frustums
-					}
-				}
-				else
-				{
-					if (ViewBase.testSphere_dirty(spatial->spatial.sphere.P, spatial->spatial.sphere.R))
-					{
-						VERIFY(spatial->spatial.type & STYPE_LIGHTSOURCE);
-						// lightsource
-						light* L = (light*)spatial->dcast_Light();
-						VERIFY(L);
-						if (L->spatial.sector)
-						{
-							vis_data& vis = L->get_homdata();
-							if (HOM.visible(vis)) L_DB->add_light(L);
-						}
-					}
-				}
-			}
-		}
-
-		// Calculate miscelaneous stuff
-		L_Shadows->calculate();
-		L_Projector->calculate();
-	}
-	else
-	{
-		set_Object(0);
-		/*
-		g_pGameLevel->pHUD->Render_First					();	
-		g_pGameLevel->pHUD->Render_Last						();	
-
-		// Calculate miscelaneous stuff
-		L_Shadows->calculate								();
-		L_Projector->calculate								();
-		*/
-	}
+	// Calculate miscelaneous stuff
+	L_Shadows->calculate();
+	L_Projector->calculate();
 
 	// End calc
 	Device.Statistic->RenderCALC.End();
@@ -785,47 +515,42 @@ void CRender::Render()
 		return;
 	}
 
-
 	Device.Statistic->RenderDUMP.Begin();
 	// Begin
 	Target->Begin();
-	o.vis_intersect = FALSE;
 	phase = PHASE_NORMAL;
-	r_dsgraph_render_hud(); // hud
-	r_dsgraph_render_graph(0); // normal level
+	GMBase.r_dsgraph_render_hud(); // hud
+	GMBase.r_dsgraph_render_graph(0); // normal level
 	if (Details)Details->Render(); // grass / details
-	r_dsgraph_render_lods(true, false); // lods - FB
+	GMBase.r_dsgraph_render_lods(true, false); // lods - FB
 
 	CEnvironment* Env = &g_pGamePersistent->Environment();
 	Env->RenderSky(); // sky / sun
 	Env->RenderClouds(); // clouds
 
-	r_pmask(true, false); // disable priority "1"
-	o.vis_intersect = TRUE;
-	HOM.Disable();
 	L_Dynamic->render(0); // addititional light sources
 	if (Wallmarks)Wallmarks->Render(); // wallmarks has priority as normal geometry
 
 	if (g_hud)
 	{
+		GMBase.r_dsgraph_render_ui();
 		g_hud->Render_R1_Attachment_UI();
 
 		if (g_hud->RenderActiveItemUIQuery())
-			r_dsgraph_render_hud_ui();
+			GMBase.r_dsgraph_render_hud_ui();
 		if (g_hud->RenderCamAttachedUIQuery())
-			r_dsgraph_render_cam_ui();
+			GMBase.r_dsgraph_render_cam_ui();
 	}
 
-	HOM.Enable();
-	o.vis_intersect = FALSE;
 	phase = PHASE_NORMAL;
-	r_pmask(true, true); // enable priority "0" and "1"
 	if (L_Shadows)L_Shadows->render(); // ... and shadows
-	r_dsgraph_render_lods(false, true); // lods - FB
-	r_dsgraph_render_graph(1); // normal level, secondary priority
+	GMBase.r_dsgraph_render_lods(false, true); // lods - FB
+	GMBase.r_dsgraph_render_static(1); // normal level, secondary priority
+	CParticlesAsync::Wait();
+	GMBase.r_dsgraph_render_dynamic(1, true); // normal level, secondary priority
 	L_Dynamic->render(1); // addititional light sources, secondary priority
-	PortalTraverser.fade_render(); // faded-portals
-	r_dsgraph_render_sorted(); // strict-sorted geoms
+	GMBase.fade_render(); // faded-portals
+	GMBase.r_dsgraph_render_sorted(); // strict-sorted geoms
 	if (L_Glows)L_Glows->Render(); // glows
 	if (ps_r2_anomaly_flags.test(R2_AN_FLAG_FLARES))Env->RenderFlares(); // lens-flares
 	Env->RenderLast(); // rain/thunder-bolts
@@ -835,8 +560,8 @@ void CRender::Render()
 	{
 		for ( u32 iPass = 0; iPass<SHADER_PASSES_MAX; ++iPass)
 		{
-			R_ASSERT( mapNormalPasses[_priority][iPass].size() == 0);
-			R_ASSERT( mapMatrixPasses[_priority][iPass].size() == 0);
+			R_ASSERT( GMBase.RGraph.mapStaticPasses[_priority][iPass].size() == 0);
+			R_ASSERT( GMBase.RGraph.mapDynamicPasses[_priority][iPass].size() == 0);
 		}
 	}
 
@@ -847,6 +572,56 @@ void CRender::Render()
 
 	// HUD
 	Device.Statistic->RenderDUMP.End();
+}
+
+void CRender::RenderUI3DDirect()
+{
+	// Icons need independent depth: later world passes may still use the scene buffer.
+	// Query bound surfaces directly because an invalidated RCache may contain null pointers.
+	IDirect3DSurface9* saved_depth = nullptr;
+	const HRESULT depth_result = HW.pDevice->GetDepthStencilSurface(&saved_depth);
+	if (depth_result != D3DERR_NOTFOUND)
+		R_CHK(depth_result);
+	DWORD saved_z_enable;
+	R_CHK(HW.pDevice->GetRenderState(D3DRS_ZENABLE, &saved_z_enable));
+
+	D3DSURFACE_DESC color_desc;
+	IDirect3DSurface9* color_target = nullptr;
+	R_CHK(HW.pDevice->GetRenderTarget(0, &color_target));
+	R_CHK(color_target->GetDesc(&color_desc));
+	_RELEASE(color_target);
+	D3DFORMAT depth_format = HW.Caps.fDepth;
+	if (saved_depth)
+	{
+		D3DSURFACE_DESC depth_desc;
+		R_CHK(saved_depth->GetDesc(&depth_desc));
+		depth_format = depth_desc.Format;
+	}
+
+	// Recreate only when the UI target changes size, format or multisampling.
+	if (Target->ui_icons_depth)
+	{
+		D3DSURFACE_DESC desc;
+		R_CHK(Target->ui_icons_depth->GetDesc(&desc));
+		if (desc.Width != color_desc.Width || desc.Height != color_desc.Height ||
+			desc.Format != depth_format || desc.MultiSampleType != color_desc.MultiSampleType ||
+			desc.MultiSampleQuality != color_desc.MultiSampleQuality)
+			_RELEASE(Target->ui_icons_depth);
+	}
+	if (!Target->ui_icons_depth)
+		R_CHK(HW.pDevice->CreateDepthStencilSurface(color_desc.Width, color_desc.Height,
+			depth_format, color_desc.MultiSampleType, color_desc.MultiSampleQuality,
+			TRUE, &Target->ui_icons_depth, nullptr));
+
+	RCache.set_ZB(Target->ui_icons_depth);
+	R_CHK(HW.pDevice->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.f, 0));
+	// PassSET_ZB configures the comparison/writes, but does not enable depth testing.
+	RCache.set_Z(TRUE);
+	GMUI3D.r_dsgraph_render_ui_3d();
+	RCache.set_ZB(saved_depth);
+	_RELEASE(saved_depth);
+	RCache.set_Z(saved_z_enable);
+
 }
 
 void CRender::ApplyBlur4(FVF::TL4uv* pv, u32 w, u32 h, float k)
@@ -971,8 +746,8 @@ static HRESULT create_shader(
 			return E_FAIL;
 		}
 
-		LPCVOID data = nullptr;
-		_result = D3DXFindShaderComment(buffer,MAKEFOURCC('C', 'T', 'A', 'B'), &data,nullptr);
+		LPCVOID data = NULL;
+		_result = D3DXFindShaderComment(buffer,MAKEFOURCC('C', 'T', 'A', 'B'), &data,NULL);
 		if (SUCCEEDED(_result) && data)
 		{
 			LPD3DXSHADER_CONSTANTTABLE pConstants = LPD3DXSHADER_CONSTANTTABLE(data);
@@ -995,8 +770,8 @@ static HRESULT create_shader(
 			return E_FAIL;
 		}
 
-		LPCVOID data = nullptr;
-		_result = D3DXFindShaderComment(buffer,MAKEFOURCC('C', 'T', 'A', 'B'), &data,nullptr);
+		LPCVOID data = NULL;
+		_result = D3DXFindShaderComment(buffer,MAKEFOURCC('C', 'T', 'A', 'B'), &data,NULL);
 		if (SUCCEEDED(_result) && data)
 		{
 			LPD3DXSHADER_CONSTANTTABLE pConstants = LPD3DXSHADER_CONSTANTTABLE(data);
@@ -1034,8 +809,11 @@ HRESULT CRender::shader_compile(
 	void*& result
 )
 {
+	const int m_skinning = Engine.External.GetSkinningMode();
+	
 	D3DXMACRO defines [128];
 	int def_it = 0;
+	char c_shader_bus [32];
 
 	char sh_name[MAX_PATH] = "";
 	u32 len = 0;
@@ -1108,6 +886,14 @@ HRESULT CRender::shader_compile(
 	}
 	sh_name[len] = '0' + char(4 == m_skinning);
 	++len;
+
+	// the bus version, in the cache name too so each version keeps its own build
+	xr_sprintf(c_shader_bus, "%d", ShaderBus::version());
+	defines[def_it].Name = "SHADER_BUS";
+	defines[def_it].Definition = c_shader_bus;
+	def_it ++;
+	xr_strcat(sh_name, c_shader_bus);
+	len += xr_strlen(c_shader_bus);
 
 	// finish
 	defines[def_it].Name = 0;
@@ -1198,9 +984,9 @@ HRESULT CRender::shader_compile(
 	if (FAILED(_result))
 	{
 		includer Includer;
-		LPD3DXBUFFER pShaderBuf = nullptr;
-		LPD3DXBUFFER pErrorBuf = nullptr;
-		LPD3DXCONSTANTTABLE pConstants = nullptr;
+		LPD3DXBUFFER pShaderBuf = NULL;
+		LPD3DXBUFFER pErrorBuf = NULL;
+		LPD3DXCONSTANTTABLE pConstants = NULL;
 		LPD3DXINCLUDE pInclude = (LPD3DXINCLUDE)&Includer;
 
 		_result = D3DXCompileShader((LPCSTR)pSrcData, SrcDataLen, defines, pInclude, pFunctionName, pTarget,

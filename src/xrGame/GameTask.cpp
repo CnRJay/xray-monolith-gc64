@@ -20,20 +20,18 @@
 #include "ui/uitexturemaster.h"
 
 
-CGameTask::CGameTask()
+CGameTask::CGameTask() :
+	m_map_object_id(0), m_TimeToComplete(0), m_priority(0)
 {
-	m_map_object_id = 0;
-	m_TimeToComplete = 0;
-	m_priority = 0;
 	m_ReceiveTime = 0;
 	m_FinishTime = 0;
 	m_timer_finish = 0;
-	m_Title = nullptr;
-	m_Description = nullptr;
-	m_ID = nullptr;
+	m_Title = NULL;
+	m_Description = NULL;
+	m_ID = NULL;
 	m_task_type = eTaskTypeDummy;
 	m_task_state = eTaskStateDummy;
-	m_linked_map_location = nullptr;
+	m_linked_map_location = NULL;
 	m_read = false;
 }
 
@@ -94,10 +92,6 @@ void CGameTask::CreateMapLocation(bool on_load)
 	else
 	{
 		m_linked_map_location = Level().MapManager().AddMapLocation(m_map_location, m_map_object_id);
-
-		if (!m_linked_map_location)
-			return;
-
 		m_linked_map_location->m_owner_task_id = m_ID;
 
 		if (m_map_hint.size())
@@ -123,7 +117,7 @@ void CGameTask::RemoveMapLocations(bool notify)
 		Level().MapManager().RemoveMapLocation(m_linked_map_location);
 
 	m_map_location = 0;
-	m_linked_map_location = nullptr;
+	m_linked_map_location = NULL;
 	m_map_object_id = u16(-1);
 }
 
@@ -145,6 +139,7 @@ void CGameTask::ChangeStateCallback()
 
 ETaskState CGameTask::UpdateState()
 {
+	PROF_EVENT("CGameTask::UpdateState", PROF_CAT(GameLogic));
 	if ((m_ReceiveTime != m_TimeToComplete))
 	{
 		if (Level().GetGameTime() > m_TimeToComplete)
@@ -152,24 +147,26 @@ ETaskState CGameTask::UpdateState()
 			return eTaskStateFail;
 		}
 	}
-	//check fail infos
-	if (CheckInfo(m_failInfos))
-		return eTaskStateFail;
-
-	//check fail functor
-	if (CheckFunctions(m_fail_lua_functions))
-		return eTaskStateFail;
-
-	//check complete infos
-	if (CheckInfo(m_completeInfos))
-		return eTaskStateCompleted;
-
-
-	//check complete functor
-	if (CheckFunctions(m_complete_lua_functions))
-		return eTaskStateCompleted;
-
-
+	{
+		PROF_EVENT("check fail infos", PROF_CAT(GameLogic));
+		if (CheckInfo(m_failInfos))
+			return eTaskStateFail;
+	}
+	{
+		PROF_EVENT("check fail functor", PROF_CAT(Script));
+		if (CheckFunctions(m_fail_lua_functions))
+			return eTaskStateFail;
+	}
+	{
+		PROF_EVENT("check complete infos", PROF_CAT(GameLogic));
+		if (CheckInfo(m_completeInfos))
+			return eTaskStateCompleted;
+	}
+	{
+		PROF_EVENT("check complete functor", PROF_CAT(Script));
+		if (CheckFunctions(m_complete_lua_functions))
+			return eTaskStateCompleted;
+	}
 	return GetTaskState();
 }
 

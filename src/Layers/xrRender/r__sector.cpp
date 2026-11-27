@@ -10,63 +10,9 @@
 #include "../../xrEngine/IGame_Persistent.h"
 #include "dxRenderDeviceRender.h"
 
-//////////////////////////////////////////////////////////////////////
-// Construction/Destruction
-//////////////////////////////////////////////////////////////////////
-CPortal::CPortal()
-{
-#ifdef DEBUG
-	Device.seqRender.Add(this,REG_PRIORITY_LOW-1000);
-#endif
-}
-
-CPortal::~CPortal()
-{
-#ifdef DEBUG
-	Device.seqRender.Remove(this);
-#endif
-}
-
-#ifdef DEBUG
-void CPortal::OnRender	()
-{
-	if (psDeviceFlags.is(rsOcclusionDraw)){
-		VERIFY				(poly.size());
-		// draw rect
-		DEFINE_VECTOR		(FVF::L,LVec,LVecIt);
-		static LVec	V;		V.resize(poly.size()+2);
-		Fvector C			= {0,0,0};
-		for (u32 k=0; k<poly.size(); k++){ C.add(poly[k]); V[k+1].set(poly[k],0x800000FF);}
-		V.back().set		(poly[0],0x800000FF);
-		C.div				((float)poly.size());
-		V[0].set			(C,0x800000FF);
-
-		RCache.set_xform_world(Fidentity);
-		// draw solid
-		RCache.set_Shader	(dxRenderDeviceRender::Instance().m_SelectionShader);
-		RCache.dbg_Draw		(D3DPT_TRIANGLEFAN,&*V.begin(),V.size()-2);
-
-		// draw wire
-		if (bDebug){
-			RImplementation.rmNear();
-		}else{
-			Device.SetNearer(TRUE);
-		}
-		RCache.set_Shader	(dxRenderDeviceRender::Instance().m_WireShader);
-		RCache.dbg_Draw		(D3DPT_LINESTRIP,&*(V.begin()+1),V.size()-2);
-		if (bDebug){
-			RImplementation.rmNormal();
-		}else{
-			Device.SetNearer(FALSE);
-		}
-	}
-}
-#endif
-//
 void CPortal::Setup(Fvector* V, int vcnt, CSector* face, CSector* back)
 {
 	// calc sphere
-	Fbox BB;
 	BB.invalidate();
 	for (int v = 0; v < vcnt; v++)
 		BB.modify(V[v]);
@@ -76,7 +22,6 @@ void CPortal::Setup(Fvector* V, int vcnt, CSector* face, CSector* back)
 	poly.assign(V, vcnt);
 	pFace = face;
 	pBack = back;
-	marker = 0xffffffff;
 
 	Fvector N, T;
 	N.set(0, 0, 0);
@@ -112,153 +57,205 @@ CSector::~CSector()
 //
 extern float r_ssaDISCARD;
 extern float r_ssaLOD_A, r_ssaLOD_B;
-
-void CSector::traverse(CFrustum& F, _scissor& R_scissor)
+IC CFrustum CreateFrustumFromPortal(sPoly* poly, Fvector& vBase, Fmatrix& mFullXFORM)
 {
-	// Register traversal process
-	if (r_marker != PortalTraverser.i_marker)
-	{
-		r_marker = PortalTraverser.i_marker;
-		PortalTraverser.r_sectors.push_back(this);
-		r_frustums.clear();
-		r_scissors.clear();
+	CFrustum F;
+	Fplane P;
+	P.build_precise	((*poly)[0],(*poly)[1],(*poly)[2]);
+
+	if (poly->size()>6) {
+		F.SimplifyPoly_AABB(poly,P);
+		P.build_precise	((*poly)[0],(*poly)[1],(*poly)[2]);
 	}
-	r_frustums.push_back(F);
-	r_scissors.push_back(R_scissor);
 
-	// Search visible portals and go through them
-	sPoly S, D;
-	for (u32 I = 0; I < m_portals.size(); I++)
+	// Check plane orientation relative to viewer
+	// and reverse if needed
+	if (P.classify(vBase)<0)
 	{
-		if (m_portals[I]->marker == PortalTraverser.i_marker) continue;
+		std::reverse(poly->begin(),poly->end());
+		P.build_precise	((*poly)[0],(*poly)[1],(*poly)[2]);
+	}
 
-		CPortal* PORTAL = m_portals[I];
-		CSector* pSector;
+	// Base creation
+	F.CreateFromPoints(poly->begin(),poly->size(),vBase);
 
-		// Select sector (allow intersecting portals to be finely classified)
-		if (PORTAL->bDualRender)
+	// Near clipping plane
+	F._add		(P);
+
+	// Far clipping plane
+	Fmatrix &M	= mFullXFORM;
+	P.n.x		= -(M._14 - M._13);
+	P.n.y		= -(M._24 - M._23);
+	P.n.z		= -(M._34 - M._33);
+	P.d			= -(M._44 - M._43);
+	float denom = 1.0f / P.n.magnitude();
+	P.n.x		*= denom;
+	P.n.y		*= denom;
+	P.n.z		*= denom;
+	P.d			*= denom;
+	F._add		(P);
+
+	return F;
+}
+
+void CSector::traverse(CFrustum &&F, CDSGraphManager& DM)
+{
+	PROF_EVENT("CSector::traverse", PROF_CAT(Visibility))
+	const bool dbg_enabled = PortalTraverseDbg_Enabled();
+	PortalTraverseDebugStats* dbg = dbg_enabled ? &PortalTraverseDbg_Get() : nullptr;
+	const bool opt_bucket = PortalTraverseDbg_IsOptions(DM.i_options);
+	if (dbg)
+	{
+		++dbg->traverse_calls;
+		if (opt_bucket)
+			++dbg->traverse_calls_with_options;
+		else
+			++dbg->traverse_calls_without_options;
+	}
+
+	// Register traversal process
+	auto SNODE = DM.m_sector_frustums.insert(this);
+    SNODE->val.first.push_back(F);
+	if (dbg)
+	{
+		++dbg->frustums_pushed;
+		if (opt_bucket)
+			++dbg->frustums_pushed_opt;
+		else
+			++dbg->frustums_pushed_noopt;
+
+		const u32 frustum_count = u32(SNODE->val.first.size());
+		if (frustum_count > dbg->max_frustums_in_sector)
+			dbg->max_frustums_in_sector = frustum_count;
+		if (opt_bucket)
 		{
-			pSector = PORTAL->getSector(this);
+			if (frustum_count > dbg->max_frustums_in_sector_opt)
+				dbg->max_frustums_in_sector_opt = frustum_count;
 		}
 		else
 		{
-			pSector = PORTAL->getSectorBack(PortalTraverser.i_vBase);
-			if (pSector == this) continue;
-			if (pSector == PortalTraverser.i_start) continue;
+			if (frustum_count > dbg->max_frustums_in_sector_noopt)
+				dbg->max_frustums_in_sector_noopt = frustum_count;
+		}
+	}
+
+	// If the map reallocates, SNODE becomes invalid, but the Index stays correct.
+	u32 snode_idx = DM.m_sector_frustums.get_index(SNODE);
+
+	Fvector& cam_pos = Device.vCameraPosition_saved;
+	float test_sphere_r = VIEWPORT_NEAR + EPS_L;
+	// Search visible portals and go through them
+	for (CPortal* PORTAL : m_portals)
+	{
+		if (dbg)
+		{
+			++dbg->portals_checked;
+			if (opt_bucket)
+				++dbg->portals_checked_opt;
+			else
+				++dbg->portals_checked_noopt;
 		}
 
-		// Early-out sphere
-		if (!F.testSphere_dirty(PORTAL->S.P, PORTAL->S.R)) continue;
+		// Refresh pointer before use (in case previous loop iteration realloc'd)
+		SNODE = DM.m_sector_frustums.get_node(snode_idx);
 
-		// SSA	(if required)
-		if (PortalTraverser.i_options & CPortalTraverser::VQ_SSA)
+		if (SNODE->val.second.find(PORTAL))
 		{
-			Fvector dir2portal;
-			dir2portal.sub(PORTAL->S.P, PortalTraverser.i_vBase);
-			float R = PORTAL->S.R;
-			float distSQ = dir2portal.square_magnitude();
-			float ssa = R * R / distSQ;
-			dir2portal.div(_sqrt(distSQ));
-			ssa *= _abs(PORTAL->P.n.dotproduct(dir2portal));
-			if (ssa < r_ssaDISCARD) continue;
+			if (dbg)
+				++dbg->portals_skipped_already_visited;
+			continue;
+		}
+		// Early-out sphere
+		if (!F.testSphere_dirty(PORTAL->S.P, PORTAL->S.R))
+		{
+			if (dbg)
+				++dbg->portals_rejected_sphere;
+			continue;
+		}
 
-			if (PortalTraverser.i_options & CPortalTraverser::VQ_FADE)
+		CSector* pSector = nullptr;
+
+		// Select sector (allow intersecting portals to be finely classified)
+		if (PORTAL->S.P.distance_to(cam_pos) < PORTAL->S.R && PORTAL->distance(cam_pos) <= test_sphere_r)//bDualRender
+			pSector = PORTAL->getSector(this);
+		else
+			pSector = PORTAL->getSectorBack(DM.i_vBase);
+
+		if (pSector == nullptr || pSector == this || pSector == DM.i_start)
+		{
+			if (dbg)
+				++dbg->portals_rejected_sector;
+			continue;
+		}
+
+		if (DM.i_options & CDSGraphManager::VQ_FADE | CDSGraphManager::VQ_SSA && psDeviceFlags.test(rsDrawPortals))
+			DM.fade_portal(PORTAL, 1.f);
+		else
+		{
+			// SSA   (if required)
+			if (DM.i_options & CDSGraphManager::VQ_SSA)
 			{
-				if (ssa < r_ssaLOD_A) PortalTraverser.fade_portal(PORTAL, ssa);
-				if (ssa < r_ssaLOD_B) continue ;
+				Fvector dir2portal;
+				dir2portal.sub(PORTAL->S.P, DM.i_vBase);
+				float R = PORTAL->S.R;
+				float distSQ = dir2portal.square_magnitude();
+				float ssa = R * R / distSQ;
+				dir2portal.div(_sqrt(distSQ));
+				ssa *= _abs(PORTAL->P.n.dotproduct(dir2portal));
+				if (ssa < r_ssaDISCARD)
+				{
+					if (dbg)
+						++dbg->portals_rejected_ssa;
+					continue;
+				}
+
+				if (DM.i_options & CDSGraphManager::VQ_FADE)
+				{
+					if (ssa < r_ssaLOD_A)
+						DM.fade_portal(PORTAL, ssa);
+
+					if (ssa < r_ssaLOD_B)
+						continue;
+				}
 			}
 		}
 
 		// Clip by frustum
 		svector<Fvector, 8>& POLY = PORTAL->getPoly();
-		S.assign(&*POLY.begin(), POLY.size());
-		D.clear();
-		sPoly* P = F.ClipPoly(S, D);
-		if (0 == P) continue;
+		DM.S.clear();
+		DM.S.assign(&*POLY.begin(), POLY.size());
+		DM.D.clear();
+		sPoly* P = F.ClipPoly(DM.S, DM.D);
 
-		// Scissor and optimized HOM-testing
-		_scissor scissor;
-		if (PortalTraverser.i_options & CPortalTraverser::VQ_SCISSOR && (!PORTAL->bDualRender))
+		if (0 == P)
 		{
-			// Build scissor rectangle in projection-space
-			Fbox2 bb;
-			bb.invalidate();
-			float depth = flt_max;
-			sPoly& p = *P;
-			for (u32 vit = 0; vit < p.size(); vit++)
-			{
-				Fvector4 t;
-				Fmatrix& M = PortalTraverser.i_mXFORM_01;
-				Fvector& v = p[vit];
-
-				t.x = v.x * M._11 + v.y * M._21 + v.z * M._31 + M._41;
-				t.y = v.x * M._12 + v.y * M._22 + v.z * M._32 + M._42;
-				t.z = v.x * M._13 + v.y * M._23 + v.z * M._33 + M._43;
-				t.w = v.x * M._14 + v.y * M._24 + v.z * M._34 + M._44;
-				t.mul(1.f / t.w);
-
-				if (t.x < bb.min.x) bb.min.x = t.x;
-				if (t.x > bb.max.x) bb.max.x = t.x;
-				if (t.y < bb.min.y) bb.min.y = t.y;
-				if (t.y > bb.max.y) bb.max.y = t.y;
-				if (t.z < depth) depth = t.z;
-			}
-			// Msg	("bb(%s): (%f,%f)-(%f,%f), d=%f", PORTAL->bDualRender?"true":"false",bb.min.x, bb.min.y, bb.max.x, bb.max.y,depth);
-			if (depth < EPS)
-			{
-				scissor = R_scissor;
-
-				// Cull by HOM (slower algo)
-				if (
-					(PortalTraverser.i_options & CPortalTraverser::VQ_HOM) &&
-					(!RImplementation.HOM.visible(*P))
-				)
-					continue;
-			}
-			else
-			{
-				// perform intersection (this is just to be sure, it is probably clipped in 3D already)
-				if (bb.min.x > R_scissor.min.x) scissor.min.x = bb.min.x;
-				else scissor.min.x = R_scissor.min.x;
-				if (bb.min.y > R_scissor.min.y) scissor.min.y = bb.min.y;
-				else scissor.min.y = R_scissor.min.y;
-				if (bb.max.x < R_scissor.max.x) scissor.max.x = bb.max.x;
-				else scissor.max.x = R_scissor.max.x;
-				if (bb.max.y < R_scissor.max.y) scissor.max.y = bb.max.y;
-				else scissor.max.y = R_scissor.max.y;
-				scissor.depth = depth;
-
-				// Msg	("scissor: (%f,%f)-(%f,%f)", scissor.min.x, scissor.min.y, scissor.max.x, scissor.max.y);
-				// Check if box is non-empty
-				if (scissor.min.x >= scissor.max.x) continue;
-				if (scissor.min.y >= scissor.max.y) continue;
-
-				// Cull by HOM (faster algo)
-				if (
-					(PortalTraverser.i_options & CPortalTraverser::VQ_HOM) &&
-					(!RImplementation.HOM.visible(scissor, depth))
-				)
-					continue;
-			}
-		}
-		else
-		{
-			scissor = R_scissor;
-
-			// Cull by HOM (slower algo)
-			if (
-				(PortalTraverser.i_options & CPortalTraverser::VQ_HOM) &&
-				(!RImplementation.HOM.visible(*P))
-			)
-				continue;
+			if (dbg)
+				++dbg->portals_rejected_clip;
+			continue;
 		}
 
-		// Create _new_ frustum and recurse
-		CFrustum Clip;
-		Clip.CreateFromPortal(P, PORTAL->P.n, PortalTraverser.i_vBase, PortalTraverser.i_mXFORM);
-		PORTAL->marker = PortalTraverser.i_marker;
-		PORTAL->bDualRender = FALSE;
-		pSector->traverse(Clip, scissor);
+		// Cull by HOM (slower algo)
+		if ((DM.i_options & CDSGraphManager::VQ_HOM) && !RImplementation.HOM.visible(*P))
+		{
+			if (dbg)
+				++dbg->portals_rejected_hom;
+			continue;
+		}
+
+		if (pSector)
+		{
+			// Create _new_ frustum and recurse
+			SNODE->val.second.insert(PORTAL);
+			if (dbg)
+			{
+				++dbg->portals_recursed;
+				if (opt_bucket)
+					++dbg->portals_recursed_opt;
+				else
+					++dbg->portals_recursed_noopt;
+			}
+			pSector->traverse(CreateFrustumFromPortal(P, DM.i_vBase, DM.i_mXFORM), DM);
+		}
 	}
 }
 
@@ -266,7 +263,7 @@ void CSector::load(IReader& fs)
 {
 	// Assign portal polygons
 	u32 size = fs.find_chunk(fsP_Portals);
-	R_ASSERT(0==(size&1));
+	R_ASSERT(0 == (size & 1));
 	u32 count = size / 2;
 	m_portals.reserve(count);
 	while (count)
@@ -282,7 +279,7 @@ void CSector::load(IReader& fs)
 	{
 		// Assign visual
 		size = fs.find_chunk(fsP_Root);
-		R_ASSERT(size==4);
+		R_ASSERT(size == 4);
 		m_root = (dxRender_Visual*)RImplementation.getVisual(fs.r_u32());
 	}
 }

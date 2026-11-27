@@ -193,7 +193,7 @@ void xrDebug::gather_info(const char* expression, const char* description, const
 			if (shared_str_initialized)
 			{
 				Msg("%s", assertion_info);
-				FlushLog();
+				xrLogger::FlushLog();
 			}
 			buffer = assertion_info;
 			endline = "\r\n";
@@ -230,7 +230,7 @@ void xrDebug::gather_info(const char* expression, const char* description, const
 		//        }
 
 		if (shared_str_initialized)
-			FlushLog();
+			xrLogger::FlushLog();
 
 		os_clipboard::copy_to_clipboard(assertion_info);
 	}
@@ -238,7 +238,7 @@ void xrDebug::gather_info(const char* expression, const char* description, const
 
 void xrDebug::do_exit(const std::string& message)
 {
-	FlushLog();
+	xrLogger::FlushLog();
 	MessageBox(NULL, message.c_str(), "Error", MB_OK | MB_ICONERROR | MB_SYSTEMMODAL);
 	TerminateProcess(GetCurrentProcess(), 1);
 }
@@ -272,7 +272,7 @@ void xrDebug::backend(const char* expression, const char* description, const cha
 	if (handler)
 		handler();
 
-	FlushLog();
+	xrLogger::FlushLog();
 
     if (IsDebuggerPresent())
         DebugBreak();
@@ -334,7 +334,7 @@ void xrDebug::backend(const char* expression, const char* description, const cha
     ShowWindow(GetActiveWindow(), SW_FORCEMINIMIZE);
     int result =
         MessageBox(
-        GetTopWindow(nullptr),
+        GetTopWindow(NULL),
         assertion_info,
         "Fatal Error",
         /*MB_CANCELTRYCONTINUE*/MB_OK | MB_ICONERROR | /*MB_SYSTEMMODAL |*/ MB_DEFBUTTON1 | MB_SETFOREGROUND
@@ -490,7 +490,7 @@ void __cdecl xrDebug::fatal(const char* file, int line, const char* function, co
 
 	va_list p;
 	va_start(p, F);
-	vsprintf_s(buffer, sizeof(buffer), F, p);
+	vsprintf(buffer, F, p);
 	va_end(p);
 
 	bool ignore_always = true;
@@ -498,7 +498,7 @@ void __cdecl xrDebug::fatal(const char* file, int line, const char* function, co
 	backend(nullptr, "fatal error", buffer, 0, file, line, function, ignore_always);
 }
 
-typedef void (*full_memory_stats_callback_type)();
+typedef void (*full_memory_stats_callback_type)(bool);
 XRCORE_API full_memory_stats_callback_type g_full_memory_stats_callback = 0;
 
 int out_of_memory_handler(size_t size)
@@ -506,17 +506,19 @@ int out_of_memory_handler(size_t size)
 	Msg("* [x-ray]: OOM requesting %lld bytes", size);
 
 	if (g_full_memory_stats_callback)
-		g_full_memory_stats_callback();
+		g_full_memory_stats_callback(true);
 	else
 	{
 		Memory.mem_compact();
 		size_t process_heap = Memory.mem_usage();
         u32 eco_strings_count = 0;
-		int eco_strings = (int)g_pStringContainer->stat_economy(eco_strings_count);
-		int eco_smem = (int)g_pSharedMemoryContainer->stat_economy();
+        u32 eco_strings_unique_count = 0;
+		int eco_strings = (int)g_pStringContainer->stat_economy(eco_strings_count, eco_strings_unique_count);
+		size_t smem_usage = 0;
+		s64 eco_smem = g_pSharedMemoryContainer->stat_economy(&smem_usage);
 		Msg("* [x-ray]: process heap[%llu K]", process_heap / 1024);
-		Msg("* [x-ray]: strings: memory[%ld K], count[%lu]", eco_strings / 1024, eco_strings_count);
-		Msg("* [x-ray]: shared: memory[%ld K]", eco_smem);
+		Msg("* [x-ray]: strings: memory[%ld K], count[%lu], unique[%lu]", eco_strings / 1024, eco_strings_count, eco_strings_unique_count);
+		Msg("* [x-ray]: shared memory: memory[%zu K], economy[%lld K]", smem_usage / 1024, eco_smem / 1024);
 	}
 
 	Debug.fatal(DEBUG_INFO, "Out of memory. Memory request: %lld K", size / 1024);
@@ -664,7 +666,7 @@ void save_mini_dump (_EXCEPTION_POINTERS* pExceptionInfo)
     // firstly see if dbghelp.dll is around and has the function we need
 // look next to the EXE first, as the one in System32 might be old
     // (e.g. Windows 2000)
-    HMODULE hDll = nullptr;
+    HMODULE hDll = NULL;
     string_path szDbgHelpPath;
 
     if (GetModuleFileName( NULL, szDbgHelpPath, _MAX_PATH ))
@@ -677,13 +679,13 @@ void save_mini_dump (_EXCEPTION_POINTERS* pExceptionInfo)
         }
     }
 
-    if (hDll==nullptr)
+    if (hDll==NULL)
     {
         // load any version we can
         hDll = ::LoadLibrary( "DBGHELP.DLL" );
     }
 
-    LPCTSTR szResult = nullptr;
+    LPCTSTR szResult = NULL;
 
     if (hDll)
     {
@@ -716,12 +718,12 @@ void save_mini_dump (_EXCEPTION_POINTERS* pExceptionInfo)
             }
 
             // create the file
-            HANDLE hFile = ::CreateFile( szDumpPath, GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+            HANDLE hFile = ::CreateFile( szDumpPath, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
             if (INVALID_HANDLE_VALUE==hFile)
             {
                 // try to place into current directory
                 MoveMemory (szDumpPath,szDumpPath+5,strlen(szDumpPath));
-                hFile = ::CreateFile( szDumpPath, GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+                hFile = ::CreateFile( szDumpPath, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
             }
             if (hFile!=INVALID_HANDLE_VALUE)
             {
@@ -729,12 +731,12 @@ void save_mini_dump (_EXCEPTION_POINTERS* pExceptionInfo)
 
                 ExInfo.ThreadId = ::GetCurrentThreadId();
                 ExInfo.ExceptionPointers = pExceptionInfo;
-                ExInfo.ClientPointers = FALSE;
+                ExInfo.ClientPointers = NULL;
 
                 // write the dump
                 MINIDUMP_TYPE dump_flags = MINIDUMP_TYPE(MiniDumpNormal | MiniDumpFilterMemory | MiniDumpScanMemory );
 
-                BOOL bOK = pDump( GetCurrentProcess(), GetCurrentProcessId(), hFile, dump_flags, &ExInfo, nullptr, NULL );
+                BOOL bOK = pDump( GetCurrentProcess(), GetCurrentProcessId(), hFile, dump_flags, &ExInfo, NULL, NULL );
                 if (bOK)
                 {
                     xr_sprintf( szScratch, "Saved dump file to '%s'", szDumpPath );
@@ -797,76 +799,13 @@ void format_message(LPSTR buffer, const u32& buffer_size)
 #pragma comment( lib, "faultrep.lib" )
 #endif //-!_EDITOR
 
-// Decode the exception record into a human-readable line so crash logs say *what*
-// kind of fault happened (e.g. access violation reading a stale pointer), not just
-// where. Logged at the top of the unhandled-exception handler.
-static void log_exception_info(_EXCEPTION_POINTERS* pExceptionInfo)
-{
-	if (!pExceptionInfo || !pExceptionInfo->ExceptionRecord)
-		return;
-
-	const EXCEPTION_RECORD& rec = *pExceptionInfo->ExceptionRecord;
-	const DWORD code = rec.ExceptionCode;
-
-	LPCSTR name = "unknown";
-	switch (code)
-	{
-	case EXCEPTION_ACCESS_VIOLATION:         name = "EXCEPTION_ACCESS_VIOLATION";         break;
-	case EXCEPTION_IN_PAGE_ERROR:            name = "EXCEPTION_IN_PAGE_ERROR";            break;
-	case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:    name = "EXCEPTION_ARRAY_BOUNDS_EXCEEDED";    break;
-	case EXCEPTION_DATATYPE_MISALIGNMENT:    name = "EXCEPTION_DATATYPE_MISALIGNMENT";    break;
-	case EXCEPTION_FLT_DENORMAL_OPERAND:     name = "EXCEPTION_FLT_DENORMAL_OPERAND";     break;
-	case EXCEPTION_FLT_DIVIDE_BY_ZERO:       name = "EXCEPTION_FLT_DIVIDE_BY_ZERO";       break;
-	case EXCEPTION_FLT_INEXACT_RESULT:       name = "EXCEPTION_FLT_INEXACT_RESULT";       break;
-	case EXCEPTION_FLT_INVALID_OPERATION:    name = "EXCEPTION_FLT_INVALID_OPERATION";    break;
-	case EXCEPTION_FLT_OVERFLOW:             name = "EXCEPTION_FLT_OVERFLOW";             break;
-	case EXCEPTION_FLT_STACK_CHECK:          name = "EXCEPTION_FLT_STACK_CHECK";          break;
-	case EXCEPTION_FLT_UNDERFLOW:            name = "EXCEPTION_FLT_UNDERFLOW";            break;
-	case EXCEPTION_INT_DIVIDE_BY_ZERO:       name = "EXCEPTION_INT_DIVIDE_BY_ZERO";       break;
-	case EXCEPTION_INT_OVERFLOW:             name = "EXCEPTION_INT_OVERFLOW";             break;
-	case EXCEPTION_PRIV_INSTRUCTION:         name = "EXCEPTION_PRIV_INSTRUCTION";         break;
-	case EXCEPTION_ILLEGAL_INSTRUCTION:      name = "EXCEPTION_ILLEGAL_INSTRUCTION";      break;
-	case EXCEPTION_NONCONTINUABLE_EXCEPTION: name = "EXCEPTION_NONCONTINUABLE_EXCEPTION"; break;
-	case EXCEPTION_STACK_OVERFLOW:           name = "EXCEPTION_STACK_OVERFLOW";           break;
-	case EXCEPTION_GUARD_PAGE:               name = "EXCEPTION_GUARD_PAGE";               break;
-	case EXCEPTION_INVALID_HANDLE:           name = "EXCEPTION_INVALID_HANDLE";           break;
-	case 0xE06D7363:                         name = "C++ exception (MSVC)";               break;
-	default:                                                                              break;
-	}
-
-	if (!shared_str_initialized)
-		return;
-
-	Msg("\nUnhandled exception: %s (0x%08X) at 0x%p", name, code, rec.ExceptionAddress);
-
-	// For access violations / in-page errors the first two parameters describe the
-	// offending memory access: [0] = operation, [1] = faulting data address.
-	if ((code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_IN_PAGE_ERROR) &&
-		rec.NumberParameters >= 2)
-	{
-		LPCSTR op = "accessed";
-		switch (rec.ExceptionInformation[0])
-		{
-		case 0: op = "read from";    break;
-		case 1: op = "wrote to";     break;
-		case 8: op = "executed (DEP) at"; break;
-		default:                     break;
-		}
-		Msg("  %s memory at 0x%p", op, (void*)rec.ExceptionInformation[1]);
-
-		if (code == EXCEPTION_IN_PAGE_ERROR && rec.NumberParameters >= 3)
-			Msg("  underlying NTSTATUS: 0x%08X", (u32)rec.ExceptionInformation[2]);
-	}
-}
-
 #ifdef NO_BUG_TRAP
 //AVO: simplify function
 LONG WINAPI UnhandledFilter(_EXCEPTION_POINTERS* pExceptionInfo)
 {
+    xrLogger::SetImmediateMode(true);
 	string256 error_message;
 	format_message(error_message, sizeof(error_message));
-
-	log_exception_info(pExceptionInfo);
 
 	CONTEXT save = *pExceptionInfo->ContextRecord;
 	//    BuildStackTrace(pExceptionInfo);
@@ -915,7 +854,7 @@ LONG WINAPI UnhandledFilter(_EXCEPTION_POINTERS* pExceptionInfo)
 	}
 	//return EXCEPTION_CONTINUE_EXECUTION;
 
-	FlushLog();
+    xrLogger::FlushLog();
 
 # ifdef USE_OWN_MINI_DUMP
 	save_mini_dump(pExceptionInfo);
@@ -927,7 +866,7 @@ LONG WINAPI UnhandledFilter(_EXCEPTION_POINTERS* pExceptionInfo)
 	ShowCursor(true);
 	ShowWindow(GetActiveWindow(), SW_FORCEMINIMIZE);
 	MessageBox(
-		GetTopWindow(nullptr),
+		GetTopWindow(NULL),
 		"Unhandled exception occured. See log for details",
 		"Fatal Error",
 		MB_OK | MB_ICONERROR | MB_SYSTEMMODAL
@@ -943,8 +882,6 @@ LONG WINAPI UnhandledFilter(_EXCEPTION_POINTERS* pExceptionInfo)
 {
     string256 error_message;
     format_message(error_message, sizeof(error_message));
-
-    log_exception_info(pExceptionInfo);
 
     if (!error_after_dialog && !strstr(GetCommandLine(), "-no_call_stack_assert"))
     {
@@ -1089,7 +1026,7 @@ void _terminate()
     buffer += xr_sprintf(buffer, sizeof(buffer), "Press OK to abort execution%s",endline);
 
     MessageBox (
-        GetTopWindow(nullptr),
+        GetTopWindow(NULL),
         assertion_info,
         "Fatal Error",
         MB_OK|MB_ICONERROR|MB_SYSTEMMODAL

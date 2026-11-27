@@ -56,7 +56,7 @@ BOOL object::net_Spawn(CSE_Abstract* server_entity)
 	if (!inherited::net_Spawn(server_entity))
 		return (FALSE);
 
-	spatial.type &= ~STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type &= ~STYPE_VISIBLEFORAI;
 
 	m_enter_min_enemy_distance = smart_cover->m_enter_min_enemy_distance;
     m_exit_min_enemy_distance = smart_cover->m_exit_min_enemy_distance;

@@ -64,10 +64,12 @@ public:
 	u32 memory_time(const CObject* object) const;
 	Fvector memory_position(const CObject* object) const;
 	void make_object_visible_somewhen(const CEntityAlive* enemy);
+	// Shares what source knows of enemy: its remembered position and contact time, never the live one.
+	void make_object_visible_somewhen(const CEntityAlive* enemy, const CMemoryManager& source);
 
 public:
 	template <typename T, typename _predicate>
-	IC void fill_enemies(const xr_vector<T>& objects, const _predicate& predicate) const;
+	IC void fill_enemies(const xr_vector<T>* objects, const _predicate& predicate) const;
 	template <typename _predicate>
 	IC void fill_enemies(const _predicate& predicate) const;
 

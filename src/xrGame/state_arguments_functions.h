@@ -59,7 +59,7 @@ namespace award_system
 				}
 				break;
 			}; //switch (ftype)
-			return nullptr;
+			return NULL;
 		}
 
 	private:

@@ -37,6 +37,9 @@ public:
 	void SetFValue(float f);
 	void SetOptIBounds(int imin, int imax);
 	void SetOptFBounds(float fmin, float fmax);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	void UpdatePos();
 	void UpdatePosRelativeToMouse();

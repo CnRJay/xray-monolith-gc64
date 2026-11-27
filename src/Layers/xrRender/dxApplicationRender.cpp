@@ -16,7 +16,7 @@ void dxApplicationRender::LoadBegin()
 	sh_progress.create("hud\\default", "ui\\ui_actor_loadgame_screen");
 	hLevelLogo_Add.create("hud\\default", "ui\\ui_actor_widescreen_sidepanels.dds");
 
-	ll_hGeom2.create(FVF::F_TL, RCache.Vertex.Buffer(),nullptr);
+	ll_hGeom2.create(FVF::F_TL, RCache.Vertex.Buffer(),NULL);
 
 	//Discord
 	discord_gameinfo.loadscreen = true;
@@ -46,7 +46,10 @@ void dxApplicationRender::destroy_loading_shaders()
 
 void dxApplicationRender::setLevelLogo(LPCSTR pszLogoName)
 {
-	hLevelLogo.create("hud\\default", pszLogoName);
+	if (pszLogoName && pszLogoName[0])
+		hLevelLogo.create("hud\\default", pszLogoName);
+	else
+		hLevelLogo.destroy();
 }
 
 void dxApplicationRender::KillHW()
@@ -142,7 +145,7 @@ void dxApplicationRender::load_draw_internal(CApplication& owner)
 
 	u32 Offset;
 	u32 C = 0xffffffff;
-	FVF::TL* pv = nullptr;
+	FVF::TL* pv = NULL;
 	u32 v_cnt = 40;
 	pv = (FVF::TL*)RCache.Vertex.Lock(2 * (v_cnt + 1), ll_hGeom2.stride(), Offset);
 	FVF::TL* _pv = pv;
@@ -276,7 +279,7 @@ void dxApplicationRender::draw_face(ref_shader& sh, Frect& coords, Frect& tex_co
 {
 	u32 Offset;
 	u32 C = 0xffffffff;
-	FVF::TL* pv = nullptr;
+	FVF::TL* pv = NULL;
 
 	tex_coords.lt.x /= tsz.x;
 	tex_coords.lt.y /= tsz.y;
@@ -326,9 +329,56 @@ void draw_multiline_text(CGameFont* F, float fTargetWidth, LPCSTR pszText)
 	if (!pszText || xr_strlen(pszText) == 0)
 		return;
 
+	if (F->IsMultibyte())
+	{
+		// CGameFont queues at most 1023 bytes per line. Keep UTF-8 characters intact.
+		const auto out_line = [F](LPCSTR text, size_t length)
+		{
+			do
+			{
+				size_t count = _min(length, sizeof(string1024) - 1);
+				if (count < length)
+				{
+					while (count > 1 && (static_cast<u8>(text[count]) & 0xc0) == 0x80)
+						--count;
+				}
+				F->OutNext("%.*s", static_cast<int>(count), text);
+				text += count;
+				length -= count;
+			} while (length);
+		};
+
+		u16 markers[MAX_MB_CHARS];
+		LPCSTR begin = pszText;
+		for (LPCSTR end = pszText; ; ++end)
+		{
+			const bool escaped_newline = end[0] == '\\' && end[1] == 'n';
+			if (*end && *end != '\n' && *end != '\r' && !escaped_newline)
+				continue;
+
+			// Reuse the multibyte wrapping and kinsoku rules used by CUILines.
+			const xr_string paragraph(begin, end - begin);
+			const u16 count = F->SplitByWidth(markers, MAX_MB_CHARS, fTargetWidth, paragraph.c_str());
+			size_t from = 0;
+			for (u16 i = 0; i < count; ++i)
+			{
+				out_line(paragraph.c_str() + from, markers[i] - from);
+				from = markers[i];
+			}
+			out_line(paragraph.c_str() + from, paragraph.size() - from);
+
+			if (!*end)
+				break;
+			if (escaped_newline || (*end == '\r' && end[1] == '\n'))
+				++end;
+			begin = end + 1;
+		}
+		return;
+	}
+
 	LPCSTR ch = pszText;
 	float curr_word_len = 0.0f;
-	LPCSTR next_word = nullptr;
+	LPCSTR next_word = NULL;
 
 	float curr_len = 0.0f;
 	string512 buff;

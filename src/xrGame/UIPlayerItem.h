@@ -54,6 +54,8 @@ public:
 	void Init(CUIXml& uiXml, LPCSTR playerNode, int index);
 	s32 GetPlayerCheckPoints() const;
 	virtual void Update();
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 };
 
 #endif

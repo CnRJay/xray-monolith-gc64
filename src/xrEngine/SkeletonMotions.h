@@ -101,7 +101,7 @@ public:
 class ENGINE_API motion_marks
 {
 public:
-	typedef std::pair<float, float> interval;
+	typedef ::std::pair<float, float> interval;
 #ifdef _EDITOR
 public:
 #else
@@ -111,16 +111,16 @@ private:
 	typedef STORAGE::iterator ITERATOR;
 	typedef STORAGE::const_iterator C_ITERATOR;
 
-	STORAGE intervals;
 public:
 	shared_str name;
 	void Load(IReader*);
-
+	STORAGE intervals;
 #ifdef _EDITOR
     void Save(IWriter*);
 #endif
 	bool is_empty() const { return intervals.empty(); }
 	const interval* pick_mark(float const& t) const;
+	const STORAGE& get_intervals() const { return intervals; };
 	bool is_mark_between(float const& t0, float const& t1) const;
 	float time_to_next_mark(float time) const;
 };
@@ -310,6 +310,12 @@ public:
 		return &p_->m_motion_map;
 	}
 
+	const accel_map* motion_map() const
+	{
+		VERIFY(p_);
+		return &p_->m_motion_map;
+	}
+
 	accel_map* cycle()
 	{
 		VERIFY(p_);
@@ -329,6 +335,12 @@ public:
 	}
 
 	MotionDefVec* motion_defs()
+	{
+		VERIFY(p_);
+		return &p_->m_mdefs;
+	}
+
+	const MotionDefVec* motion_defs() const
 	{
 		VERIFY(p_);
 		return &p_->m_mdefs;

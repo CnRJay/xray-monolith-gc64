@@ -26,6 +26,8 @@ public:
 	void SetVisibleMagnifier(bool f);
 	virtual void OnDeviceReset();
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 	enum enum_page_id
 	{
 		epi_main = 0x00,
@@ -52,6 +54,7 @@ protected:
 	void ProcessEvent(EVENT ev);
 
 	bool IsButton(CUIWindow* st);
+	bool IsFrozenByModal();
 	void CreateList(xr_vector<CUITextWnd*>& lst, CUIXml& xml_doc, LPCSTR path);
 	void ShowMain();
 	void ShowNewGame();

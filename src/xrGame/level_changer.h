@@ -48,4 +48,7 @@ public:
 	virtual BOOL net_SaveRelevant();
 	virtual void save(NET_Packet& output_packet);
 	virtual void load(IReader& input_packet);
+
+	virtual CGameObject* cast_game_object() { return this; }
+	virtual CLevelChanger* cast_level_changer() { return this; }
 };

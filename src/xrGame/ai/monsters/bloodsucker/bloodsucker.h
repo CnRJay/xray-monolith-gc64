@@ -182,7 +182,7 @@ public:
 
 	virtual char* get_monster_class_name() { return "bloodsucker"; }
 
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM);
 
 #ifdef DEBUG
 	virtual CBaseMonster::SDebugInfo show_debug_info();
@@ -201,6 +201,12 @@ public:
 	//-------------------------------------------------------------------
 public:
 	enum visibility_t { unset=-1, no_visibility=0, partial_visibility=1, full_visibility=2 };
+
+	// negative argument keeps the current value
+	void set_visibility_change_min_delay(float delay_ms)
+	{
+		if (delay_ms >= 0.f) m_visibility_state_change_min_delay = (u32)delay_ms;
+	}
 
 private:
 	u32 m_visibility_state_change_min_delay;

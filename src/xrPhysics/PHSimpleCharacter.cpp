@@ -148,22 +148,22 @@ bool test_sides(const Fvector& center, const Fvector& side_dir, const Fvector& f
 CPHSimpleCharacter::CPHSimpleCharacter(): m_last_environment_update(Fvector().set(-FLT_MAX, -FLT_MAX, -FLT_MAX)),
                                           m_last_picked_material(GAMEMTL_NONE_IDX)
 {
-	m_object_contact_callback = nullptr;
+	m_object_contact_callback = NULL;
 
-	m_geom_shell = nullptr;
-	m_wheel = nullptr;
+	m_geom_shell = NULL;
+	m_wheel = NULL;
 
-	m_space = nullptr;
-	m_wheel_transform = nullptr;
-	m_shell_transform = nullptr;
+	m_space = NULL;
+	m_wheel_transform = NULL;
+	m_shell_transform = NULL;
 
-	m_hat = nullptr;
-	m_hat_transform = nullptr;
+	m_hat = NULL;
+	m_hat_transform = NULL;
 	m_acceleration.set(0, 0, 0);
 	b_external_impulse = false;
 	m_ext_impuls_stop_step = u64(-1);
 	m_ext_imulse.set(0, 0, 0);
-	m_phys_ref_object = nullptr;
+	m_phys_ref_object = NULL;
 	b_on_object = false;
 	m_friction_factor = 1.f;
 	dVectorSetZero(m_control_force);
@@ -194,8 +194,8 @@ CPHSimpleCharacter::CPHSimpleCharacter(): m_last_environment_update(Fvector().se
 	jump_up_velocity = 6.f;
 	m_air_control_factor = 0;
 	//m_capture_joint=NULL;
-	m_cap = nullptr;
-	m_cap_transform = nullptr;
+	m_cap = NULL;
+	m_cap_transform = NULL;
 	dVectorSetZero(m_safe_velocity);
 	m_collision_damage_factor = 1.f;
 	b_collision_restrictor_touch = false;
@@ -208,7 +208,7 @@ void CPHSimpleCharacter::TestPathCallback(bool& do_colide, bool bo1, dContact& c
                                           SGameMtl* /*material_2*/)
 {
 	do_colide = false;
-	CPHSimpleCharacter* ch = nullptr;
+	CPHSimpleCharacter* ch = NULL;
 	if (bo1)
 	{
 		ch = static_cast<CPHSimpleCharacter*>(retrieveGeomUserData(c.geom.g1)->ph_object);
@@ -250,8 +250,8 @@ void CPHSimpleCharacter::get_Box(Fvector& sz, Fvector& c) const
 	float r, h;
 	dGeomCylinderGetParams(m_geom_shell, &r, &h);
 	sz.set(2 * r, 2 * r + h, 2 * r);
-	const dReal* rot = nullptr;
-	const dReal* pos = nullptr;
+	const dReal* rot = NULL;
+	const dReal* pos = NULL;
 	dMatrix3 rr;
 	CODEGeom::get_final_tx(m_shell_transform, pos, rot, cast_fp(c), rr);
 }
@@ -412,35 +412,35 @@ void CPHSimpleCharacter::Destroy()
 	{
 		dGeomDestroyUserData(m_cap);
 		dGeomDestroy(m_cap);
-		m_cap = nullptr;
+		m_cap = NULL;
 	}
 
 	if (m_cap_transform)
 	{
 		dGeomDestroyUserData(m_cap_transform);
 		dGeomDestroy(m_cap_transform);
-		m_cap_transform = nullptr;
+		m_cap_transform = NULL;
 	}
 
 	if (m_geom_shell)
 	{
 		dGeomDestroyUserData(m_geom_shell);
 		dGeomDestroy(m_geom_shell);
-		m_geom_shell = nullptr;
+		m_geom_shell = NULL;
 	}
 
 	if (m_wheel)
 	{
 		dGeomDestroyUserData(m_wheel);
 		dGeomDestroy(m_wheel);
-		m_wheel = nullptr;
+		m_wheel = NULL;
 	}
 
 	if (m_shell_transform)
 	{
 		dGeomDestroyUserData(m_shell_transform);
 		dGeomDestroy(m_shell_transform);
-		m_shell_transform = nullptr;
+		m_shell_transform = NULL;
 	}
 
 
@@ -448,7 +448,7 @@ void CPHSimpleCharacter::Destroy()
 	{
 		dGeomDestroyUserData(m_wheel_transform);
 		dGeomDestroy(m_wheel_transform);
-		m_wheel_transform = nullptr;
+		m_wheel_transform = NULL;
 	}
 
 
@@ -456,26 +456,26 @@ void CPHSimpleCharacter::Destroy()
 	{
 		dGeomDestroyUserData(m_hat);
 		dGeomDestroy(m_hat);
-		m_hat = nullptr;
+		m_hat = NULL;
 	}
 	if (m_hat_transform)
 	{
 		dGeomDestroyUserData(m_hat_transform);
 		dGeomDestroy(m_hat_transform);
-		m_hat_transform = nullptr;
+		m_hat_transform = NULL;
 	}
 
 	if (m_space)
 	{
 		dSpaceDestroy(m_space);
-		m_space = nullptr;
+		m_space = NULL;
 	}
 
 	if (m_body)
 	{
 		Island().RemoveBody(m_body);
 		dBodyDestroy(m_body);
-		m_body = nullptr;
+		m_body = NULL;
 	}
 }
 
@@ -593,7 +593,7 @@ void CPHSimpleCharacter::PhDataUpdate(dReal /**step/**/)
 	}
 	m_last_move.sub(cast_fv(dBodyGetPosition(m_body)), m_last_move);
 	m_last_move.mul(1.f / fixed_step);
-	VERIFY2(dBodyStateValide(m_body), "WRONG BODYSTATE IN PhDataUpdate");
+	VERIFY2(dV_valid(dBodyGetPosition(m_body)), "WRONG BODYSTATE IN PhDataUpdate");
 	if (PhOutOfBoundaries(cast_fv(dBodyGetPosition(m_body))))Disable();
 	VERIFY_BOUNDARIES(cast_fv(dBodyGetPosition(m_body)), phBoundaries, PhysicsRefObject());
 	m_body_interpolation.UpdatePositions();
@@ -624,7 +624,7 @@ void CPHSimpleCharacter::PhTune(dReal step)
 		
 	}
 #endif
-	bool b_good_graund = b_valide_ground_contact && m_ground_contact_normal[1] > M_SQRT1_2;
+	const bool b_good_graund = b_valide_ground_contact && m_ground_contact_normal[1] > M_SQRT1_2;
 
 	dxGeomUserData* ud = dGeomGetUserData(m_wheel);
 	if ((ud->pushing_neg || ud->pushing_b_neg) && !b_death_pos)
@@ -1389,6 +1389,20 @@ void CPHSimpleCharacter::SafeAndLimitVelocity()
 
 	dVectorSet(m_safe_position, dBodyGetPosition(m_body));
 	dVectorSet(m_safe_velocity, linear_velocity);
+
+	// FX: Нахер всякие e-37
+	if (fis_zero(m_safe_velocity[0]))
+	{
+		m_safe_velocity[0] = 0;
+	}
+	if (fis_zero(m_safe_velocity[1]))
+	{
+		m_safe_velocity[1] = 0;
+	}
+	if (fis_zero(m_safe_velocity[2]))
+	{
+		m_safe_velocity[2] = 0;
+	}
 }
 
 void CPHSimpleCharacter::SetObjectContactCallback(ObjectContactCallbackFun* callback)
@@ -1786,7 +1800,7 @@ void CPHSimpleCharacter::set_State(const SPHNetState& state)
 
 void CPHSimpleCharacter::get_spatial_params()
 {
-	spatialParsFromDGeom((dGeomID)m_space, spatial.sphere.P, AABB, spatial.sphere.R);
+	spatialParsFromDGeom((dGeomID)m_space, SpatialComponent->spatial.sphere.P, AABB, SpatialComponent->spatial.sphere.R);
 }
 
 float CPHSimpleCharacter::FootRadius()
@@ -1906,7 +1920,6 @@ void CPHSimpleCharacter::SCollisionDamageInfo::Reinit()
 	//m_damege_contact;
 
 	m_obj_id = u16(-1);
-	m_hit_callback = nullptr;
 	m_contact_velocity = 0;
 	is_initiated = false;
 
@@ -1948,7 +1961,16 @@ CElevatorState* CPHSimpleCharacter::ElevatorState()
 
 ICollisionHitCallback* CPHSimpleCharacter::HitCallback() const
 {
-	return m_collision_damage_info.m_hit_callback;
+	if (m_collision_damage_info.m_dmc_type != SCollisionDamageInfo::ctObject ||
+		m_collision_damage_info.m_obj_id == u16(-1))
+		return nullptr;
+
+	CObject* obj = inl_ph_world().LevelObjects().net_Find(m_collision_damage_info.m_obj_id);
+	IPhysicsShellHolder* object = smart_cast<IPhysicsShellHolder*>(obj);
+	if (!object || object->ObjectGetDestroy())
+		return nullptr;
+
+	return object->ObjectGetCollisionHitCallback();
 }
 
 const float resolve_depth = 0.05f;
@@ -1957,8 +1979,8 @@ static float restrictor_depth = 0.f;
 void CPHSimpleCharacter::TestRestrictorContactCallbackFun(bool& do_colide, bool bo1, dContact& c, SGameMtl* material_1,
                                                           SGameMtl* material_2)
 {
-	dGeomID g_this = nullptr;
-	dGeomID g_obj = nullptr;
+	dGeomID g_this = NULL;
+	dGeomID g_obj = NULL;
 	if (bo1)
 	{
 		g_this = c.geom.g1;

@@ -129,8 +129,8 @@ IC static int CollideIntoGroup(dGeomID o1, dGeomID o2, dJointGroupID jointGroup,
 		dGeomID g2 = cgeom.g2;
 		bool pushing_neg = false;
 		bool do_collide = true;
-		dxGeomUserData* usr_data_1 = nullptr;
-		dxGeomUserData* usr_data_2 = nullptr;
+		dxGeomUserData* usr_data_1 = NULL;
+		dxGeomUserData* usr_data_2 = NULL;
 		u16 material_idx_1 = 0;
 		u16 material_idx_2 = 0;
 
@@ -284,6 +284,7 @@ IC static int CollideIntoGroup(dGeomID o1, dGeomID o2, dJointGroupID jointGroup,
 
 void NearCallback(CPHObject* obj1, CPHObject* obj2, dGeomID o1, dGeomID o2)
 {
+	PROF_EVENT("CollideDynamic", PROF_CAT(Physics));
 	CPHIsland* island1 = obj1->DActiveIsland();
 	CPHIsland* island2 = obj2->DActiveIsland();
 	obj2->near_callback(obj1);
@@ -298,6 +299,7 @@ void NearCallback(CPHObject* obj1, CPHObject* obj2, dGeomID o1, dGeomID o2)
 
 void CollideStatic(dGeomID o2, CPHObject* obj2)
 {
+	PROF_EVENT("CollideStatic", PROF_CAT(Physics));
 	CPHIsland* island2 = obj2->DActiveIsland();
 	CollideIntoGroup(ph_world->GetMeshGeom(), o2, ContactGroup, island2, island2->MaxJoints());
 }

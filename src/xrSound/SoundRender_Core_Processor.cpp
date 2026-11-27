@@ -10,7 +10,8 @@
 
 CSoundRender_Emitter* CSoundRender_Core::i_play(ref_sound* S, BOOL _loop, float delay)
 {
-	VERIFY(S->_p->feedback == 0);
+	PROF_EVENT("CSoundRender_Core::i_play", PROF_CAT(Audio));
+	VERIFY(S->_p->feedback==0);
 	CSoundRender_Emitter* E = xr_new<CSoundRender_Emitter>();
 	S->_p->feedback = E;
 	E->start(S, _loop, delay);
@@ -20,6 +21,7 @@ CSoundRender_Emitter* CSoundRender_Core::i_play(ref_sound* S, BOOL _loop, float 
 
 void CSoundRender_Core::update(const Fvector& P, const Fvector& D, const Fvector& N)
 {
+	PROF_EVENT("CSoundRender_Core::update", PROF_CAT(Audio));
 	u32 it;
 
 	if (0 == bReady) return;
@@ -42,7 +44,7 @@ void CSoundRender_Core::update(const Fvector& P, const Fvector& D, const Fvector
 	float dt_sec = fTimer_Delta;
 	fTimer_Value = new_tm;
 
-	s_emitters_u++;
+	s_emitters_u ++;
 
 	// Firstly update emitters, which are now being rendered
 	//Msg	("! update: r-emitters");
@@ -83,10 +85,12 @@ void CSoundRender_Core::update(const Fvector& P, const Fvector& D, const Fvector
 		}
 	}
 
+	PROF_TAG("sound emitters", s_emitters.size());
+
 	// Get currently rendering emitters
 	//Msg	("! update: targets");
 	s_targets_defer.clear();
-	s_targets_pu++;
+	s_targets_pu ++;
 	// u32 PU				= s_targets_pu%s_targets.size();
 	for (it = 0; it < s_targets.size(); it++)
 	{
@@ -163,6 +167,7 @@ static u32 g_saved_event_count = 0;
 
 void CSoundRender_Core::update_events()
 {
+	PROF_EVENT("CSoundRender_Core::update_events", PROF_CAT(Audio));
 	g_saved_event_count = s_events.size();
 	for (u32 it = 0; it < s_events.size(); it++)
 	{
@@ -219,6 +224,7 @@ void CSoundRender_Core::statistic(CSound_stats* dest, CSound_stats_ext* ext)
 
 float CSoundRender_Core::get_occlusion_to(const Fvector& hear_pt, const Fvector& snd_pt, float dispersion)
 {
+	PROF_EVENT("CSoundRender_Core::get_occlusion_to", PROF_CAT(Audio));
 	float occ_value = 1.f;
 
 	if (0 != geom_SOM)
@@ -233,10 +239,10 @@ float CSoundRender_Core::get_occlusion_to(const Fvector& hear_pt, const Fvector&
 		dir.div(range);
 
 #ifdef _EDITOR
-		ETOOLS::ray_options(CDB::OPT_CULL);
-		ETOOLS::ray_query(geom_SOM, hear_pt, dir, range);
-		u32 r_cnt = ETOOLS::r_count();
-		CDB::RESULT* _B = ETOOLS::r_begin();
+		ETOOLS::ray_options		(CDB::OPT_CULL);
+		ETOOLS::ray_query		(geom_SOM,hear_pt,dir,range);
+		u32 r_cnt				= ETOOLS::r_count();
+		CDB::RESULT*	_B 		= ETOOLS::r_begin();
 #else
 		geom_DB.ray_options(CDB::OPT_CULL);
 		geom_DB.ray_query(geom_SOM, hear_pt, dir, range);
@@ -257,6 +263,7 @@ float CSoundRender_Core::get_occlusion_to(const Fvector& hear_pt, const Fvector&
 
 float CSoundRender_Core::get_occlusion(Fvector& P, float R, Fvector* occ)
 {
+	PROF_EVENT("CSoundRender_Core::get_occlusion", PROF_CAT(Audio));
 	float occ_value = 1.f;
 
 	// Calculate RAY params
@@ -285,11 +292,11 @@ float CSoundRender_Core::get_occlusion(Fvector& P, float R, Fvector* occ)
 		if (bNeedFullTest)
 		{
 #ifdef _EDITOR
-			ETOOLS::ray_options(CDB::OPT_ONLYNEAREST);
-			ETOOLS::ray_query(geom_MODEL, base, dir, range);
-			if (0 != ETOOLS::r_count()) {
+			ETOOLS::ray_options		(CDB::OPT_ONLYNEAREST);
+			ETOOLS::ray_query		(geom_MODEL,base,dir,range);
+			if (0!=ETOOLS::r_count()){ 
 				// cache polygon
-				const CDB::RESULT* R = ETOOLS::r_begin();
+				const CDB::RESULT*	R = ETOOLS::r_begin			();
 #else
 			geom_DB.ray_options(CDB::OPT_ONLYNEAREST);
 			geom_DB.ray_query(geom_MODEL, base, dir, range);
@@ -305,15 +312,15 @@ float CSoundRender_Core::get_occlusion(Fvector& P, float R, Fvector* occ)
 				occ[2].set(V[T.verts[2]]);
 				occ_value = psSoundOcclusionScale;
 			}
-			}
 		}
+	}
 	if (0 != geom_SOM)
 	{
 #ifdef _EDITOR
-		ETOOLS::ray_options(CDB::OPT_CULL);
-		ETOOLS::ray_query(geom_SOM, base, dir, range);
-		u32 r_cnt = ETOOLS::r_count();
-		CDB::RESULT* _B = ETOOLS::r_begin();
+		ETOOLS::ray_options		(CDB::OPT_CULL);
+		ETOOLS::ray_query		(geom_SOM,base,dir,range);
+		u32 r_cnt				= ETOOLS::r_count();
+        CDB::RESULT*	_B 		= ETOOLS::r_begin();
 #else
 		geom_DB.ray_options(CDB::OPT_CULL);
 		geom_DB.ray_query(geom_SOM, base, dir, range);
@@ -330,4 +337,4 @@ float CSoundRender_Core::get_occlusion(Fvector& P, float R, Fvector* occ)
 		}
 	}
 	return occ_value;
-	}
+}

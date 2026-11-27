@@ -69,6 +69,8 @@ public:
 	void Init();
 	void update_info();
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	void add_achievement(CUIXml& xml, shared_str const& faction_id);
 	void get_statistic();

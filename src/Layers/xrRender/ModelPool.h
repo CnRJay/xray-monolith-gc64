@@ -1,7 +1,5 @@
 // ModelPool.h: interface for the CModelPool class.
 //////////////////////////////////////////////////////////////////////
-#ifndef ModelPoolH
-#define ModelPoolH
 #pragma once
 
 // refs
@@ -37,6 +35,11 @@ private:
 			refs = 0;
 			model = 0;
 		}
+
+		// Order by pointer
+		bool operator<(const ModelDef& other) const { return model < other.model; }
+		bool operator<(const dxRender_Visual* other) const { return model < other; }
+		friend bool operator<(dxRender_Visual* ptr, const ModelDef& other) { return ptr < other.model; }
 	};
 
 	typedef xr_multimap<shared_str, dxRender_Visual*, str_pred> POOL;
@@ -45,14 +48,14 @@ private:
 	typedef REGISTRY::iterator REGISTRY_IT;
 private:
 	xr_vector<ModelDef> Models; // Reference / Base
-	xr_vector<dxRender_Visual*> ModelsToDelete; //
-	xr_vector<dxRender_Visual*> ModelsToDeleteDeffer;
-	xrCriticalSection deffered_del_lock;
+	xr_vector<dxRender_Visual*> ModelsToDelete; // 
+    xr_vector<dxRender_Visual*> ModelsToDeleteDeffer; // 
 	REGISTRY Registry; // Just pairing of pointer / Name
 	POOL Pool; // Unused / Inactive
 	BOOL bLogging;
-	BOOL bForceDiscard;
-	BOOL bAllowChildrenDuplicate;
+	xrCriticalSection deffered_del_lock;
+	xrSRWLock ModelsLock;
+	xrCriticalSection PoolLock; // guards Pool, Registry and ModelsToDelete
 
 	void Destroy();
 public:
@@ -62,25 +65,25 @@ public:
 	dxRender_Visual* Instance_Duplicate(dxRender_Visual* V);
 	dxRender_Visual* Instance_Load(LPCSTR N, BOOL allow_register, bool assert = true);
 	dxRender_Visual* Instance_Load(LPCSTR N, IReader* data, BOOL allow_register);
-	void Instance_Register(LPCSTR N, dxRender_Visual* V);
+	dxRender_Visual* Instance_Register(LPCSTR N, dxRender_Visual* V);
 	dxRender_Visual* Instance_Find(LPCSTR N);
 
 	dxRender_Visual* CreatePE(PS::CPEDef* source);
 	dxRender_Visual* CreatePG(PS::CPGDef* source);
 	dxRender_Visual* Create(LPCSTR name, IReader* data = 0, bool assert = true);
 	dxRender_Visual* CreateChild(LPCSTR name, IReader* data);
+	void DeleteDeffered(dxRender_Visual* &V);
 	void Delete(dxRender_Visual* & V, BOOL bDiscard = FALSE);
 	void Discard(dxRender_Visual* & V, BOOL b_complete);
 	void DeleteInternal(dxRender_Visual* & V, BOOL bDiscard = FALSE);
 	void DeleteQueue();
-	void DeleteDeffered(dxRender_Visual* & V);
 	void DeleteQueuedDeffer();
 
 	void Logging(BOOL bEnable) { bLogging = bEnable; }
 
 	void Prefetch();
 	void Prefetch_One(LPCSTR N, bool assert = true);
-	bool Exists(LPCSTR N);
+	bool Exists(LPCSTR N, bool no_prefetch = false);
 	void ClearPool(BOOL b_complete);
 
 	void dump();
@@ -92,4 +95,3 @@ public:
 	void 					RenderSingle		(dxRender_Visual* m_pVisual, const Fmatrix& mTransform, float m_fLOD);
 #endif
 };
-#endif //ModelPoolH

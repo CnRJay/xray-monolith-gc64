@@ -27,12 +27,13 @@
 #include "CustomOutfit.h"
 #include "Bolt.h"
 #include "string_table.h"
+#include "map_manager.h"
 
 CInventoryOwner::CInventoryOwner()
 {
-	m_pTrade = nullptr;
+	m_pTrade = NULL;
 	m_trade_parameters = 0;
-	m_purchase_list = nullptr;
+	m_purchase_list = NULL;
 
 	m_inventory = xr_new<CInventory>();
 	m_pCharacterInfo = xr_new<CCharacterInfo>();
@@ -94,7 +95,7 @@ void CInventoryOwner::reload(LPCSTR section)
 	m_money = 0;
 	m_bTrading = false;
 	m_bTalking = false;
-	m_pTalkPartner = nullptr;
+	m_pTalkPartner = NULL;
 
 	CAttachmentOwner::reload(section);
 }
@@ -125,7 +126,7 @@ BOOL CInventoryOwner::net_Spawn(CSE_Abstract* DC)
 
 	if (IsGameTypeSingle())
 	{
-		CSE_ALifeTraderAbstract* pTrader = nullptr;
+		CSE_ALifeTraderAbstract* pTrader = NULL;
 		if (E) pTrader = smart_cast<CSE_ALifeTraderAbstract*>(E);
 		if (!pTrader) return FALSE;
 
@@ -172,6 +173,8 @@ void CInventoryOwner::net_Destroy()
 
 	inventory().Clear();
 	inventory().SetActiveSlot(NO_ACTIVE_SLOT);
+
+	Level().MapManager().RemoveRelationLocation(this);
 }
 
 void CInventoryOwner::save(NET_Packet& output_packet)
@@ -199,8 +202,7 @@ void CInventoryOwner::load(IReader& input_packet)
 	CharacterInfo().load(input_packet);
 	load_data(m_game_name_str, input_packet);
 	load_data(m_money, input_packet);
-	CActor* actor = Actor();
-	if (!actor || this->object_id() != actor->object_id())
+	if (this->object_id() != Actor()->object_id())
 		m_game_name = TranslateName(m_game_name_str.c_str());
 }
 
@@ -289,7 +291,7 @@ void CInventoryOwner::StartTalk(CInventoryOwner* talk_partner, bool start_trade)
 
 void CInventoryOwner::StopTalk()
 {
-	m_pTalkPartner = nullptr;
+	m_pTalkPartner = NULL;
 	m_bTalking = false;
 
 	CUIGameSP* ui_sp = smart_cast<CUIGameSP*>(CurrentGameUI());
@@ -324,12 +326,12 @@ bool CInventoryOwner::IsTrading()
 }
 
 //==============
-void CInventoryOwner::renderable_Render()
+void CInventoryOwner::renderable_Render		(IDSGraphManager* DM)
 {
 	if (inventory().ActiveItem())
-		inventory().ActiveItem()->renderable_Render();
+		inventory().ActiveItem()->renderable_Render(DM);
 
-	CAttachmentOwner::renderable_Render();
+	CAttachmentOwner::renderable_Render(DM);
 }
 
 void CInventoryOwner::OnItemTake(CInventoryItem* inventory_item)
@@ -653,6 +655,11 @@ void CInventoryOwner::set_money(u32 amount, bool bSendEvent)
 bool CInventoryOwner::use_default_throw_force()
 {
 	return (true);
+}
+
+float CInventoryOwner::default_missile_throw_force(CMissile* missile)
+{
+	return missile->IsConstPower() ? missile->GetConstForce() : missile->GetThrowForce();
 }
 
 float CInventoryOwner::missile_throw_force()

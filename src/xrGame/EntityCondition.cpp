@@ -84,7 +84,7 @@ CEntityCondition::CEntityCondition(CEntityAlive* object)
 	m_fDeltaPsyHealth = 0;
 
 	m_fHealthLost = 0.f;
-	m_pWho = nullptr;
+	m_pWho = NULL;
 	m_iWhoID = 0;
 
 	m_WoundVector.clear();
@@ -167,8 +167,8 @@ void CEntityCondition::reinit()
 	m_fDeltaPsyHealth = 0;
 
 	m_fHealthLost = 0.f;
-	m_pWho = nullptr;
-	m_iWhoID = 0;
+	m_pWho = NULL;
+	m_iWhoID = NULL;
 
 	ClearWounds();
 }
@@ -403,7 +403,7 @@ CWound* CEntityCondition::AddWound(float hit_power, ALife::EHitType hit_type, u1
 			break;
 	}
 
-	CWound* pWound = nullptr;
+	CWound* pWound = NULL;
 
 	//новая рана
 	if (it == m_WoundVector.end())
@@ -541,7 +541,7 @@ CWound* CEntityCondition::ConditionHit(SHit* pHDS)
 
 		m_fDeltaRadiation += hit_power;
 		bAddWound = false;
-		return nullptr;
+		return NULL;
 		break;
 	case ALife::eHitTypeExplosion:
 		hit_power *= GetHitImmunity(pHDS->hit_type) - m_fBoostExplImmunity;
@@ -617,7 +617,7 @@ CWound* CEntityCondition::ConditionHit(SHit* pHDS)
 	}
 	else
 	{
-		return nullptr;
+		return NULL;
 	}
 }
 
@@ -639,7 +639,7 @@ void CEntityCondition::UpdateHealth()
 	float bleeding_speed = BleedingSpeed() * m_fDeltaTime * change_v().m_fV_Bleeding;
 	m_bIsBleeding = fis_zero(bleeding_speed) ? false : true;
 	m_fDeltaHealth -= CanBeHarmed() ? bleeding_speed : 0;
-	m_fDeltaHealth += m_fDeltaTime * change_v().m_fV_HealthRestore;
+	m_fDeltaHealth += m_fDeltaTime * (change_v().m_fV_HealthRestore + m_health_restore_boost);
 
 	VERIFY(_valid(m_fDeltaHealth));
 	ChangeBleeding(change_v().m_fV_WoundIncarnation * m_fDeltaTime);

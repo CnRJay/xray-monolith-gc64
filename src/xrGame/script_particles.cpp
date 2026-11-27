@@ -9,6 +9,7 @@
 #include "stdafx.h"
 #include "script_particles.h"
 #include "../xrEngine/objectanimator.h"
+#include "../xrEngine/IGame_Persistent.h"
 
 CScriptParticlesCustom::CScriptParticlesCustom(CScriptParticles* owner, LPCSTR caParticlesName): CParticlesObject(
 	caParticlesName,FALSE, true)
@@ -26,13 +27,15 @@ void CScriptParticlesCustom::PSI_internal_delete()
 {
 	if (m_owner)
 		m_owner->m_particles = nullptr;
-	CParticlesObject::PSI_internal_delete();
+
+	CParticlesObject::PSI_destroy();
 }
 
 void CScriptParticlesCustom::PSI_destroy()
 {
 	if (m_owner)
 		m_owner->m_particles = nullptr;
+
 	CParticlesObject::PSI_destroy();
 }
 
@@ -88,6 +91,7 @@ CScriptParticles::CScriptParticles(LPCSTR caParticlesName)
 {
 	m_particles = xr_new<CScriptParticlesCustom>(this, caParticlesName);
 	m_transform.identity();
+	g_pGamePersistent->ps_active_deffer.push_back(m_particles);
 }
 
 CScriptParticles::~CScriptParticles()

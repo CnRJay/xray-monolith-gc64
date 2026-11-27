@@ -193,6 +193,9 @@
 #include <set>
 #include <map>
 
+#include <unordered_map>
+#include <unordered_set>
+
 #include <string>
 #pragma warning (pop)
 #pragma warning (disable : 4100 ) // unreferenced formal parameter
@@ -296,16 +299,21 @@ DEFINE_VECTOR(xr_rtoken, RTokenVec, RTokenVecIt);
 #endif
 #include "FileSystem.h"
 #include "FTimer.h"
-#include <fastdelegate/fastdelegate.h>
+#include "xr_delegate.h"
 #include "_noncopyable.h"
 #include "intrusive_ptr.h"
 
 #include "net_utils.h"
+#include "xrParams.h"
+
+#include "_thread_types.h"
 
 // CRC32 functions
 XRCORE_API u32 crc32(const void* P, u32 len);
 XRCORE_API u32 crc32(const void* P, u32 len, u32 starting_crc);
 XRCORE_API u32 path_crc32(const char* path, u32 len);
+
+#define xr_stdcall __stdcall
 
 // destructor
 template <class T>
@@ -331,12 +339,16 @@ public:
 	string64 UserName;
 	string64 CompName;
 	char* Params;
+	xr_bitsetflags<ECoreParams> ParamsData;
 	DWORD dwFrame;
 	bool april1;
 
 public:
-	void _initialize(LPCSTR ApplicationName, LogCallback cb = 0, BOOL init_fs = TRUE, LPCSTR fs_fname = 0);
+	void _initialize(LPCSTR ApplicationName, xrLogger::LogCallback cb = 0, BOOL init_fs = TRUE, LPCSTR fs_fname = 0);
 	void _destroy();
+	IC bool isDebug() {
+		return ParamsData.test(ECoreParams::dbg) || ParamsData.test(ECoreParams::dbgdev) || ParamsData.test(ECoreParams::dbgact) || ParamsData.test(ECoreParams::dbgbullet);
+	}
 };
 
 //Borland class dll interface

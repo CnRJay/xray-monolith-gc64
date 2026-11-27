@@ -60,6 +60,9 @@ public:
 
 	CEngineAPI();
 	~CEngineAPI();
+
+	int GetSkinningMode() const;
+	void SetSkinningMode(int Mode = -1);
 };
 
 #define NEW_INSTANCE(a) Engine.External.pCreate(a)

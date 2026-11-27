@@ -42,7 +42,7 @@ xrServer::EConnect xrServer::Connect(shared_str& session_name, GameDescriptionDa
 #ifdef DEBUG
 	Msg						("* sv_Connect: %s",	*session_name);
 #endif
-
+	PROF_EVENT("xrServer::Connect", PROF_CAT(Scene));
 	// Parse options and create game
 	if (0 == strchr(*session_name, '/'))
 		return ErrConnect;
@@ -56,7 +56,7 @@ xrServer::EConnect xrServer::Connect(shared_str& session_name, GameDescriptionDa
 	R_ASSERT2(xr_strlen(options) <= sizeof(type), "session_name too BIIIGGG!!!");
 	xr_strcpy(type, options);
 	if (strchr(type, '/')) *strchr(type, '/') = 0;
-	game = nullptr;
+	game = NULL;
 
 	CLASS_ID clsid = game_GameState::getCLASS_ID(type, true);
 	game = smart_cast<game_sv_GameState*>(NEW_INSTANCE(clsid));

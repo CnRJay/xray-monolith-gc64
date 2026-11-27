@@ -457,7 +457,7 @@ void dx103DFluidRenderer::Draw(const dx103DFluidData& FluidData)
 	else
 		RCache.set_Element(m_RendererTechnique[RS_QuadRaycastFog]);
 
-   PrepareCBuffer(FluidData, m_iRenderTextureWidth, m_iRenderTextureHeight);
+   PrepareCBuffer(FluidData, m_iRenderTextureWidth, m_iRenderTextureHeight, false);
 
 
 	DrawScreenQuad();
@@ -482,7 +482,7 @@ void dx103DFluidRenderer::Draw(const dx103DFluidData& FluidData)
 	RImplementation.rmNormal();
 
 
-    PrepareCBuffer(FluidData, Device.dwWidth, Device.dwHeight);
+    PrepareCBuffer(FluidData, Device.dwWidth, Device.dwHeight, true);
 
 	RCache.set_c(strDiffuseLight, LightData.m_vLightIntencity.x, LightData.m_vLightIntencity.y,
 	             LightData.m_vLightIntencity.z, 1.0f);
@@ -501,7 +501,7 @@ void dx103DFluidRenderer::ComputeRayData(const dx103DFluidData &FluidData)
 	pTarget->u_setrt(RT[RRT_RayDataTex], nullptr, nullptr, nullptr); // LDR RT
 	RCache.set_Element(m_RendererTechnique[RS_CompRayData_Back]);
 
-    PrepareCBuffer(FluidData, Device.dwWidth, Device.dwHeight);
+    PrepareCBuffer(FluidData, Device.dwWidth, Device.dwHeight, false);
 
 	// Render volume back faces
 	// We output xyz=(0,-1,0) and w=min(sceneDepth, boxDepth)
@@ -516,7 +516,7 @@ void dx103DFluidRenderer::ComputeRayData(const dx103DFluidData &FluidData)
 	
 	RCache.set_Element(m_RendererTechnique[RS_CompRayData_Front]);
 
-    PrepareCBuffer(FluidData, Device.dwWidth, Device.dwHeight);
+    PrepareCBuffer(FluidData, Device.dwWidth, Device.dwHeight, true);
 
 	DrawBox();
 }
@@ -529,7 +529,7 @@ void dx103DFluidRenderer::ComputeEdgeTexture(const dx103DFluidData &FluidData)
 
 	// First setup viewport to match the size of the destination low-res texture
 	
-    PrepareCBuffer(FluidData, m_iRenderTextureWidth, m_iRenderTextureHeight);
+    PrepareCBuffer(FluidData, m_iRenderTextureWidth, m_iRenderTextureHeight, false);
 
 	// Downsample the rayDataTexture to a new small texture, simply using point sample (no filtering)
 
@@ -539,7 +539,7 @@ void dx103DFluidRenderer::ComputeEdgeTexture(const dx103DFluidData &FluidData)
 	pTarget->u_setrt(RT[RRT_EdgeTex], nullptr, nullptr, nullptr); // LDR RT
 
 	RCache.set_Element(m_RendererTechnique[RS_QuadEdgeDetect]);
-    PrepareCBuffer(FluidData, m_iRenderTextureWidth, m_iRenderTextureHeight);
+    PrepareCBuffer(FluidData, m_iRenderTextureWidth, m_iRenderTextureHeight, true);
 
 	DrawScreenQuad();
 }
@@ -596,7 +596,7 @@ void dx103DFluidRenderer::CalculateLighting(const dx103DFluidData& FluidData, Fo
 	// Determine visibility for dynamic part of scene
 	for (u32 i = 0; i < iNumRenderables; ++i)
 	{
-		ISpatial* spatial = m_lstRenderables[i];
+		ISpatialShared spatial = m_lstRenderables[i];
 
 		// Light
 		light* pLight = (light*)spatial->dcast_Light();
@@ -631,8 +631,14 @@ void dx103DFluidRenderer::CalculateLighting(const dx103DFluidData& FluidData, Fo
 	//LightData.m_vLightIntencity.set( 1.0f, 1.0f, 1.0f);
 }
 
-void dx103DFluidRenderer::PrepareCBuffer(const dx103DFluidData &FluidData, u32 RTWidth, u32 RTHeight)
+void dx103DFluidRenderer::PrepareCBuffer(const dx103DFluidData &FluidData, u32 RTWidth, u32 RTHeight, bool SizeOnly)
 {
+	RCache.set_c(strRTWidth, (float)RTWidth);
+	RCache.set_c(strRTHeight, (float)RTHeight);
+
+	// if (SizeOnly)
+	// 	return;
+
     const Fmatrix &transform = FluidData.GetTransform();
     RCache.set_xform_world(transform);
 
@@ -678,7 +684,4 @@ void dx103DFluidRenderer::PrepareCBuffer(const dx103DFluidData &FluidData, u32 R
     D3DXVECTOR3 Origin(0,0,0);
     D3DXVec3Transform((D3DXVECTOR4*)&EyeInGridSpace, (D3DXVECTOR3*)&Origin, (D3DXMATRIX*)&WorldViewInv);
     RCache.set_c(strEyeOnGrid, *(Fvector4*)&EyeInGridSpace);
-
-    RCache.set_c(strRTWidth, (float)RTWidth);
-    RCache.set_c(strRTHeight, (float)RTHeight);
 }

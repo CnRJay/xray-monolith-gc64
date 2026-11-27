@@ -5,6 +5,19 @@ class UIHint;
 class CScriptXmlInit;
 class CUIWindow;
 
+class CUIStatic;
+class CUICellItem;
+class CUIListBoxItem;
+class CUIListItem;
+class CUIListWnd;
+class ITextureOwner;
+class CUILightAnimColorConroller;
+class CUITreeViewItem;
+class CUIScrollView;
+class CUIFixedScrollBar;
+class CUISelectable;
+class CUIListItemServer;
+
 struct _12b
 {
 	DWORD _[3];
@@ -115,6 +128,20 @@ public:
 	CUIWindow();
 	virtual ~CUIWindow();
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIStatic* ui_cast_static() { return nullptr; }
+	virtual CUICellItem* ui_cast_cell_item() { return nullptr; }
+	virtual CUIListBoxItem* ui_cast_list_box_item() { return nullptr; }
+	virtual CUIListItem* ui_cast_list_item() { return nullptr; }
+	virtual CUIListWnd* ui_cast_list() { return nullptr; }
+	virtual ITextureOwner* ui_cast_texture_owner() { return nullptr; }
+	virtual CUILightAnimColorConroller* ui_cast_light_anim_color_controller() { return nullptr; }
+	virtual CUITreeViewItem* ui_cast_tree_view_item() { return nullptr; }
+	virtual CUIScrollView* ui_cast_scroll_view() { return nullptr; }
+	virtual CUIFixedScrollBar* ui_cast_fixed_scroll_bar() { return nullptr; }
+	virtual CUISelectable* ui_cast_selectable() { return nullptr; }
+	virtual CUIListItemServer* ui_cast_list_item_server() { return nullptr; }
+
 
 	////////////////////////////////////
 	//работа с дочерними и родительскими окнами
@@ -122,7 +149,11 @@ public:
 	virtual void DetachChild(CUIWindow* pChild);
 	virtual bool IsChild(CUIWindow* pChild) const;
 	virtual void DetachAll();
-	int GetChildNum() { return m_ChildWndList.size(); }
+	int GetChildNum()
+	{
+		xrCriticalSectionGuard guard(csUi);
+		return m_ChildWndList.size();
+	}
 
 	void SetParent(CUIWindow* pNewParent);
 	CUIWindow* GetParent() const { return m_pParentWnd; }
@@ -130,7 +161,7 @@ public:
 	//получить окно самого верхнего уровня
 	CUIWindow* GetTop()
 	{
-		if (m_pParentWnd == nullptr) return this;
+		if (m_pParentWnd == NULL) return this;
 		else return m_pParentWnd->GetTop();
 	}
 
@@ -168,8 +199,20 @@ public:
 
 	//захватить/освободить мышь окном
 	//сообщение посылается дочерним окном родительскому
+	// Capture is global, not per-window: one stack of windows that have taken the mouse, topmost
+	// wins, and releasing restores the one underneath (a popup keeps its capture across a scrollbar
+	// drag inside it). A capturer need not be a child of the receiver, or attached at all --
+	// CUIDragItem has no parent.
 	void SetCapture(CUIWindow* pChildWindow, bool capture_status);
-	CUIWindow* GetMouseCapturer() { return m_pMouseCapturer; }
+	static CUIWindow* MouseCapturer();
+	bool IsMouseCapturer() { return MouseCapturer() == this; }
+	void ReleaseMouseCapture();
+
+	void SetMouseCapture(bool status);
+	void FeedCursorDelta(const Fvector2& cursor);
+	virtual void OnMouseMoveRelative(float dx, float dy)
+	{
+	}
 
 	//окошко, которому пересылаются сообщения,
 	//если NULL, то шлем на GetParent()
@@ -182,7 +225,7 @@ public:
 	//ф-ция должна переопределяться
 	//pWnd - указатель на окно, которое послало сообщение
 	//pData - указатель на дополнительные данные, которые могут понадобиться
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 
 
 	virtual void Enable(bool status) { m_bIsEnabled = status; }
@@ -191,9 +234,20 @@ public:
 	//убрать/показать окно и его дочерние окна
 	virtual void Show(bool status)
 	{
+		if (m_bHideLock && status)
+			return;
+
 		SetVisible(status);
 		Enable(status);
 	}
+
+	void SetHideLock(bool lock)
+	{
+		m_bHideLock = lock;
+		if (lock)
+			Show(false);
+	}
+	IC bool GetHideLock() const { return m_bHideLock; }
 
 	IC bool IsShown() { return GetVisible(); }
 	void ShowChildren(bool show);
@@ -240,33 +294,108 @@ public:
 	const shared_str WindowName() const { return m_windowName; }
 	void SetWindowName(LPCSTR wn) { m_windowName = wn; }
 	LPCSTR WindowName_script() { return m_windowName.c_str(); }
-	CUIWindow* FindChild(const shared_str name);
+	CUIWindow* FindChild(const LPCSTR name);
 
 	IC bool CursorOverWindow() const { return m_bCursorOverWindow; }
 	IC u32 FocusReceiveTime() const { return m_dwFocusReceiveTime; }
 
+	// Optional convex hit polygon (absolute coords, any vertex count): the cursor must also be inside
+	// it to hover or receive mouse actions.
+	IC void SetHitClip(const Fvector2* pts, u32 count)
+	{
+		if (count >= 3)
+		{
+			Fvector2 lo = pts[0];
+			Fvector2 hi = pts[0];
+			for (u32 i = 1; i < count; ++i)
+			{
+				lo.x = _min(lo.x, pts[i].x);
+				lo.y = _min(lo.y, pts[i].y);
+				hi.x = _max(hi.x, pts[i].x);
+				hi.y = _max(hi.y, pts[i].y);
+			}
+			if (hi.x - lo.x >= EPS_L || hi.y - lo.y >= EPS_L)
+			{
+				m_hit_clip_poly.assign(pts, pts + count);
+				return;
+			}
+		}
+		m_hit_clip_poly.clear();
+	}
+	IC bool HitClipPass(const Fvector2& abs_pos) const
+	{
+		const u32 n = m_hit_clip_poly.size();
+		if (n < 3)
+			return true;
+		float sign = 0.0f;
+		for (u32 i = 0; i < n; ++i)
+		{
+			const Fvector2& a = m_hit_clip_poly[i];
+			const Fvector2& b = m_hit_clip_poly[(i + 1) % n];
+			const float cr = (b.x - a.x) * (abs_pos.y - a.y) - (b.y - a.y) * (abs_pos.x - a.x);
+			if (cr != 0.0f)
+			{
+				if (sign == 0.0f)
+					sign = cr;
+				else if ((cr < 0.0f) != (sign < 0.0f))
+					return false;
+			}
+		}
+		return true;
+	}
+
+	// frame lines and text are not clipped
+	void EnableClip(bool enable);
+	IC bool IsClipEnabled() const { return m_bClipEnabled; }
+	void SetClipRect(Frect rect)
+	{
+		if (rect.x2 <= rect.x1 || rect.y2 <= rect.y1)
+		{
+			Msg("!CUIWindow::SetClipRect called with an empty rect [%f,%f,%f,%f]", rect.x1, rect.y1, rect.x2,
+			    rect.y2);
+			return;
+		}
+
+		m_clip_rect = rect;
+		m_bClipRectSet = true;
+	}
+	void ResetClipRect() { m_bClipRectSet = false; }
+	void GetClipRect(Frect& r)
+	{
+		if (m_bClipRectSet)
+			r = m_clip_rect;
+		else
+			GetAbsoluteRect(r);
+	}
+	static bool AnyClipEnabled();
+
 	IC bool GetCustomDraw() const { return m_bCustomDraw; }
 	IC void SetCustomDraw(bool b) { m_bCustomDraw = b; }
+
+	xrCriticalSection csUi;
 
 protected:
 	IC void SafeRemoveChild(CUIWindow* child)
 	{
+		xrCriticalSectionGuard guard(csUi);
 		WINDOW_LIST_it it = std::find(m_ChildWndList.begin(), m_ChildWndList.end(), child);
-		if (it != m_ChildWndList.end())m_ChildWndList.erase(it);
+		if (it != m_ChildWndList.end()) m_ChildWndList.erase(it);
 	};
 
 	shared_str m_windowName;
 	//список дочерних окон
 	WINDOW_LIST m_ChildWndList;
 
+    WINDOW_LIST m_ChildWndToDelete;
+    void CollectGarbage();
+
 	//указатель на родительское окно
 	CUIWindow* m_pParentWnd;
 
-	//дочернее окно которое, захватило ввод мыши
-	CUIWindow* m_pMouseCapturer;
-
 	//дочернее окно которое, захватило ввод клавиатуры
 	CUIWindow* m_pKeyboardCapturer;
+	// Drops keyboard capture held through 'child' here and in every ancestor routing to us.
+	void ReleaseKeyboardCaptureFrom(CUIWindow* child);
 
 	//кому шлем сообщения
 	CUIWindow* m_pMessageTarget;
@@ -288,6 +417,15 @@ protected:
 	// Если курсор над окном
 	bool m_bCursorOverWindow;
 	bool m_bCustomDraw;
+	bool m_bHideLock;
+	bool m_bClipEnabled;
+	bool m_bClipRectSet;
+	bool m_bCursorDelta;
+
+	Frect m_clip_rect;
+	Fvector2 m_capture_cursor;
+
+	xr_vector<Fvector2> m_hit_clip_poly;
 
 #ifdef DEBUG
 	int m_dbg_id;

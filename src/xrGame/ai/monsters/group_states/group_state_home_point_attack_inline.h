@@ -211,8 +211,7 @@ void CStateGroupAttackMoveToHomePointAbstract::setup_substates()
 		}
 
 		CMonsterSquad* squad = monster_squad().get_squad(object);
-		if (squad)
-			squad->lock_cover(m_target_node);
+		squad->lock_cover(m_target_node);
 
 		SStateDataMoveToPointEx data;
 

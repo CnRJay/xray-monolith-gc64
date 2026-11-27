@@ -334,7 +334,6 @@ void CRenderTarget::phase_ssfx_ssr()
 
 void CRenderTarget::phase_ssfx_volumetric_blur()
 {
-
 	// Be careful and clear the buffer ( rt_Generic_2 contain unspeakable stuff if no volumetric is written )
 	if (!m_bHasActiveVolumetric)
 	{
@@ -361,7 +360,7 @@ void CRenderTarget::phase_ssfx_volumetric_blur()
 	p0.set(0.0f, 0.0f);
 	p1.set(1.0f, 1.0f);
 
-	// Volumetric always at 1/8 res
+	// Volumetric always at volsize res, default 1/8
 	set_viewport_size(HW.pContext, w / RImplementation.o.volsize, h / RImplementation.o.volsize);
 
 	ref_rt* rt_VolBlur[2] = { &rt_ssfx_volumetric_tmp, &rt_ssfx_volumetric };
@@ -371,7 +370,7 @@ void CRenderTarget::phase_ssfx_volumetric_blur()
 	// BLUR ///////////////////////////////////////////////////////////////////
 	for (int b = 0; b < 4; b++)
 	{
-		u_setrt(*rt_VolBlur[b % 2], 0, 0, nullptr);
+		u_setrt(*rt_VolBlur[b % 2], 0, 0, NULL);
 		RCache.set_CullMode(CULL_NONE);
 		RCache.set_Stencil(FALSE);
 
@@ -394,7 +393,7 @@ void CRenderTarget::phase_ssfx_volumetric_blur()
 	set_viewport_size(HW.pContext, w, h);
 
 	// COMBINE ////////////////////////////////////////////////////////////////
-	u_setrt(rt_ssfx_accum, 0, 0, nullptr);
+	u_setrt(rt_ssfx_accum, 0, 0, NULL);
 	RCache.set_CullMode(CULL_NONE);
 	RCache.set_Stencil(FALSE);
 
@@ -434,7 +433,7 @@ void CRenderTarget::phase_ssfx_water_blur()
 	if (ps_ssfx_water.y > 0)
 	{
 		// BLUR PHASE 1 //////////////////////////////////////////////////////////
-		u_setrt(rt_ssfx_temp2, 0, 0, nullptr);
+		u_setrt(rt_ssfx_temp2, 0, 0, NULL);
 		RCache.set_CullMode(CULL_NONE);
 		RCache.set_Stencil(FALSE);
 
@@ -453,7 +452,7 @@ void CRenderTarget::phase_ssfx_water_blur()
 		RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
 		// BLUR PHASE 2 //////////////////////////////////////////////////////////
-		u_setrt(rt_ssfx_temp, 0, 0, nullptr);
+		u_setrt(rt_ssfx_temp, 0, 0, NULL);
 		RCache.set_CullMode(CULL_NONE);
 		RCache.set_Stencil(FALSE);
 
@@ -476,7 +475,7 @@ void CRenderTarget::phase_ssfx_water_blur()
 	{
 		HW.pContext->CopyResource(rt_ssfx_temp2->pTexture->surface_get(), rt_ssfx_temp->pTexture->surface_get());
 
-		u_setrt(rt_ssfx_temp, 0, 0, nullptr);
+		u_setrt(rt_ssfx_temp, 0, 0, NULL);
 		RCache.set_CullMode(CULL_NONE);
 		RCache.set_Stencil(FALSE);
 
@@ -518,7 +517,7 @@ void CRenderTarget::phase_ssfx_water_waves()
 
 	set_viewport_size(HW.pContext, 512, 512);
 
-	u_setrt(rt_ssfx_water_waves, 0, 0, nullptr);
+	u_setrt(rt_ssfx_water_waves, 0, 0, NULL);
 	RCache.set_CullMode(CULL_NONE);
 	RCache.set_Stencil(FALSE);
 
@@ -700,7 +699,8 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 		for (int slot = 0; slot < 8; slot++)
 			Lights_Array[slot].set(0, 0, 0, 0);
 
-		xr_vector<light*> LightsSort;
+		static xr_vector<light*> LightsSort;
+        LightsSort.clear();
 		bool CheckPackage = true;
 
 		// Shadows must render for each viewport
@@ -709,12 +709,22 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 			sss_currentframe = Device.dwViewport + 2;
 
 			xr_vector<light*>& source = LP.v_shadowed;
+
+            // demonized: use whatever omni light visible by checking its parent
+            // normally it should be omnipart_num 0, but with omnipart_vischeck its not guaranteed, hope its stable
+            static xr_unordered_flat_set<light*> omni_parents;
+            omni_parents.clear();
 			for (u32 it = 0; it < source.size(); it++)
 			{
 				light* L = source[it];
+                light* parent = L->omipart_parent;
 
-				if (L->omnipart_num == 0 && L->range > 1.5f)
+				if ((L->omnipart_num == 0 || (parent && omni_parents.find(parent) == omni_parents.end())) && L->range > 1.5f)
 				{
+                    light* to_insert = L->omnipart_num == 0 ? L : parent;
+                    if (to_insert)
+                        omni_parents.insert(to_insert);
+
 					if (L->distance < 800 && L->flags.bActive)
 					{
 						L->distance_lpos = Device.vCameraPosition.distance_to(L->position);
@@ -776,6 +786,7 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 					LightSlot[FreeSlot] = L;
 
 					L->sss_id = FreeSlot;
+                    L->sss_remove_latency = 0;
                     L->sss_on_light_destroy.bind(OnLightDestroy);
 
 					if (L->flags.type == IRender_Light::OMNIPART)
@@ -821,15 +832,22 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 				// Remove Light
 				if (!LightSlot[slot]->flags.bActive || Remove)
 				{
-					if (LightSlot[slot]->flags.type == IRender_Light::OMNIPART)
-						LightSlot[slot]->sss_refresh = true;
+                    // demonized: keep the light pointer for some frames to eliminate flicker, but also check if its actually been disabled
+                    LightSlot[slot]->sss_remove_latency++;
+                    if (!LightSlot[slot]->flags.bActive || LightSlot[slot]->sss_remove_latency > 5)
+                    {
+                        if (LightSlot[slot]->flags.type == IRender_Light::OMNIPART)
+                            LightSlot[slot]->sss_refresh = true;
 
-                    LightSlot[slot]->sss_id = -1;
-                    LightSlot[slot]->sss_on_light_destroy.clear();
-                    LightSlot[slot] = NULL;
+                        LightSlot[slot]->sss_id = -1;
+                        LightSlot[slot]->sss_on_light_destroy.clear();
+                        LightSlot[slot] = NULL;
+                    }
 				}
 				else
 				{
+                    LightSlot[slot]->sss_remove_latency = 0;                  
+
 					// Update Light
 					Fvector L_pos;
 
@@ -854,6 +872,8 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 
 	// SSS Ext 2 -------------------------------------------------------
 
+	// Buffer must be cleared for svp scissor hack
+	HW.pContext->ClearRenderTargetView(rt_ssfx_sss_tmp->pRT, ColorRGBA);
 	u_setrt(rt_ssfx_sss_tmp, nullptr, nullptr, nullptr);
 
 	RCache.set_CullMode(CULL_NONE);
@@ -882,6 +902,8 @@ void CRenderTarget::phase_ssfx_sss_ext(light_Package& LP)
 
 	// Combine ---------------------------------------------------------
 
+	// Buffer must be cleared for svp scissor hack
+	HW.pContext->ClearRenderTargetView(rt_ssfx_sss_tmp->pRT, ColorRGBA);
 	u_setrt(rt_ssfx_sss_tmp, nullptr, nullptr, nullptr);
 
 	RCache.set_CullMode(CULL_NONE);
@@ -925,7 +947,7 @@ void CRenderTarget::phase_ssfx_fog_scattering()
 
 		set_viewport_size(HW.pContext, w / SampleScale, h / SampleScale);
 
-		u_setrt(*rt_Blur[blurp], 0, 0, nullptr);
+		u_setrt(*rt_Blur[blurp], 0, 0, NULL);
 		RCache.set_CullMode(CULL_NONE);
 		RCache.set_Stencil(FALSE);
 

@@ -23,8 +23,10 @@ public:
 	CUIMapList();
 	virtual ~CUIMapList();
 	virtual void Update();
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 	void InitFromXml(CUIXml& xml_doc, const char* path);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 	void SetWeatherSelector(CUIComboBox* ws);
 	void SetModeSelector(CUIWindow* ms);

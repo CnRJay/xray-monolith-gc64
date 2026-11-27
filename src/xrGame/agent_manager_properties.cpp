@@ -45,7 +45,7 @@ CAgentManagerPropertyEvaluatorEnemy::_value_type CAgentManagerPropertyEvaluatorE
 	for (; I != E; ++I)
 	{
 		VERIFY(*I);
-		if ((*I)->object().memory().enemy().selected())
+		if ((*I) && (*I)->object().memoryPtr() && (*I)->object().memory().enemy().selected())
 			return (true);
 	}
 	return (false);

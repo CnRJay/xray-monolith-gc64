@@ -5,7 +5,7 @@
 #include "../xrEngine/LightAnimLibrary.h"
 
 /*
-CZoneCampfire* g_zone = nullptr;
+CZoneCampfire* g_zone = NULL;
 void turn_zone()
 {
 	if(!g_zone) return;
@@ -16,15 +16,15 @@ void turn_zone()
 }
 */
 CZoneCampfire::CZoneCampfire()
-	: m_pDisabledParticles(nullptr), m_pEnablingParticles(nullptr), m_turned_on(true), m_turn_time(0)
+	: m_pDisabledParticles(NULL), m_pEnablingParticles(NULL), m_turned_on(true), m_turn_time(0)
 {
 	//.	g_zone = this;
 }
 
 CZoneCampfire::~CZoneCampfire()
 {
-	CParticlesObject::Destroy(m_pDisabledParticles);
-	CParticlesObject::Destroy(m_pEnablingParticles);
+	Particles::Details::Destroy(m_pDisabledParticles);
+	Particles::Details::Destroy(m_pEnablingParticles);
 	m_disabled_sound.destroy();
 }
 
@@ -40,14 +40,14 @@ void CZoneCampfire::GoEnabledState()
 	if (m_pDisabledParticles)
 	{
 		m_pDisabledParticles->Stop(FALSE);
-		CParticlesObject::Destroy(m_pDisabledParticles);
+		Particles::Details::Destroy(m_pDisabledParticles);
 	}
 
 	m_disabled_sound.stop();
 	m_disabled_sound.destroy();
 
 	LPCSTR str = pSettings->r_string(cNameSect(), "enabling_particles");
-	m_pEnablingParticles = CParticlesObject::Create(str,FALSE);
+	m_pEnablingParticles = Particles::Details::Create(str,FALSE);
 	m_pEnablingParticles->UpdateParent(XFORM(), zero_vel);
 	m_pEnablingParticles->Play(false);
 }
@@ -58,7 +58,7 @@ void CZoneCampfire::GoDisabledState()
 
 	R_ASSERT(NULL==m_pDisabledParticles);
 	LPCSTR str = pSettings->r_string(cNameSect(), "disabled_particles");
-	m_pDisabledParticles = CParticlesObject::Create(str,FALSE);
+	m_pDisabledParticles = Particles::Details::Create(str,FALSE);
 	m_pDisabledParticles->UpdateParent(XFORM(), zero_vel);
 	m_pDisabledParticles->Play(false);
 
@@ -121,7 +121,7 @@ void CZoneCampfire::PlayIdleParticles(bool bIdleLight)
 		if (m_pEnablingParticles)
 		{
 			m_pEnablingParticles->Stop(FALSE);
-			CParticlesObject::Destroy(m_pEnablingParticles);
+			Particles::Details::Destroy(m_pEnablingParticles);
 		}
 	}
 }

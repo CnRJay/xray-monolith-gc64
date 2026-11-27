@@ -10,21 +10,19 @@ struct SLocationKey : public IPureSerializeObject<IReader, IWriter>, public IPur
 	CMapLocation* location;
 	bool actual;
 
-	SLocationKey(shared_str s, u16 id): spot_type(s), object_id(id), location(nullptr), actual(true)
+	SLocationKey(shared_str s, u16 id): spot_type(s), object_id(id), location(NULL), actual(true)
 	{
 	};
 
-	SLocationKey(): spot_type(nullptr), object_id(0), location(nullptr), actual(true)
+	SLocationKey(): spot_type(NULL), object_id(0), location(NULL), actual(true)
 	{
 	};
 
 	bool operator <(const SLocationKey& key) const
 	{
-		if (actual == key.actual) {
-			if (object_id == key.object_id)
-				return location < key.location;
-			return object_id < key.object_id;
-		} else
+		if (actual == key.actual)
+			return location < key.location;
+		else
 			return actual > key.actual;
 	} //move non-actual to tail
 

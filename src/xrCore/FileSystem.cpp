@@ -9,7 +9,7 @@
 #include "commdlg.h"
 #include "vfw.h"
 
-EFS_Utils* xr_EFS = nullptr;
+EFS_Utils* xr_EFS = NULL;
 //----------------------------------------------------
 EFS_Utils::EFS_Utils()
 {
@@ -72,7 +72,7 @@ xr_string EFS_Utils::ChangeFileExt(const xr_string& src, LPCSTR ext)
 //----------------------------------------------------
 void MakeFilter(string1024& dest, LPCSTR info, LPCSTR ext)
 {
-	std::string res;
+	xr_string res;
 
 	if (ext)
 	{

@@ -166,7 +166,7 @@ void CTrade::StopTrade()
 	m_dwLastTradeTime = 0;
 	//	Msg("--TRADE:: [%s]: Trade stopped...",*pThis.base->cName());
 
-	CAI_Trader* pTrader = nullptr;
+	CAI_Trader* pTrader = NULL;
 	if (pThis.type == TT_TRADER)
 	{
 		//pTrader = smart_cast<CAI_Trader*>(pThis.base);

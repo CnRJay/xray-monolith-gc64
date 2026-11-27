@@ -1,13 +1,14 @@
 #pragma once
-#ifndef CPHOBJECT
-#define CPHOBJECT
+
 #include "../xrcdb/ispatial.h"
 #include "PHItemList.h"
 #include "PHIsland.h"
 typedef u32 CLClassBits;
 typedef u32 CLBits;
 class ISpatial;
-DEFINE_VECTOR(ISpatial*, qResultVec, qResultIt)
+
+using qResultVec = xr_vector<ISpatialShared>;
+using qResultIt = qResultVec::iterator;
 class CPHObject;
 class CPHUpdateObject;
 class CPHMoveStorage;
@@ -17,8 +18,8 @@ typedef void CollideCallback(CPHObject* obj1, CPHObject* obj2, dGeomID o1, dGeom
 #ifdef		DEBUG
 class IPhysicsShellHolder;
 #endif
-class CPHObject :
-	public ISpatial
+class CPHObject:
+	public ISpatialOwner
 {
 #ifdef DEBUG
 	friend struct SPHObjDBGDraw;
@@ -35,7 +36,8 @@ class CPHObject :
 		st_net_interpolation =(1 << 3),
 		fl_ray_motions =(1 << 4),
 		st_recently_deactivated =(1 << 5),
-		is_deadbody =(1 << 6)
+		is_deadbody =(1 << 6),
+		fl_collision_disable =(1 << 7)
 	};
 
 	CPHIsland m_island;
@@ -118,7 +120,7 @@ public:
 	virtual void Collide();
 	virtual void near_callback(CPHObject* obj) { ; }
 	virtual void RMotionsQuery(qResultVec& res) { ; }
-	virtual CPHMoveStorage* MoveStorage() { return nullptr; }
+	virtual CPHMoveStorage* MoveStorage() { return NULL; }
 	virtual ECastType CastType() { return tpNotDefinite; }
 
 	void SetDeadBody() { m_flags.set(is_deadbody, TRUE); }
@@ -140,9 +142,8 @@ virtual		IPhysicsShellHolder	*ref_object					()										=0;
 	IC const CLBits& collide_bits() const { return m_collide_bits; }
 	IC const _flags<CLClassBits>& collide_class_bits() const { return m_collide_class_bits; }
 	void CollideDynamics();
+	virtual CPHObject* dcast_CPHObject() override { return this; }
 };
 
 
 DEFINE_PHITEM_LIST(CPHObject, PH_OBJECT_STORAGE, PH_OBJECT_I)
-
-#endif//CPHOBJECT

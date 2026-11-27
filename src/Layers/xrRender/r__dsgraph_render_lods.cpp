@@ -12,17 +12,22 @@
 extern float r_ssaLOD_A;
 extern float r_ssaLOD_B;
 
-ICF bool pred_dot(const std::pair<float, u32>& _1, const std::pair<float, u32>& _2) { return _1.first < _2.first; }
-
-void R_dsgraph_structure::r_dsgraph_render_lods(bool _setup_zb, bool _clear)
+xr_vector<int> lstLODgroups;
+void CDSGraphManager::r_dsgraph_render_lods(bool _setup_zb, bool _clear)
 {
-	if (_setup_zb) mapLOD.getLR(lstLODs); // front-to-back
-	else mapLOD.getRL(lstLODs); // back-to-front
-	if (lstLODs.empty()) return;
+	PROF_EVENT("LODS: Render", PROF_CAT(Rendering));
+	if (RGraph.mapLOD.empty())
+		return;
+
+    static auto sortFuncReverse = [](const auto& a, const auto& b) { return b < a; };
+	if (_setup_zb)
+        std::sort(RGraph.mapLOD.begin(), RGraph.mapLOD.end());
+    else
+        std::sort(RGraph.mapLOD.begin(), RGraph.mapLOD.end(), sortFuncReverse);
 
 	// *** Fill VB and generate groups
 	u32 shid = _setup_zb ? SE_R1_LMODELS : SE_R1_NORMAL_LQ;
-	FLOD* firstV = (FLOD*)lstLODs[0].pVisual;
+	FLOD* firstV = (FLOD*)RGraph.mapLOD[0].pVisual;
 	ref_selement cur_S = firstV->shader->E[shid];
 	float ssaRange = r_ssaLOD_A - r_ssaLOD_B;
 	if (ssaRange < EPS_S) ssaRange = EPS_S;
@@ -35,9 +40,9 @@ void R_dsgraph_structure::r_dsgraph_render_lods(bool _setup_zb, bool _clear)
 	//Msg						("dbg_lods: shader[%X]",u32((void*)firstV->shader._get()));
 	//Msg						("dbg_lods: shader_E[%X]",u32((void*)cur_S._get()));
 
-	for (u32 i = 0; i < lstLODs.size(); i++)
+	for (u32 i = 0; i < RGraph.mapLOD.size(); i++)
 	{
-		const u32 iBatchSize = _min(lstLODs.size() - i, uiImpostersFit);
+		const u32 iBatchSize = _min((u32)RGraph.mapLOD.size() - i, uiImpostersFit);
 		int cur_count = 0;
 		u32 vOffset;
 		FLOD::_hw* V = (FLOD::_hw*)RCache.Vertex.Lock(iBatchSize * uiVertexPerImposter, firstV->geom->vb_stride,
@@ -46,8 +51,10 @@ void R_dsgraph_structure::r_dsgraph_render_lods(bool _setup_zb, bool _clear)
 		for (u32 j = 0; j < iBatchSize; ++j, ++i)
 		{
 			// sort out redundancy
-			R_dsgraph::_LodItem& P = lstLODs[i];
-			if (P.pVisual->shader->E[shid] == cur_S) cur_count++;
+			auto& P = RGraph.mapLOD[i];
+
+			if (P.pVisual->shader->E[shid] == cur_S)
+				cur_count++;
 			else
 			{
 				lstLODgroups.push_back(cur_count);
@@ -71,7 +78,8 @@ void R_dsgraph_structure::r_dsgraph_render_lods(bool _setup_zb, bool _clear)
 			FLOD::_face* facets = lodV->facets;
 			svector<std::pair<float, u32>, 8> selector;
 			for (u32 s = 0; s < 8; s++) selector.push_back(mk_pair(Ldir.dotproduct(facets[s].N), s));
-			std::sort(selector.begin(), selector.end(), pred_dot);
+			static auto sort_pred = [](const std::pair<float, u32>& _1, const std::pair<float, u32>& _2) { return _1.first < _2.first; };
+			std::sort(selector.begin(), selector.end(), sort_pred);
 
 			float dot_best = selector[selector.size() - 1].first;
 			float dot_next = selector[selector.size() - 2].first;
@@ -88,7 +96,7 @@ void R_dsgraph_structure::r_dsgraph_render_lods(bool _setup_zb, bool _clear)
 			// Fill VB
 			FLOD::_face& FA = facets[id_best];
 			FLOD::_face& FB = facets[id_next];
-			static int vid [4] = {3, 0, 2, 1};
+			static int vid[4] = {3, 0, 2, 1};
 			for (u32 vit = 0; vit < 4; vit++)
 			{
 				int id = vid[vit];
@@ -114,13 +122,12 @@ void R_dsgraph_structure::r_dsgraph_render_lods(bool _setup_zb, bool _clear)
 			int current = 0;
 			u32 vCurOffset = vOffset;
 
-			for (u32 g = 0; g < lstLODgroups.size(); g++)
+			for (int& p_count : lstLODgroups)
 			{
-				int p_count = lstLODgroups[g];
-				u32 uiNumPasses = lstLODs[current].pVisual->shader->E[shid]->passes.size();
+				u32 uiNumPasses = RGraph.mapLOD[current].pVisual->shader->E[shid]->passes.size();
 				if (uiPass < uiNumPasses)
 				{
-					RCache.set_Element(lstLODs[current].pVisual->shader->E[shid], uiPass);
+					RCache.set_Element(RGraph.mapLOD[current].pVisual->shader->E[shid], uiPass);
 					RCache.set_Geometry(firstV->geom);
 					RCache.Render(D3DPT_TRIANGLELIST, vCurOffset, 0, 4 * p_count, 0, 2 * p_count);
 				}
@@ -133,7 +140,6 @@ void R_dsgraph_structure::r_dsgraph_render_lods(bool _setup_zb, bool _clear)
 		lstLODgroups.clear();
 	}
 
-	lstLODs.clear();
-
-	if (_clear) mapLOD.clear();
+	if (_clear)
+		RGraph.mapLOD.clear();
 }

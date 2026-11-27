@@ -1,4 +1,4 @@
-#include "pch_script.h"
+﻿#include "pch_script.h"
 #include "pda.h"
 #include "../xrphysics/PhysicsShell.h"
 #include "Entity.h"
@@ -21,7 +21,7 @@
 CPda::CPda(void)
 {
 	m_idOriginalOwner = u16(-1);
-	m_SpecificChracterOwner = nullptr;
+	m_SpecificChracterOwner = NULL;
 	TurnOff();
 	m_bZoomed = false;
 	m_eDeferredEnable = eDefault;
@@ -400,7 +400,9 @@ void CPda::shedule_Update(u32 dt)
 	inherited::shedule_Update(dt);
 
 	if (!H_Parent()) return;
-	Position().set(H_Parent()->Position());
+
+	if(!CAttachableItem::enabled())
+		Position().set(H_Parent()->Position());
 
 	if (IsOn() && Level().CurrentEntity() && Level().CurrentEntity()->ID() == H_Parent()->ID())
 	{

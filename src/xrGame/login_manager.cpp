@@ -22,7 +22,7 @@ namespace gamespy_gp
 		//VERIFY(m_gamespy_atlas);
 		//m_gamespy_patching		= fullgs_obj->GetGameSpyPatching();
 		//VERIFY(m_gamespy_patching);
-		m_current_profile = nullptr;
+		m_current_profile = NULL;
 	}
 
 	login_manager::~login_manager()
@@ -455,8 +455,8 @@ namespace gamespy_gp
 
 	void login_manager::forgot_password(char const* url)
 	{
-		//LPCSTR params = nullptr;
+		//LPCSTR params = NULL;
 		//STRCONCAT(params, "/C start ", url);
-		//ShellExecute(0, "open", "cmd.exe", params, nullptr, SW_SHOW);
+		//ShellExecute(0, "open", "cmd.exe", params, NULL, SW_SHOW);
 	}
 } //namespace gamespy_gp

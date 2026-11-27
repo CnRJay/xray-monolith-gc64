@@ -11,22 +11,24 @@
 #include "CameraManager.h"
 #include "xr_object.h"
 #include "feel_sound.h"
+#include "shader_bus.h"
 
 #include "../xrCore/profiler.h"
 
 //#include "securom_api.h"
 
-ENGINE_API IGame_Level* g_pGameLevel = nullptr;
+ENGINE_API IGame_Level* g_pGameLevel = NULL;
 extern BOOL g_bLoaded;
 
 IGame_Level::IGame_Level()
 {
+	PROF_EVENT("IGame_Level::IGame_Level", PROF_CAT(Scene));
 	m_pCameras = xr_new<CCameraManager>(true);
 	g_pGameLevel = this;
-	pLevel = nullptr;
+	pLevel = NULL;
 	bReady = false;
-	pCurrentEntity = nullptr;
-	pCurrentViewEntity = nullptr;
+	pCurrentEntity = NULL;
+	pCurrentViewEntity = NULL;
 	Device.DumpResourcesMemoryUsage();
 }
 
@@ -34,8 +36,9 @@ IGame_Level::IGame_Level()
 
 IGame_Level::~IGame_Level()
 {
-	if (strstr(Core.Params, "-nes_texture_storing"))
-		//Device.Resources->StoreNecessaryTextures();
+	Device.secondary_tasks.wait();
+
+	if (Core.ParamsData.test(ECoreParams::nes_texture_storing))
 		Device.m_pRender->ResourcesStoreNecessaryTextures();
 	xr_delete(pLevel);
 
@@ -48,8 +51,8 @@ IGame_Level::~IGame_Level()
 	Device.seqFrame.Remove(this);
 	CCameraManager::ResetPP();
 	///////////////////////////////////////////
-	Sound->set_geometry_occ(nullptr);
-	Sound->set_handler(nullptr);
+	Sound->set_geometry_occ(NULL);
+	Sound->set_handler(NULL);
 	Device.DumpResourcesMemoryUsage();
 
 	u32 m_base = 0, c_base = 0, m_lmaps = 0, c_lmaps = 0;
@@ -61,11 +64,12 @@ IGame_Level::~IGame_Level()
 
 void IGame_Level::net_Stop()
 {
-	for (int i = 0; i < 6; i++)
-	{
-		Objects.Update(false);
-		Objects.ProcessDestroyQueue();
-	}
+    for (int i = 0; i < 6; i++)
+    {
+        Objects.Update(false);
+        Objects.ProcessDestroyQueue();
+    }
+		
 	// Destroy all objects
 	Objects.Unload();
 	IR_Release();
@@ -85,8 +89,21 @@ static void __stdcall build_callback(Fvector* V, int Vcnt, CDB::TRI* T, int Tcnt
 	g_pGameLevel->Load_GameSpecific_CFORM(T, Tcnt);
 }
 
+xrCriticalSection lloadcs;
 bool IGame_Level::Load(u32 dwNum)
 {
+	PROF_EVENT("IGame_Level::Load", PROF_CAT(Scene));
+	xrCriticalSectionGuard guard(&lloadcs);
+	if (bReady) return TRUE;
+	extern xr_task_group prefetch_task;
+#if XRCORE_PROFILER == PROFILER_OPTICK
+	{
+		PROF_EVENT("IGame_Level::Load prefetch wait", PROF_CAT(Wait));
+		prefetch_task.wait();
+	}
+#else
+	prefetch_task.wait();
+#endif
 	//SECUROM_MARKER_PERFORMANCE_ON(10)
 
 	// Initialize level data
@@ -110,7 +127,7 @@ bool IGame_Level::Load(u32 dwNum)
 	// CForms
 	// g_pGamePersistent->LoadTitle ("st_loading_cform");
 	g_pGamePersistent->LoadTitle();
-	ObjectSpace.Load(build_callback);
+	ObjectSpace.Load( [](Fvector* V, int Vcnt, CDB::TRI* T, int Tcnt, void* params){g_pGameLevel->Load_GameSpecific_CFORM(T, Tcnt);});
 	//Sound->set_geometry_occ ( &Static );
 	Sound->set_geometry_occ(ObjectSpace.GetStaticModel());
 	Sound->set_handler(_sound_event);
@@ -143,11 +160,16 @@ bool IGame_Level::Load(u32 dwNum)
 
 	Device.seqFrame.Add(this);
 
+	ShaderBus::dump();
+
 	//SECUROM_MARKER_PERFORMANCE_OFF(10)
 
 	return true;
 }
 
+#ifndef _EDITOR
+#include "../xrCPU_Pipe/ttapi.h"
+#endif
 
 int psNET_DedicatedSleep = 5;
 
@@ -167,8 +189,14 @@ void IGame_Level::OnRender()
 	// Level render, only when no client output required
 	if (!g_dedicated_server)
 	{
-		Render->Calculate();
-		Render->Render();
+		{
+			PROF_EVENT("IGame_Level::OnRender: Calculate", PROF_CAT(Rendering));
+			Render->Calculate();
+		}
+		{
+			PROF_EVENT("IGame_Level::OnRender: Render", PROF_CAT(Rendering));
+			Render->Render();
+		}
 	}
 	else
 	{
@@ -187,7 +215,7 @@ void IGame_Level::OnRender()
 
 void IGame_Level::OnFrame()
 {
-	PROF_EVENT("IGame_Level::OnFrame()");
+	PROF_EVENT("IGame_Level::OnFrame", PROF_CAT(GameLogic));
 	// Log ("- level:on-frame: ",u32(Device.dwFrame));
 	// if (_abs(Device.fTimeDelta)<EPS_S) return;
 
@@ -261,6 +289,7 @@ void IGame_Level::SetViewEntity(CObject* O)
 
 void IGame_Level::SoundEvent_Register(ref_sound_data_ptr S, float range)
 {
+	PROF_EVENT("IGame_Level::SoundEvent_Register", PROF_CAT(Audio));
 	if (!g_bLoaded) return;
 	if (!S) return;
 	if (S->g_object && S->g_object->getDestroy())
@@ -287,11 +316,14 @@ void IGame_Level::SoundEvent_Register(ref_sound_data_ptr S, float range)
 
 	// Query objects
 	Fvector bb_size = {range, range, range};
-	g_SpatialSpace->q_box(snd_ER, 0, STYPE_REACTTOSOUND, snd_position, bb_size);
+	{
+		PROF_EVENT("Sound: hearing spatial query", PROF_CAT(Audio));
+		g_SpatialSpace->q_box(snd_ER, 0, STYPE_REACTTOSOUND, snd_position, bb_size);
+	}
 
 	// Iterate
-	xr_vector<ISpatial*>::iterator it = snd_ER.begin();
-	xr_vector<ISpatial*>::iterator end = snd_ER.end();
+	auto it = snd_ER.begin();
+	auto end = snd_ER.end();
 	for (; it != end; it++)
 	{
 		Feel::Sound* L = (*it)->dcast_FeelSound();
@@ -325,6 +357,7 @@ void IGame_Level::SoundEvent_Register(ref_sound_data_ptr S, float range)
 
 void IGame_Level::SoundEvent_Dispatch()
 {
+	PROF_EVENT("IGame_Level::SoundEvent_Dispatch", PROF_CAT(Audio));
 	while (!snd_Events.empty())
 	{
 		_esound_delegate& D = snd_Events.back();
@@ -347,6 +380,7 @@ void IGame_Level::SoundEvent_Dispatch()
 // Lain: added
 void IGame_Level::SoundEvent_OnDestDestroy(Feel::Sound* obj)
 {
+	PROF_EVENT("IGame_Level::SoundEvent_OnDestDestroy", PROF_CAT(Audio));
 	struct rem_pred
 	{
 		rem_pred(Feel::Sound* obj) : m_obj(obj)

@@ -20,6 +20,8 @@ float psSoundRolloff = 0.75f;
 u32 psSoundModel = 0;
 float psSoundVEffects = 1.0f;
 float psSoundVFactor = 1.0f;
+float psSoundMaxDistanceMultiplier = 1.0f;
+float psSoundMaxAIDistanceMultiplier = 1.0f;
 
 float psSoundVMusic = 1.f;
 float psSoundVMusicFactor = 1.f;
@@ -34,11 +36,11 @@ CSoundRender_Core::CSoundRender_Core()
 {
 	bPresent = FALSE;
 	bUserEnvironment = FALSE;
-	geom_MODEL = nullptr;
-	geom_ENV = nullptr;
-	geom_SOM = nullptr;
-	s_environment = nullptr;
-	Handler = nullptr;
+	geom_MODEL = NULL;
+	geom_ENV = NULL;
+	geom_SOM = NULL;
+	s_environment = NULL;
+	Handler = NULL;
 	s_targets_pu = 0;
 	s_emitters_u = 0;
 	e_current.set_identity();
@@ -80,7 +82,7 @@ void CSoundRender_Core::_initialize(int stage)
 
 	bReady = TRUE;
 
-	if (strstr(Core.Params, "-prefetch_sounds"))
+	if (Core.ParamsData.test(ECoreParams::prefetch_sounds))
 	{
 		i_create_all_sources();
 	}
@@ -432,12 +434,12 @@ void CSoundRender_Core::_destroy_data(ref_sound_data& S)
 	R_ASSERT(0==S.feedback);
 	SoundRender->i_destroy_source((CSoundRender_Source*)S.handle);
 
-	S.handle = nullptr;
+	S.handle = NULL;
 }
 
 CSoundRender_Environment* CSoundRender_Core::get_environment(const Fvector& P)
 {
-	PROF_EVENT();
+	PROF_EVENT(PROF_CAT(Audio));
 	static CSoundRender_Environment identity;
 
 	if (bUserEnvironment)

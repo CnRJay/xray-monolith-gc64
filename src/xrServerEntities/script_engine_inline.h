@@ -44,14 +44,60 @@ IC void CScriptEngine::parse_script_namespace(LPCSTR function_to_call, LPSTR nam
 	}
 }
 
+#ifdef USE_LUA_FUNCTOR_CACHE
+extern BOOL lua_use_functor_cache;
+extern BOOL g_bootComplete;
+IC void CScriptEngine::invalidate_functor_cache()
+{
+	m_functor_cache.clear();
+	m_cache_valid = false;
+}
+#endif // USE_LUA_FUNCTOR_CACHE
+
 template <typename _result_type>
 IC bool CScriptEngine::functor(LPCSTR function_to_call, ::luabind::functor<_result_type>& lua_function)
 {
+	
+#ifdef USE_LUA_FUNCTOR_CACHE
+	// Check if cache is valid
+	if (!m_cache_valid)
+	{
+		invalidate_functor_cache();
+	}
+	else if (lua_use_functor_cache && g_bootComplete)
+	{
+		// PROF_EVENT("CScriptEngine::functor cached");
+
+		// Create cache key
+		FunctorCacheKey key{ function_to_call, typeid(_result_type).hash_code() };
+
+		// Try to find in cache
+		auto it = m_functor_cache.find(key);
+		if (it != m_functor_cache.end())
+		{
+			lua_function = ::luabind::object_cast<::luabind::functor<_result_type>>(it->second);
+			return true;
+		}
+	}
+#endif
+	
+	// PROF_EVENT("CScriptEngine::functor");
+
+	// Not in cache or invalid, create new entry
 	::luabind::object object;
 	if (!function_object(function_to_call, object))
 		return (false);
 
 	lua_function = ::luabind::object_cast<::luabind::functor<_result_type>>(object);
+
+#ifdef USE_LUA_FUNCTOR_CACHE
+	// Store in cache
+	if (lua_use_functor_cache && m_cache_valid && g_bootComplete)
+	{
+		FunctorCacheKey key{ function_to_call, typeid(_result_type).hash_code() };
+		m_functor_cache.insert({ key, object });
+	}
+#endif
 
 	return (true);
 }

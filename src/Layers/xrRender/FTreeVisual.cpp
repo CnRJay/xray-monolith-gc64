@@ -43,7 +43,7 @@ void FTreeVisual::Load(const char* N, IReader* data, u32 dwFlags)
 {
 	dxRender_Visual::Load(N, data, dwFlags);
 
-	D3DVERTEXELEMENT9* vFormat = nullptr;
+	D3DVERTEXELEMENT9* vFormat = NULL;
 
 	// read vertices
 	R_ASSERT(data->find_chunk(OGF_GCONTAINER));
@@ -121,7 +121,7 @@ struct FTreeVisual_setup
 
 	void calculate()
 	{
-		dwFrame = Device.dwFrame;
+		dwFrame = Device.dwViewport;
 
 		// Calc wind-vector3, scale
 		float tm_rot = PI_MUL_2 * Device.fTimeGlobal / ps_r__Tree_w_rot;

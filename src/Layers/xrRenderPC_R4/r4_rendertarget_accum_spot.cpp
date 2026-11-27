@@ -1,10 +1,12 @@
 #include "stdafx.h"
 #include "../xrRender/du_cone.h"
+#include "..\xrRender\CHudInitializer.h"
 
 //extern Fvector du_cone_vertices[DU_CONE_NUMVERTEX];
 
 void CRenderTarget::accum_spot(light* L)
 {
+	PROF_EVENT("CRenderTarget::accum_spot", PROF_CAT(Rendering));
 	phase_accumulator();
 	RImplementation.stats.l_visible ++;
 
@@ -36,7 +38,6 @@ void CRenderTarget::accum_spot(light* L)
 	BOOL bIntersect = FALSE; //enable_scissor(L);
 	{
 		// setup xform
-		L->xform_calc();
 		RCache.set_xform_world(L->m_xform);
 		RCache.set_xform_view(Device.mView);
 		RCache.set_xform_project(Device.mProject);
@@ -286,7 +287,7 @@ void CRenderTarget::accum_volumetric_lv(light* L)
 
 	if (!L->flags.bVolumetric)
 		return;
-	
+
 	if (!RImplementation.o.ssfx_volumetric)
 	{
 		phase_vol_accumulator();
@@ -301,7 +302,7 @@ void CRenderTarget::accum_volumetric_lv(light* L)
 			HW.pContext->ClearRenderTargetView(rt_ssfx_volumetric->pRT, ColorRGBA);
 		}
 
-		u_setrt(rt_ssfx_volumetric, nullptr, NULL, nullptr);
+		u_setrt(rt_ssfx_volumetric, NULL, NULL, NULL);
 
 		RCache.set_Stencil(FALSE);
 		RCache.set_CullMode(CULL_NONE);
@@ -350,6 +351,9 @@ void CRenderTarget::accum_volumetric_lv(light* L)
 	L_clr.mul(L->m_volumetric_distance);
 	L_clr.mul(L->get_LOD());
 
+    // Lower intensity to be comparable to SSS
+    L_clr.mul(0.33f);
+
 	L_pos.set(L->position);
 	L_dir.set(L->direction);
 	L_dir.normalize();
@@ -359,7 +363,7 @@ void CRenderTarget::accum_volumetric_lv(light* L)
 	float att_factor = 1.f / (att_R * att_R);
 
 	//Set the shader
-    RCache.set_Element(s_combine->E[5]);
+	RCache.set_Element(s_combine->E[5]);
 	RCache.set_CullMode(CULL_CW);
 	RCache.set_Stencil(FALSE);
 
@@ -386,7 +390,7 @@ void CRenderTarget::accum_volumetric(light* L)
 	}
 
 	//if (L->flags.type != IRender_Light::SPOT) return;
-	if (!L->flags.bVolumetric) return;
+	PROF_EVENT("CRenderTarget::accum_volumetric", PROF_CAT(Rendering));
 	
 	if (!RImplementation.o.ssfx_volumetric)
 	{
@@ -402,7 +406,7 @@ void CRenderTarget::accum_volumetric(light* L)
 			HW.pContext->ClearRenderTargetView(rt_ssfx_volumetric->pRT, ColorRGBA);
 		}
 
-		u_setrt(rt_ssfx_volumetric, nullptr, NULL, nullptr);
+		u_setrt(rt_ssfx_volumetric, NULL, NULL, NULL);
 
 		RCache.set_Stencil(FALSE);
 		RCache.set_CullMode(CULL_NONE);
@@ -425,7 +429,6 @@ void CRenderTarget::accum_volumetric(light* L)
 	BOOL bIntersect = FALSE; //enable_scissor(L);
 	{
 		// setup xform
-		L->xform_calc();
 		RCache.set_xform_world(L->m_xform);
 		RCache.set_xform_view(Device.mView);
 		RCache.set_xform_project(Device.mProject);
@@ -517,9 +520,9 @@ void CRenderTarget::accum_volumetric(light* L)
 	Fbox aabb;
 
 	//float	scaledRadius = L->spatial.sphere.R * (1+L->m_volumetric_distance)*0.5f;
-	float scaledRadius = L->spatial.sphere.R * L->m_volumetric_distance;
-	Fvector rr = Fvector().set(scaledRadius, scaledRadius, scaledRadius);
-	Fvector pt = L->spatial.sphere.P;
+	float	scaledRadius = L->SpatialComponent->spatial.sphere.R * L->m_volumetric_distance;
+	Fvector	rr = Fvector().set(scaledRadius, scaledRadius, scaledRadius);
+	Fvector pt = L->SpatialComponent->spatial.sphere.P;
 	pt.sub(L->position);
 	pt.mul(L->m_volumetric_distance);
 	pt.add(L->position);

@@ -197,7 +197,7 @@ void CBreakableObject::net_Destroy()
 		SheduleUnregister();
 	}
 
-	m_pPhysicsShell = nullptr;
+	m_pPhysicsShell = NULL;
 	inherited::net_Destroy();
 	xr_delete(collidable.model);
 	Init();
@@ -324,8 +324,8 @@ void CBreakableObject::ApplyExplosion(const Fvector& dir, float impulse)
 void CBreakableObject::Init()
 {
 	fHealth = 1.f;
-	m_pUnbrokenObject = nullptr;
-	m_Shell = nullptr;
+	m_pUnbrokenObject = NULL;
+	m_Shell = NULL;
 	bRemoved = false;
 	m_max_frame_damage = 0.f;
 	b_resived_damage = false;

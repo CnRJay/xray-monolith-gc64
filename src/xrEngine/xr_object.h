@@ -15,6 +15,58 @@ class ENGINE_API IRender_ObjectSpecific;
 class ENGINE_API CCustomHUD;
 class NET_Packet;
 class CSE_Abstract;
+class CGameObject;
+class CActor;
+class CInventoryItem;
+class CEntity;
+class CEntityAlive;
+class CInventoryOwner;
+class CMissile;
+class CPhysicsShellHolder;
+class CWeapon;
+class CWeaponBM16;
+class CWeaponRPG7;
+class CWeaponRG6;
+class CWeaponMagazined;
+class CWeaponMagazinedWGrenade;
+class CWeaponKnife;
+class CWeaponBinoculars;
+class CHudItem;
+class CWeaponAmmo;
+class CTorch;
+class CCustomDetector;
+class CCustomDevice;
+class CArtefact;
+class CCustomOutfit;
+class CHelmet;
+class CAI_Stalker;
+class CBolt;
+class CPda;
+class CInventoryBox;
+class CCustomZone;
+class CSpaceRestrictor;
+class CSpectator;
+class CSilencer;
+class CScope;
+class CGrenadeLauncher;
+class CAttachmentOwner;
+class CProjector;
+class CLevelChanger;
+class CPhysicItem;
+class CEatableItem;
+class CScriptZone;
+class CHelicopter;
+class CHangingLamp;
+class CHolderCustom;
+class CCar;
+class CBaseMonster;
+class CGrenade;
+class CCustomMonster;
+class CPhraseDialogManager;
+class CBackpack;
+class CClimableObject;
+class CPhysicObject;
+class CTeamBaseZone;
 
 //-----------------------------------------------------------------------------------------------------------
 #define CROW_RADIUS (30.f)
@@ -27,7 +79,6 @@ xr_pure_interface IObjectPhysicsCollision;
 #pragma pack(push,4)
 class ENGINE_API CObject :
 	public DLL_Pure,
-	public ISpatial,
 	public ISheduled,
 	public IRenderable,
 	public ICollidable
@@ -67,7 +118,7 @@ private:
 	shared_str NameSection;
 	shared_str NameVisual;
 
-	bool m_ForceDestroy;
+    bool m_ForceDestroy;
 protected:
 	// Parentness
 	CObject* Parent;
@@ -133,7 +184,7 @@ public:
 	virtual float Radius() const;
 	virtual const Fbox& BoundingBox() const;
 
-	IC IRender_Sector* Sector() { return H_Root()->spatial.sector; }
+	IC IRender_Sector* Sector() { return H_Root()->SpatialComponent->spatial.sector; }
 	IC IRender_ObjectSpecific* ROS() { return renderable_ROS(); }
 	virtual BOOL renderable_ShadowGenerate() { return TRUE; }
 	virtual BOOL renderable_ShadowReceive() { return TRUE; }
@@ -141,16 +192,68 @@ public:
 	// Accessors and converters
 	ICF IRenderVisual* Visual() const { return renderable.visual; }
 	ICF ICollisionForm* CFORM() const { return collidable.model; }
-	virtual CObject* dcast_CObject() { return this; }
-	virtual IRenderable* dcast_Renderable() { return this; }
+	virtual CObject* dcast_CObject() override { return this; }
+	virtual IRenderable* dcast_Renderable() override { return this; }
+	virtual Feel::Sound* dcast_FeelSound() override { return nullptr; }
+	virtual ICollidable* dcast_Collidable() override { return this; }
 
-	virtual void OnChangeVisual()
-	{
-	}
+    virtual void OnChangeVisual();
 
 	virtual IPhysicsShell* physics_shell() { return 0; }
 
 	virtual const IObjectPhysicsCollision* physics_collision() { return 0; }
+	virtual CGameObject* cast_game_object() { return nullptr; }
+	virtual CActor* cast_actor() { return nullptr; }
+	virtual CInventoryOwner* cast_inventory_owner() { return nullptr; }
+	virtual CInventoryItem* cast_inventory_item() { return nullptr; }
+	virtual CEntity* cast_entity() { return nullptr; }
+	virtual CEntityAlive* cast_entity_alive() { return nullptr; }
+	virtual CMissile* cast_missile() { return nullptr; }
+	virtual CPhysicsShellHolder* cast_physics_shell_holder() { return nullptr; }
+	virtual CWeapon* cast_weapon() { return nullptr; }
+	virtual CHudItem* cast_hud_item() { return nullptr; }
+	virtual CWeaponRPG7* cast_weapon_rpg7() { return nullptr; }
+	virtual CWeaponRG6* cast_weapon_rg6() { return nullptr; }
+	virtual CTorch* cast_torch() { return nullptr; }
+	virtual CCustomDetector* cast_custom_detector() { return nullptr; }
+	virtual CCustomDevice* cast_custom_device() { return nullptr; }
+	virtual CWeaponBinoculars* cast_weapon_binoculars() { return nullptr; }
+	virtual CWeaponKnife* cast_weapon_knife() { return nullptr; }
+	virtual CWeaponMagazined* cast_weapon_magazined() { return nullptr; }
+	virtual CWeaponMagazinedWGrenade* cast_weapon_magazined_w_grenade() { return nullptr; }
+	virtual CWeaponBM16* cast_weapon_bm16() { return nullptr; }
+	virtual CArtefact* cast_artefact() { return nullptr; }
+	virtual CCustomOutfit* cast_outfit() { return nullptr; }
+	virtual CHelmet* cast_helmet() { return nullptr; }
+	virtual CWeaponAmmo* cast_weapon_ammo() { return nullptr; }
+	virtual CAI_Stalker* cast_stalker() { return nullptr; }
+	virtual CBolt* cast_bolt() { return nullptr; }
+	virtual CPda* cast_pda() { return nullptr; }
+	virtual CInventoryBox* cast_inventory_box() { return nullptr; }
+	virtual CCustomZone* cast_custom_zone() { return nullptr; }
+	virtual CSpaceRestrictor* cast_restrictor() { return nullptr; }
+	virtual CSpectator* cast_spectator() { return nullptr; }
+	virtual CSilencer* cast_addon_silencer() { return nullptr; }
+	virtual CScope* cast_addon_scope() { return nullptr; }
+	virtual CGrenadeLauncher* cast_addon_grenade_launcher() { return nullptr; }
+	virtual CAttachmentOwner* cast_attachment_owner() { return nullptr; }
+	virtual CProjector* cast_projector() { return nullptr; }
+	virtual CLevelChanger* cast_level_changer() { return nullptr; }
+	virtual CPhysicItem* cast_physics_item() { return nullptr; }
+	virtual CEatableItem* cast_eatable_item() { return nullptr; }
+	virtual CScriptZone* cast_script_zone() { return nullptr; }
+	virtual CHelicopter* cast_helicopter() { return nullptr; }
+	virtual CHangingLamp* cast_hanging_lamp() { return nullptr; }
+	virtual CHolderCustom* cast_holder_custom() { return nullptr; }
+	virtual CCar* cast_car() { return nullptr; }
+	virtual CBaseMonster* cast_base_monster() { return nullptr; }
+	virtual CGrenade* cast_grenade() { return nullptr; }
+	virtual CCustomMonster* cast_custom_monster() { return nullptr; }
+	virtual CPhraseDialogManager* cast_phrase_dialog_manager() { return nullptr; }
+	virtual CBackpack* cast_backpack() { return nullptr; }
+	virtual CClimableObject* cast_climable_object() { return nullptr; }
+	virtual CPhysicObject* cast_physics_object() { return nullptr; }
+	virtual CTeamBaseZone* cast_team_base_zone() { return nullptr; }
 	// Name management
 	ICF shared_str cName() const { return NameObject; }
 	void cName_set(shared_str N);
@@ -172,14 +275,15 @@ public:
 	ICF BOOL getEnabled() const { return Props.bEnabled; }
 	void setDestroy(BOOL _destroy);
 	ICF BOOL getDestroy() const { return Props.bDestroy; }
-	ICF bool getForceDestroy() const { return m_ForceDestroy; }
-	ICF void setForceDestroy() { m_ForceDestroy = true; }
 	ICF void setLocal(BOOL _local) { Props.net_Local = _local ? 1 : 0; }
 	ICF BOOL getLocal() const { return Props.net_Local; }
 	ICF void setSVU(BOOL _svu) { Props.net_SV_Update = _svu ? 1 : 0; }
 	ICF BOOL getSVU() const { return Props.net_SV_Update; }
 	ICF void setReady(BOOL _ready) { Props.net_Ready = _ready ? 1 : 0; }
 	ICF BOOL getReady() const { return Props.net_Ready; }
+
+    ICF bool getForceDestroy() { return m_ForceDestroy; }
+    ICF void setForceDestroy() { m_ForceDestroy = true; }
 
 	//---------------------------------------------------------------------
 	CObject();
@@ -189,7 +293,7 @@ public:
 
 	// Update
 	virtual void shedule_Update(u32 dt); // Called by sheduler
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM); // Called by renderer
 
 	virtual void UpdateCL(); // Called each frame, so no need for dt
 	virtual BOOL net_Spawn(CSE_Abstract* data);
@@ -221,7 +325,7 @@ public:
 	};
 
 	// HUD
-	virtual void OnHUDDraw(CCustomHUD* hud)
+	virtual void OnHUDDraw(CCustomHUD* hud, IDSGraphManager* DM)
 	{
 	};
 
@@ -245,6 +349,16 @@ public:
 public:
 	virtual Fvector get_new_local_point_on_mesh(u16& bone_id) const;
 	virtual Fvector get_last_local_point_on_mesh(Fvector const& last_point, u16 bone_id) const;
+
+#ifdef CBULLETMANAGER_EX
+protected:
+    /* Bullets also check if they hit the mesh of the viusal model, not just bone hitboxes. */
+    bool BulletCheckVisual;
+
+public:
+    bool GetBulletCheckVisual() { return BulletCheckVisual; }
+    void SetBulletCheckVisual(bool value) { BulletCheckVisual = value; }
+#endif
 };
 
 #pragma pack(pop)

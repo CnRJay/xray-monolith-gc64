@@ -17,7 +17,7 @@ CNotificationClient::~CNotificationClient()
 inline bool CNotificationClient::Start() 
 {
     // Initialize the COM library for the current thread
-    HRESULT ihr = CoInitialize(nullptr);
+    HRESULT ihr = CoInitialize(NULL);
 
     // RPC_E_CHANGED_MODE means COM already initialized in different mode - this is OK
     if (SUCCEEDED(ihr) || ihr == RPC_E_CHANGED_MODE) {
@@ -25,7 +25,7 @@ inline bool CNotificationClient::Start()
 
         // Create the device enumerator
         IMMDeviceEnumerator* pEnumerator;
-        HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator);
+        HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator);
         if (SUCCEEDED(hr)) {
             // Register for device change notifications
             hr = pEnumerator->RegisterEndpointNotificationCallback(this);

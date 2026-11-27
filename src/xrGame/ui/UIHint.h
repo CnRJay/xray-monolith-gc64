@@ -40,6 +40,8 @@ public:
 	//	virtual void	Update		();
 	virtual void Draw();
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	CUIFrameWindow* m_background;
 	CUITextWnd* m_text;
@@ -78,6 +80,8 @@ public:
 	void set_hint_text(shared_str const& text);
 	void set_hint_text_ST(shared_str const& text);
 	void update_hint_text();
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 	void set_hint_text_script(LPCSTR text) { set_hint_text(text); };
 	LPCSTR get_hint_text_script() { return m_hint_text.c_str(); } ;

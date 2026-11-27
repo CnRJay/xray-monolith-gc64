@@ -55,7 +55,7 @@ public:
 	virtual BOOL UsedAI_Locations() { return (FALSE); }
 	virtual bool Useful() const { return (m_eState == eInactive); }
 
-	virtual void renderable_Render() { inherited::renderable_Render(); }
+	virtual void renderable_Render(IDSGraphManager* DM) { inherited::renderable_Render(DM); }
 
 	//создание физической оболочки
 	virtual void activate_physic_shell();
@@ -153,10 +153,10 @@ protected:
 protected:
 	//имя партиклов двигателя
 	shared_str m_sEngineParticles;
-	CParticlesObject* m_pEngineParticles;
+	intrusive_ptr<CParticlesObject> m_pEngineParticles;
 	//имя партиклов полета
 	shared_str m_sFlyParticles;
-	CParticlesObject* m_pFlyParticles;
+	intrusive_ptr<CParticlesObject> m_pFlyParticles;
 
 	Fvector m_vPrevVel;
 	float m_time_to_explode;

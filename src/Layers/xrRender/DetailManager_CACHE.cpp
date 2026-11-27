@@ -1,10 +1,5 @@
 #include "stdafx.h"
 #include "DetailManager.h"
-#include <algorithm>
-#include <tbb/parallel_for.h>
-#include <tbb/blocked_range.h>
-#include <tbb/blocked_range2d.h>
-#include <tbb/enumerable_thread_specific.h>
 
 void CDetailManager::cache_Initialize()
 {
@@ -69,12 +64,9 @@ void CDetailManager::cache_Task(int gx, int gz, Slot* D)
 	for (u32 i = 0; i < dm_obj_in_slot; i++)
 	{
 		D->G[i].id = DS.r_id(i);
-		{
-			xrCriticalSectionGuard lock(pool_mutex);
-			for (u32 clr = 0; clr < D->G[i].items.size(); clr++)
-				poolSI.destroy(D->G[i].items[clr]);
-			D->G[i].items.clear();
-		}
+		for (u32 clr = 0; clr < D->G[i].items.size(); clr++)
+			poolSI.destroy(D->G[i].items[clr]);
+		D->G[i].items.clear();
 	}
 
 	if (old_type != stPending)
@@ -166,56 +158,80 @@ void CDetailManager::cache_Update(int v_x, int v_z, Fvector& view, int limit)
 	}
 
 	// Task performer
-	if (cache_task.size() == dm_cache_size) limit = dm_cache_size;
-
-	if (!cache_task.empty())
+	if(ps_r2_ls_flags.test(R2FLAG_FAST_DETAILS_UPDATE))
 	{
-		u32 count = std::min((u32)limit, (u32)cache_task.size());
+		for (u32 iteration=0; iteration<cache_task.size(); iteration++)
+		{
+			// Decompress and remove task
+			cache_Decompress	(cache_task[iteration]);
+			cache_task.erase	(iteration);
+		}
+	}
+	else
+	{
+		BOOL bFullUnpack = FALSE;
+		if (cache_task.size() == dm_cache_size)
+		{
+			limit = dm_cache_size;
+			bFullUnpack = TRUE;
+		}
 
-		// Partial sorting
-		std::nth_element(cache_task.begin(), cache_task.end() - count, cache_task.end(),
-			[&](Slot* A, Slot* B) {
-				return view.distance_to_sqr(A->vis.sphere.P) > view.distance_to_sqr(B->vis.sphere.P);
-			});
+		for (int iteration = 0; cache_task.size() && (iteration < limit); iteration++)
+		{
+			u32 best_id = 0;
+			float best_dist = flt_max;
 
-		Slot** tasks_start = &cache_task[cache_task.size() - count];
+			if (bFullUnpack)
+			{
+				best_id = cache_task.size() - 1;
+			}
+			else
+			{
+				for (u32 entry = 0; entry < cache_task.size(); entry++)
+				{
+					// Gain access to data
+					Slot* S = cache_task[entry];
+					VERIFY(stPending == S->type);
 
-		static tbb::enumerable_thread_specific<CDB::COLLIDER> tls_collider;
+					// Estimate
+					Fvector C;
+					S->vis.box.getcenter(C);
+					float D = view.distance_to_sqr(C);
 
-		tbb::parallel_for(tbb::blocked_range<u32>(0, count, 8),
-			[&](const tbb::blocked_range<u32>& range) {
-				CDB::COLLIDER& collider = tls_collider.local();
-				for (u32 i = range.begin(); i != range.end(); ++i) {
-					cache_Decompress(tasks_start[i], &collider);
+					// Select
+					if (D < best_dist)
+					{
+						best_dist = D;
+						best_id = entry;
+					}
 				}
-			});
+			}
 
-		// Remove processed tasks
-		cache_task.resize(cache_task.size() - count);
+			// Decompress and remove task
+			cache_Decompress(cache_task[best_id]);
+			cache_task.erase(best_id);
+		}
 	}
 
 	if (bNeedMegaUpdate)
 	{
-		tbb::parallel_for(tbb::blocked_range2d<u32>(0, dm_cache1_line, 0, dm_cache1_line),
-			[&](const tbb::blocked_range2d<u32>& r) {
-				for (u32 _mz1 = r.rows().begin(); _mz1 != r.rows().end(); ++_mz1)
+		for (u32 _mz1 = 0; _mz1 < dm_cache1_line; _mz1++)
+		{
+			for (u32 _mx1 = 0; _mx1 < dm_cache1_line; _mx1++)
+			{
+				CacheSlot1& MS = cache_level1[_mz1][_mx1];
+				MS.empty = TRUE;
+				MS.vis.clear();
+				for (int _i = 0; _i < dm_cache1_count * dm_cache1_count; _i++)
 				{
-					for (u32 _mx1 = r.cols().begin(); _mx1 != r.cols().end(); ++_mx1)
-					{
-						CacheSlot1& MS = cache_level1[_mz1][_mx1];
-						MS.empty = TRUE;
-						MS.vis.clear();
-						for (int _i = 0; _i < dm_cache1_count * dm_cache1_count; _i++)
-						{
-							Slot* PS = *MS.slots[_i];
-							Slot& S = *PS;
-							MS.vis.box.merge(S.vis.box);
-							if (!S.empty) MS.empty = FALSE;
-						}
-						MS.vis.box.getsphere(MS.vis.sphere.P, MS.vis.sphere.R);
-					}
+					Slot* PS = *MS.slots[_i];
+					Slot& S = *PS;
+					MS.vis.box.merge(S.vis.box);
+					if (!S.empty) MS.empty = FALSE;
 				}
-			});
+				MS.vis.box.getsphere(MS.vis.sphere.P, MS.vis.sphere.R);
+			}
+		}
 	}
 }
 

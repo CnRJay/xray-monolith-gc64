@@ -52,7 +52,7 @@ void vision_client::eye_pp_s01()
 	mProject.build_projection(field_of_view, aspect_ratio, near_plane, far_plane);
 	mFull.mul(mProject, mView);
 
-	feel_vision_query(mFull, c);
+	feel_vision_query(mFull);
 
 	Device.Statistic->AI_Vis_Query.End();
 }
@@ -64,7 +64,13 @@ void vision_client::eye_pp_s2()
 	u32 dwTime = Device.dwTimeGlobal;
 	u32 dwDT = dwTime - m_time_stamp;
 	m_time_stamp = dwTime;
-	feel_vision_update(m_object, m_position, float(dwDT) / 1000.f, visual().transparency_threshold());
+	static DWORD this_thread_id = 0;
+	this_thread_id = GetCurrentThreadId();
+	Device.secondary_tasks.run([=]()
+	{
+		if (this_thread_id != GetCurrentThreadId()) { PROF_THREAD("X-Ray PPL Thread") }
+		feel_vision_update(m_position, float(dwDT) / 1000.f, visual().transparency_threshold());
+	});
 
 	Device.Statistic->AI_Vis_RayTests.End();
 }
@@ -76,6 +82,7 @@ float vision_client::shedule_Scale()
 
 void vision_client::shedule_Update(u32 dt)
 {
+	PROF_EVENT("vision_client::shedule_Update", PROF_CAT(AI));
 	inherited::shedule_Update(dt);
 
 	if (!object().g_Alive())

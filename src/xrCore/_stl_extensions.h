@@ -6,16 +6,25 @@ using std::swap;
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
+#include <queue>
+#include <array>
+#include <forward_list>
+#include <type_traits>
+#include <utility>
+#include <stdexcept>
+#include <initializer_list>
+#include <vector>
+#include <limits>
 #include "_type_traits.h"
 
 #ifdef __BORLANDC__
 #define M_NOSTDCONTAINERS_EXT
 #endif
-#ifdef _M_AMD64
-#define M_DONTDEFERCLEAR_EXT
-#endif
 
-#define M_DONTDEFERCLEAR_EXT //. for mem-debug only
+//#ifdef _M_AMD64
+//#define M_DONTDEFERCLEAR_EXT
+//#endif
+//#define M_DONTDEFERCLEAR_EXT //. for mem-debug only
 
 //--------
 #ifdef M_NOSTDCONTAINERS_EXT
@@ -26,7 +35,7 @@ using std::swap;
 #define xr_set std::set
 #define xr_multiset std::multiset
 #define xr_map std::map
-#define xr_hash_map std::hash_map
+#define xr_hash_map std::unordered_map
 #define xr_multimap std::multimap
 #define xr_string std::string
 
@@ -106,6 +115,13 @@ public:
 	void deallocate(pointer p, size_type n) const { xr_free(p); }
 	void deallocate(void* p, size_type n) const { xr_free(p); }
 	void construct(pointer p, const T& _Val) { ::new((void*)p) T(_Val); }
+
+	template <typename... Args>
+	static void construct(pointer* ptr, Args&&... args)
+	{
+		new (ptr) T(std::forward<Args>(args)...);
+	}
+
 	void destroy(pointer p) { p->~value_type(); }
 
 	size_type max_size() const
@@ -144,8 +160,9 @@ namespace std
 	inline xalloc<_Tp2> __stl_alloc_create(xalloc<_Tp1>&, const _Tp2*) { return xalloc<_Tp2>(); }
 };
 
-// string(char)
-typedef std::basic_string<char, std::char_traits<char>, xalloc<char>> xr_string;
+// array
+template<typename Type, size_t Size>
+using xr_array = std::array<Type, Size>;
 
 // vector
 template <typename T, typename allocator = xalloc<T>>
@@ -172,8 +189,8 @@ public:
 
 	u32 size() const { return (u32)inherited::size(); }
 
-	void clear_and_free() { inherited::clear(); }
-	void clear_not_free() { erase(begin(), end()); }
+	void clear_and_free() { inherited::clear(); inherited::shrink_to_fit(); }
+	void clear_not_free() { inherited::clear(); }
 
 	void clear_and_reserve()
 	{
@@ -184,6 +201,29 @@ public:
 			clear_and_free();
 			reserve(old);
 		}
+	}
+
+	// demonized: Swap and Pop, does NOT preserve order
+	iterator erase_fast(iterator it)
+	{
+		iterator prev = std::prev(end());
+		if (it != prev)
+		{
+			if constexpr (std::is_trivially_move_assignable_v<T>)
+				*it = std::move(back());
+			else if constexpr (std::is_swappable_v<T>)
+				std::iter_swap(it, prev);
+			else
+				*it = back();
+		}		
+		
+		pop_back();
+		return it;
+	}
+
+	iterator erase_fast(const_iterator cit)
+	{
+		return erase_fast(std::next(begin(), std::distance(cbegin(), cit)));
 	}
 
 #ifdef M_DONTDEFERCLEAR_EXT
@@ -247,6 +287,37 @@ public:
 	u32 size() const { return (u32)__super::size(); }
 };
 
+// queue
+template <typename T, typename container = xr_deque<T>>
+using xr_queue = std::queue<T, container>;
+
+// fixed queue
+template <typename T, int MaxLen, typename container = xr_deque<T>>
+class xr_fixedqueue : public xr_queue<T, container>
+{
+private:
+	typedef xr_queue<T, container> inherited;
+	void check_and_pop_front()
+	{
+		if (this->size() == MaxLen)
+			this->c.pop_front();
+	}
+
+public:
+	void push(const T& value)
+	{
+		check_and_pop_front();
+		inherited::push(value);
+	}
+
+	template<typename... Args>
+	void emplace(Args&&... args)
+	{
+		check_and_pop_front();
+		inherited::emplace(std::forward<Args>(args)...);
+	}
+};
+
 // stack
 template <typename _Ty, class _C = xr_vector<_Ty>>
 class xr_stack
@@ -289,14 +360,14 @@ using xr_pair = robin_hood::pair<K, V>;
 template <typename K, class V, class Hasher = xr_hash<K>>
 using xr_unordered_map = robin_hood::unordered_node_map<K, V, Hasher>;
 
-template <class T, class Hasher = xr_hash<T>>
-using xr_unordered_set = robin_hood::unordered_node_set<T, Hasher>;
+template <class T, class Hasher = xr_hash<T>, class Equal = std::equal_to<T>>
+using xr_unordered_set = robin_hood::unordered_node_set<T, Hasher, Equal>;
 
-template <typename K, class V, class Hasher = xr_hash<K>>
-using xr_unordered_flat_map = robin_hood::unordered_flat_map<K, V, Hasher>;
+template <typename K, class V, class Hasher = xr_hash<K>, class Equal = std::equal_to<K>>
+using xr_unordered_flat_map = robin_hood::unordered_flat_map<K, V, Hasher, Equal>;
 
-template <class T, class Hasher = xr_hash<T>>
-using xr_unordered_flat_set = robin_hood::unordered_flat_set<T, Hasher>;
+template <class T, class Hasher = xr_hash<T>, class Equal = std::equal_to<T>>
+using xr_unordered_flat_set = robin_hood::unordered_flat_set<T, Hasher, Equal>;
 
 #else
 
@@ -329,6 +400,110 @@ public:
 	u32 size() const { return (u32)__super::size(); }
 };
 
+template <typename T, typename allocator = xalloc<T>>
+class xr_forward_list : public std::forward_list<T, allocator>
+{
+public:
+	u32 size() const { return (u32)__super::size(); }
+};
+
+template <typename T, typename allocator = xalloc<T>>
+class xr_atomic_list : public std::list<T, allocator>
+{
+private:
+    mutable xrSRWLock lock;
+
+public:
+    using base_type = std::list<T, allocator>;
+    using iterator = typename base_type::iterator;
+    using const_iterator = typename base_type::const_iterator;
+    using reference = typename base_type::reference;
+    using const_reference = typename base_type::const_reference;
+
+	xrSRWLock& get_lock() { return lock; }
+
+    // Size operations
+    u32 size() const 
+    { 
+        xrSRWLockGuard guard(lock, true);
+		return (u32)base_type::size();
+	}
+
+	bool empty() const
+	{
+		xrSRWLockGuard guard(lock, true);
+		return base_type::empty();
+	}
+
+	// Element access
+	reference front()
+	{
+		xrSRWLockGuard guard(lock, true);
+		return base_type::front();
+	}
+
+	const_reference front() const
+	{
+		xrSRWLockGuard guard(lock, true);
+		return base_type::front();
+	}
+
+	reference back()
+	{
+		xrSRWLockGuard guard(lock, true);
+		return base_type::back();
+	}
+
+	const_reference back() const
+	{
+		xrSRWLockGuard guard(lock, true);
+		return base_type::back();
+	}
+
+	// Modifiers
+	void push_front(const T& value)
+	{
+		xrSRWLockGuard guard(lock);
+		base_type::push_front(value);
+	}
+
+	void push_back(const T& value)
+	{
+		xrSRWLockGuard guard(lock);
+		base_type::push_back(value);
+	}
+
+	void pop_front()
+	{
+		xrSRWLockGuard guard(lock);
+		base_type::pop_front();
+	}
+
+	void pop_back()
+	{
+		xrSRWLockGuard guard(lock);
+        base_type::pop_back();
+    }
+
+    iterator erase(const_iterator position)
+    {
+        xrSRWLockGuard guard(lock);
+		return base_type::erase(position);
+	}
+
+	iterator erase(const_iterator first, const_iterator last)
+	{
+		xrSRWLockGuard guard(lock);
+		return base_type::erase(first, last);
+	}
+
+	void clear()
+	{
+		xrSRWLockGuard guard(lock);
+        base_type::clear();
+    }
+};
+
 template <typename K, class P = std::less<K>, typename allocator = xalloc<K>>
 class xr_set : public std::set<K, P, allocator>
 {
@@ -357,6 +532,437 @@ public:
 	u32 size() const { return (u32)__super::size(); }
 };
 
+// Insertion order map
+template <typename Key, typename T>
+class xr_ordered_map
+{
+public:
+    // --- Standard std::map Typedefs ---
+    using key_type = Key;
+    using mapped_type = T;
+    // VERY IMPORTANT: const Key prevents modifying the key via list iterators
+    using value_type = std::pair<const Key, T>;
+    using size_type = size_t;
+    using difference_type = ptrdiff_t;
+
+    using list_type = xr_list<value_type>;
+    using iterator = typename list_type::iterator;
+    using const_iterator = typename list_type::const_iterator;
+    using reverse_iterator = typename list_type::reverse_iterator;
+    using const_reverse_iterator = typename list_type::const_reverse_iterator;
+
+    using map_type = xr_map<Key, iterator>;
+
+private:
+    list_type m_sequence;
+    map_type  m_lookup;
+
+public:
+    // --- Construction & Assignment ---
+    xr_ordered_map() = default;
+    ~xr_ordered_map() = default;
+
+    xr_ordered_map(const xr_ordered_map& other)
+    {
+        for (const auto& pair : other.m_sequence)
+        {
+            insert(pair);
+        }
+    }
+
+    xr_ordered_map(xr_ordered_map&& other) noexcept
+        : m_sequence(std::move(other.m_sequence)), m_lookup(std::move(other.m_lookup)) {}
+
+    xr_ordered_map(std::initializer_list<value_type> init)
+    {
+        for (const auto& val : init)
+        {
+            insert(val);
+        }
+    }
+
+    xr_ordered_map& operator=(const xr_ordered_map& other)
+    {
+        if (this != &other)
+        {
+            clear();
+            for (const auto& pair : other.m_sequence) insert(pair);
+        }
+        return *this;
+    }
+
+    xr_ordered_map& operator=(xr_ordered_map&& other) noexcept
+    {
+        if (this != &other)
+        {
+            m_sequence = std::move(other.m_sequence);
+            m_lookup = std::move(other.m_lookup);
+        }
+        return *this;
+    }
+
+    // --- Iterators (Preserves Insertion Order) ---
+    iterator               begin()        noexcept { return m_sequence.begin(); }
+    const_iterator         begin()  const noexcept { return m_sequence.begin(); }
+    const_iterator         cbegin() const noexcept { return m_sequence.cbegin(); }
+
+    iterator               end()          noexcept { return m_sequence.end(); }
+    const_iterator         end()    const noexcept { return m_sequence.end(); }
+    const_iterator         cend()   const noexcept { return m_sequence.cend(); }
+
+    reverse_iterator       rbegin()       noexcept { return m_sequence.rbegin(); }
+    const_reverse_iterator rbegin() const noexcept { return m_sequence.rbegin(); }
+    reverse_iterator       rend()         noexcept { return m_sequence.rend(); }
+    const_reverse_iterator rend()   const noexcept { return m_sequence.rend(); }
+
+    // --- Capacity ---
+    bool      empty() const noexcept { return m_sequence.empty(); }
+    size_type size()  const noexcept { return m_sequence.size(); }
+
+    // --- Modifiers ---
+    void clear() noexcept
+    {
+        m_lookup.clear();
+        m_sequence.clear();
+    }
+
+    std::pair<iterator, bool> insert(const value_type& value)
+    {
+        auto map_it = m_lookup.find(value.first);
+        if (map_it != m_lookup.end())
+        {
+            return { map_it->second, false };
+        }
+        m_sequence.push_back(value);
+        iterator list_it = std::prev(m_sequence.end());
+        m_lookup.insert({ value.first, list_it });
+        return { list_it, true };
+    }
+
+    template <typename... Args>
+    std::pair<iterator, bool> emplace(Args&&... args)
+    {
+        // Construct element temporarily to check key
+        value_type val(std::forward<Args>(args)...);
+        return insert(std::move(val));
+    }
+
+    // Erase by key: O(log N) lookup + O(1) unlinking
+    size_type erase(const key_type& key)
+    {
+        auto map_it = m_lookup.find(key);
+        if (map_it == m_lookup.end()) return 0;
+
+        m_sequence.erase(map_it->second);
+        m_lookup.erase(map_it);
+        return 1;
+    }
+
+    // Erase by iterator: O(log N) map lookup + O(1) unlinking
+    iterator erase(const_iterator pos)
+    {
+        if (pos == m_sequence.end()) return m_sequence.end();
+
+        auto next_it = std::next(pos);
+        m_lookup.erase(pos->first);
+        m_sequence.erase(pos);
+        return next_it;
+    }
+
+    void swap(xr_ordered_map& other) noexcept
+    {
+        m_sequence.swap(other.m_sequence);
+        m_lookup.swap(other.m_lookup);
+    }
+
+    // --- Lookup ---
+    iterator find(const key_type& key)
+    {
+        auto map_it = m_lookup.find(key);
+        return (map_it != m_lookup.end()) ? map_it->second : m_sequence.end();
+    }
+
+    const_iterator find(const key_type& key) const
+    {
+        auto map_it = m_lookup.find(key);
+        return (map_it != m_lookup.end()) ? map_it->second : m_sequence.end();
+    }
+
+    size_type count(const key_type& key) const
+    {
+        return m_lookup.find(key) != m_lookup.end() ? 1 : 0;
+    }
+
+    mapped_type& at(const key_type& key)
+    {
+        auto map_it = m_lookup.find(key);
+        R_ASSERT3(map_it != m_lookup.end(), "xr_ordered_map, key not found ", key);
+        return map_it->second->second;
+    }
+
+    const mapped_type& at(const key_type& key) const
+    {
+        auto map_it = m_lookup.find(key);
+        R_ASSERT3(map_it != m_lookup.end(), "xr_ordered_map, key not found ", key);
+        return map_it->second->second;
+    }
+
+    mapped_type& operator[](const key_type& key)
+    {
+        auto map_it = m_lookup.find(key);
+        if (map_it == m_lookup.end())
+        {
+            auto res = insert(value_type(key, mapped_type()));
+            return res.first->second;
+        }
+        return map_it->second->second;
+    }
+};
+
+template <typename Key, typename T, size_t MaxKeys = 65536, size_t INVALID_INDEX = Key(-1)>
+class xr_sparse_map {
+    // Ensure Key is an unsigned integer
+    static_assert(std::is_integral<Key>::value, "Key must be an integral type.");
+    static_assert(std::is_unsigned<Key>::value, "Key must be an unsigned type (to avoid negative indexing).");
+
+    // Ensure Key fits within MaxKeys (if MaxKeys is small)
+    static_assert(std::numeric_limits<Key>::max() >= MaxKeys - 1, "Key type is too small for MaxKeys.");
+
+public:
+    using key_type = Key;
+    using mapped_type = T;
+    using value_type = std::pair<Key, T>;
+    using reference = value_type&;
+    using const_reference = const value_type&;
+    using size_type = size_t;
+    using sparse_index_t = Key;
+
+    // Iterators directly wrap the contiguous dense array
+    using iterator = typename xr_vector<value_type>::iterator;
+    using const_iterator = typename xr_vector<value_type>::const_iterator;
+    using reverse_iterator = typename xr_vector<value_type>::reverse_iterator;
+    using const_reverse_iterator = typename xr_vector<value_type>::const_reverse_iterator;
+
+private:
+
+    // sparse[ID] returns the index in the dense array
+    xr_vector<sparse_index_t> m_sparse;
+    // dense contains the actual contiguous data for fast iteration
+    xr_vector<value_type> m_dense;
+
+    inline void check_bounds(Key key) const
+    {
+        VERIFY2(key < MaxKeys, "ID out of bounds");
+    }
+
+public:
+    xr_sparse_map() : m_sparse(MaxKeys, INVALID_INDEX)
+    {
+        m_dense.reserve(std::min(static_cast<size_type>(MaxKeys), static_cast<size_type>(16384)));
+    }
+
+    // --- Iterators ---
+    iterator               begin()        noexcept { return m_dense.begin(); }
+    const_iterator         begin()  const noexcept { return m_dense.begin(); }
+    const_iterator         cbegin() const noexcept { return m_dense.cbegin(); }
+
+    iterator               end()          noexcept { return m_dense.end(); }
+    const_iterator         end()    const noexcept { return m_dense.end(); }
+    const_iterator         cend()   const noexcept { return m_dense.cend(); }
+
+    reverse_iterator       rbegin()       noexcept { return m_dense.rbegin(); }
+    const_reverse_iterator rbegin() const noexcept { return m_dense.rbegin(); }
+    reverse_iterator       rend()         noexcept { return m_dense.rend(); }
+    const_reverse_iterator rend()   const noexcept { return m_dense.rend(); }
+
+    // --- Capacity ---
+    bool empty() const { return m_dense.empty(); }
+    size_type size() const { return m_dense.size(); }
+
+private:
+    // Correctly typed size for own logic
+    sparse_index_t dense_size() const { return static_cast<sparse_index_t>(m_dense.size()); }
+
+public:
+    void clear()
+    {
+        std::fill(m_sparse.begin(), m_sparse.end(), INVALID_INDEX);
+        m_dense.clear();
+    }
+
+    // --- Lookup ---
+    iterator find(const Key& key)
+    {
+        check_bounds(key);
+        if (m_sparse[key] == INVALID_INDEX)
+            return end();
+        return m_dense.begin() + m_sparse[key];
+    }
+
+    const_iterator find(const Key& key) const
+    {
+        check_bounds(key);
+        if (m_sparse[key] == INVALID_INDEX)
+            return end();
+        return m_dense.begin() + m_sparse[key];
+    }
+
+    bool contains(Key key) const
+    {
+        check_bounds(key);
+        return m_sparse[key] != INVALID_INDEX;
+    }
+
+    // --- Modifiers ---
+    // Key 0 will always be first in m_dense
+    template <typename... Args>
+    std::pair<iterator, bool> emplace(Key key, Args&&... args)
+    {
+        check_bounds(key);
+
+        sparse_index_t& idx = m_sparse[key];
+        if (idx != INVALID_INDEX)
+        {
+            return { m_dense.begin() + idx, false }; // Already exists
+        }
+
+        if (key == 0 && !m_dense.empty())
+        {
+            Key old_first_key = m_dense[0].first;
+            m_dense.push_back(std::move(m_dense[0]));
+
+            Key new_back_idx = dense_size() - 1;
+            m_sparse[old_first_key] = new_back_idx;
+
+            m_dense[0] = value_type(key, T(std::forward<Args>(args)...));
+            idx = 0;
+        }
+        else
+        {
+            idx = dense_size();
+            m_dense.emplace_back(
+                std::piecewise_construct,
+                std::forward_as_tuple(key),
+                std::forward_as_tuple(std::forward<Args>(args)...)
+            );
+        }
+
+        return { m_dense.begin() + idx, true };
+    }
+
+    template <typename... Args>
+    iterator emplace_hint(iterator hint, Key key, Args&&... args)
+    {
+        return emplace(key, std::forward<Args>(args)...).first;
+    }
+
+    std::pair<iterator, bool> insert(const value_type& val)
+    {
+        return emplace(val.first, val.second);
+    }
+
+    T& operator[](const Key& key)
+    {
+        // Calling emplace with no extra arguments perfectly forwards an empty list, 
+        // resulting in T() being constructed (which acts identically to T{}).
+        // It returns a pair; .first gets the iterator, ->second gets the value reference.
+        return emplace(key).first->second;
+    }
+
+private:
+    void erase_at_index(sparse_index_t idx)
+    {
+        Key key_to_remove = m_dense[idx].first;
+        sparse_index_t last_idx = dense_size() - 1;
+
+        if (idx != last_idx)
+        {
+            // Move the last element into the deleted spot
+            m_dense[idx] = std::move(m_dense[last_idx]);
+
+            // Update the moved element's sparse link to the new position
+            m_sparse[m_dense[idx].first] = idx;
+        }
+
+        // Clean up
+        m_sparse[key_to_remove] = INVALID_INDEX;
+        m_dense.pop_back();
+    }
+
+public:
+    // Erase by Key
+    size_type erase(const Key& key)
+    {
+        check_bounds(key);
+
+        sparse_index_t idx = m_sparse[key];
+        if (idx == INVALID_INDEX) return 0;
+
+        erase_at_index(idx);
+        return 1;
+    }
+
+    // Erase by Iterator
+    iterator erase(iterator pos)
+    {
+        if (pos == end()) return end();
+
+        // Get the index by calculating the distance from the start
+        sparse_index_t idx = static_cast<sparse_index_t>(std::distance(m_dense.begin(), pos));
+        erase_at_index(idx);
+
+        // Return the iterator pointing to the same slot 
+        // (which now contains the swapped-in element or is end())
+        return m_dense.begin() + idx;
+    }
+
+    size_t count(Key key) const
+    {
+        return contains(key) ? 1 : 0;
+    }
+
+    T& at(Key key)
+    {
+        check_bounds(key);
+        sparse_index_t idx = m_sparse[key];
+        R_ASSERT3(idx != INVALID_INDEX, "xr_sparse_map: Item not found by ID ", key);
+        return m_dense[idx].second;
+    }
+
+    void swap(xr_sparse_map& other) noexcept
+    {
+        std::swap(m_sparse, other.m_sparse);
+        std::swap(m_dense, other.m_dense);
+    }
+
+    // Re-aligns the dense array by ID. Useful if you need sorted iteration.
+    // Complexity: O(N log N) for the sort + O(N) for the index rebuild.
+    void sort()
+    {
+        if (m_dense.empty()) return;
+
+        // 1. Sort the dense array by Key (first member of the pair)
+        std::sort(m_dense.begin(), m_dense.end(), [](const value_type& a, const value_type& b)
+        {
+            return a.first < b.first;
+         });
+
+        // 2. The indices are now wrong, so we must rebuild the sparse array
+        rebuild_sparse();
+    }
+
+private:
+    void rebuild_sparse()
+    {
+        std::fill(m_sparse.begin(), m_sparse.end(), INVALID_INDEX);
+
+        for (sparse_index_t i = 0; i < dense_size(); ++i)
+        {
+            m_sparse[m_dense[i].first] = i;
+        }
+    }
+};
+
 #ifdef STLPORT
 template <typename V, class _HashFcn = std::hash<V>, class _EqualKey = std::equal_to<V>, typename allocator = xalloc<V> > class xr_hash_set : public std::hash_set < V, _HashFcn, _EqualKey, allocator > { public: u32 size() const { return (u32)__super::size(); } };
 template <typename V, class _HashFcn = std::hash<V>, class _EqualKey = std::equal_to<V>, typename allocator = xalloc<V> > class xr_hash_multiset : public std::hash_multiset < V, _HashFcn, _EqualKey, allocator > { public: u32 size() const { return (u32)__super::size(); } };
@@ -364,8 +970,12 @@ template <typename V, class _HashFcn = std::hash<V>, class _EqualKey = std::equa
 template <typename K, class V, class _HashFcn = std::hash<K>, class _EqualKey = std::equal_to<K>, typename allocator = xalloc<std::pair<K, V> > > class xr_hash_map : public std::hash_map < K, V, _HashFcn, _EqualKey, allocator > { public: u32 size() const { return (u32)__super::size(); } };
 template <typename K, class V, class _HashFcn = std::hash<K>, class _EqualKey = std::equal_to<K>, typename allocator = xalloc<std::pair<K, V> > > class xr_hash_multimap : public std::hash_multimap < K, V, _HashFcn, _EqualKey, allocator > { public: u32 size() const { return (u32)__super::size(); } };
 #else
-template <typename K, class V, class _Traits = std::less<K>, typename allocator = xalloc<std::pair<const K, V>>>
-using xr_hash_map = xr_unordered_map<K, V>;
+template <typename K, class V, class Hasher = xr_hash<K>>
+class xr_hash_map : public xr_unordered_map<K, V, Hasher>
+{
+public:
+	u32 size() const { return (u32)__super::size(); }
+};
 #endif // #ifdef STLPORT
 
 #endif
@@ -375,12 +985,12 @@ inline std::pair<_Ty1, _Ty2> mk_pair(_Ty1 _Val1, _Ty2 _Val2) { return (std::pair
 
 struct pred_str
 {
-	IC bool operator()(const char* x, const char* y) const { return xr_strcmp(x, y) < 0; }
+	IC bool operator()(const char* x, const char* y) const noexcept { return xr_strcmp(x, y) < 0; }
 };
 
 struct pred_stri
 {
-	IC bool operator()(const char* x, const char* y) const { return stricmp(x, y) < 0; }
+	IC bool operator()(const char* x, const char* y) const noexcept { return stricmp(x, y) < 0; }
 };
 
 // STL extensions
@@ -418,7 +1028,6 @@ DEFINE_VECTOR(Fcolor*, LPFcolorVec, LPFcolorIt);
 DEFINE_VECTOR(LPSTR, LPSTRVec, LPSTRIt);
 DEFINE_VECTOR(LPCSTR, LPCSTRVec, LPCSTRIt);
 DEFINE_VECTOR(string64, string64Vec, string64It);
-DEFINE_VECTOR(xr_string, SStringVec, SStringVecIt);
 
 DEFINE_VECTOR(s8, S8Vec, S8It);
 DEFINE_VECTOR(s8*, LPS8Vec, LPS8It);

@@ -20,7 +20,7 @@ bool CTrade::CanTrade()
 	CEntity* pEntity;
 
 	m_nearest.clear_not_free();
-	Level().ObjectSpace.GetNearest(m_nearest, pThis.base->Position(), 2.f, nullptr);
+	Level().ObjectSpace.GetNearest(m_nearest, pThis.base->Position(), 2.f, NULL);
 	if (!m_nearest.empty())
 	{
 		for (u32 i = 0, n = m_nearest.size(); i < n; ++i)
@@ -105,7 +105,7 @@ void CTrade::TransferItem(CInventoryItem* pItem, bool bBuying, bool bFree)
 		pPartner.inv_owner->set_money(pPartner.inv_owner->get_money() - dwTransferMoney, false);
 
 
-	CAI_Trader* pTrader = nullptr;
+	CAI_Trader* pTrader = NULL;
 
 	if (pThis.type == TT_TRADER && bBuying)
 	{

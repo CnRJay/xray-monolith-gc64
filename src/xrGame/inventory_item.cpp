@@ -20,6 +20,7 @@
 #include "Level.h"
 #include "game_cl_base.h"
 #include "Actor.h"
+#include "../xrEngine/CameraBase.h"
 #include "string_table.h"
 #include "../Include/xrRender/Kinematics.h"
 #include "ai_object_location.h"
@@ -42,11 +43,11 @@ net_updateInvData* CInventoryItem::NetSync()
 
 CInventoryItem::CInventoryItem()
 {
-	m_net_updateData = nullptr;
+	m_net_updateData = NULL;
 	m_flags.set(Fbelt,FALSE);
 	m_flags.set(Fruck,TRUE);
 	m_flags.set(FRuckDefault,TRUE);
-	m_pInventory = nullptr;
+	m_pInventory = NULL;
 
 	SetDropManual(FALSE);
 
@@ -56,7 +57,7 @@ CInventoryItem::CInventoryItem()
 	m_flags.set(FUsingCondition,FALSE);
 	m_fCondition = 1.0f;
 
-	m_name = m_nameShort = nullptr;
+	m_name = m_nameShort = NULL;
 
 	m_ItemCurrPlace.value = 0;
 	m_ItemCurrPlace.type = eItemPlaceUndefined;
@@ -95,8 +96,10 @@ void CInventoryItem::Load(LPCSTR section)
 {
 	CHitImmunity::LoadImmunities(pSettings->r_string(section, "immunities_sect"), pSettings);
 
-	ISpatial* self = smart_cast<ISpatial*>(this);
-	if (self) self->spatial.type |= STYPE_VISIBLEFORAI;
+	if (cast_game_object())
+	{
+		cast_game_object()->SpatialComponent->spatial.type |= STYPE_VISIBLEFORAI;
+	}
 
 	m_section_id._set(section);
 	m_name = CStringTable().translate(pSettings->r_string(section, "inv_name"));
@@ -106,7 +109,7 @@ void CInventoryItem::Load(LPCSTR section)
 		m_kind._set(pSettings->r_string(section, "kind"));
 	else
 	{
-		m_kind = nullptr;
+		m_kind = NULL;
 		if (FS.m_Flags.test(FS.flPrintLTX))
 			Log("'kind' for section %s doesn't exist!", section);
 	}
@@ -137,7 +140,7 @@ void CInventoryItem::Load(LPCSTR section)
 		m_flags.set(FAllowSprint, pSettings->r_bool(section, "sprint_allowed"));
 		m_fControlInertionFactor = pSettings->r_float(section, "control_inertion_factor");
 	}
-	m_icon_name = READ_IF_EXISTS(pSettings, r_string, section, "icon_name", nullptr);
+	m_icon_name = READ_IF_EXISTS(pSettings, r_string, section, "icon_name", NULL);
 
 	m_fLowestBatteryCharge = READ_IF_EXISTS(pSettings, r_float, section, "power_critical", .03f);
 }
@@ -232,6 +235,7 @@ extern	Flags32	dbg_net_Draw_Flags;
 
 void CInventoryItem::UpdateCL()
 {
+    PROF_EVENT("CInventoryItem::UpdateCL", PROF_CAT(GameLogic))
 #ifdef DEBUG
 	if(bDebug){
 		if (dbg_net_Draw_Flags.test(dbg_draw_invitem) )
@@ -275,7 +279,7 @@ void CInventoryItem::OnEvent(NET_Packet& P, u16 type)
 		{
 			Fvector p;
 			P.r_vec3(p);
-			CPHSynchronize* pSyncObj = nullptr;
+			CPHSynchronize* pSyncObj = NULL;
 			pSyncObj = object().PHGetSyncItem(0);
 			if (!pSyncObj) return;
 			SPHNetState state;
@@ -383,7 +387,7 @@ void CInventoryItem::net_Destroy()
 	}
 
 	//инвентарь которому мы принадлежали
-	//.	m_pInventory = nullptr;
+	//.	m_pInventory = NULL;
 }
 
 void CInventoryItem::save(NET_Packet& packet)
@@ -645,7 +649,7 @@ void CInventoryItem::net_Export(NET_Packet& P)
 		return;
 	}
 
-	CPHSynchronize* pSyncObj = nullptr;
+	CPHSynchronize* pSyncObj = NULL;
 	SPHNetState State;
 	pSyncObj = object().PHGetSyncItem(0);
 
@@ -697,7 +701,7 @@ void CInventoryItem::net_Export(NET_Packet& P)
 		P.w_u8				(0);
 		return;
 	}
-	CPHSynchronize* pSyncObj				= nullptr;
+	CPHSynchronize* pSyncObj				= NULL;
 	SPHNetState								State;
 	pSyncObj = object().PHGetSyncItem		(0);
 
@@ -809,7 +813,7 @@ void CInventoryItem::PH_B_CrPr()
 	object().CrPr_SetActivated(true);
 
 	///////////////////////////////////////////////
-	CPHSynchronize* pSyncObj				= nullptr;
+	CPHSynchronize* pSyncObj				= NULL;
 	pSyncObj = object().PHGetSyncItem		(0);
 	if (!pSyncObj)							return;
 	///////////////////////////////////////////////
@@ -835,7 +839,7 @@ void CInventoryItem::PH_I_CrPr() // actions & operations between two phisic pred
 	//store recalculated data, then we able to restore it after small future prediction
 	if (!object().CrPr_IsActivated())	return;
 	////////////////////////////////////
-	CPHSynchronize* pSyncObj			= nullptr;
+	CPHSynchronize* pSyncObj			= NULL;
 	pSyncObj = object().PHGetSyncItem	(0);
 	if (!pSyncObj)						return;
 	////////////////////////////////////
@@ -859,7 +863,7 @@ void CInventoryItem::PH_Ch_CrPr			()
 	//restore recalculated data and get data for interpolation	
 	if (!object().CrPr_IsActivated())	return;
 	////////////////////////////////////
-	CPHSynchronize* pSyncObj			= nullptr;
+	CPHSynchronize* pSyncObj			= NULL;
 	pSyncObj = object().PHGetSyncItem	(0);
 	if (!pSyncObj)						return;
 	////////////////////////////////////
@@ -933,7 +937,7 @@ void CInventoryItem::PH_A_CrPr()
 	//restore recalculated data and get data for interpolation	
 	if (!object().CrPr_IsActivated())	return;
 	////////////////////////////////////
-	CPHSynchronize* pSyncObj			= nullptr;
+	CPHSynchronize* pSyncObj			= NULL;
 	pSyncObj = object().PHGetSyncItem	(0);
 	if (!pSyncObj)						return;
 	////////////////////////////////////
@@ -969,7 +973,7 @@ void CInventoryItem::CalculateInterpolationParams()
 
 	Fvector P0, P1, P2, P3;
 
-	CPHSynchronize* pSyncObj = nullptr;
+	CPHSynchronize* pSyncObj = NULL;
 	pSyncObj = object().PHGetSyncItem(0);
 	
 	Fmatrix xformX0, xformX1;	
@@ -1097,7 +1101,7 @@ void CInventoryItem::make_Interpolation	()
 
 			object().m_pPhysicsShell->NetInterpolationModeOFF();
 
-			CPHSynchronize* pSyncObj		= nullptr;
+			CPHSynchronize* pSyncObj		= NULL;
 			pSyncObj						= object().PHGetSyncItem(0);
 			pSyncObj->set_State				(p->PredictedState);
 			Fmatrix xformI;
@@ -1225,7 +1229,7 @@ void CInventoryItem::reload(LPCSTR section)
 
 void CInventoryItem::reinit()
 {
-	m_pInventory = nullptr;
+	m_pInventory = NULL;
 	m_ItemCurrPlace.type = eItemPlaceUndefined;
 }
 
@@ -1265,7 +1269,24 @@ void CInventoryItem::activate_physic_shell()
 
 	UpdateXForm();
 
+	CActor* actor = smart_cast<CActor*>(E);
+	float heading = actor ? actor->cam_Active()->vDirection.getH() : E->Direction().getH();
+	Fvector pos = object().Position();
+	object().XFORM().setHPB(heading, 0.f, 0.f);
+	if (actor)
+	{
+		pos.x = actor->Position().x;
+		pos.z = actor->Position().z;
+		pos.mad(object().XFORM().k, 0.3f);
+	}
+	object().Position().set(pos);
 	object().CPhysicsShellHolder::activate_physic_shell();
+	if (actor && object().PPhysicsShell())
+	{
+		Fvector vel = actor->cam_Active()->vDirection;
+		vel.y = 0.f;
+		object().PPhysicsShell()->set_LinearVel(vel.mul(4.f));
+	}
 }
 
 void CInventoryItem::UpdateXForm()
@@ -1282,7 +1303,7 @@ void CInventoryItem::UpdateXForm()
 	if (parent && parent->use_simplified_visual())
 		return;
 
-	if (parent->attached(this))
+	if (parent && parent->attached(this))
 		return;
 
 	R_ASSERT(E);
@@ -1470,10 +1491,10 @@ Irect CInventoryItem::GetInvGridRect() const
 {
 	u32 x, y, w, h;
 
-	x = pSettings->r_u32(m_object->cNameSect(), "inv_grid_x");
-	y = pSettings->r_u32(m_object->cNameSect(), "inv_grid_y");
-	w = pSettings->r_u32(m_object->cNameSect(), "inv_grid_width");
-	h = pSettings->r_u32(m_object->cNameSect(), "inv_grid_height");
+	x = m_inv_grid_rect.x1 >= 0 ? m_inv_grid_rect.x1 : pSettings->r_u32(m_object->cNameSect(), "inv_grid_x");
+	y = m_inv_grid_rect.y1 >= 0 ? m_inv_grid_rect.y1 : pSettings->r_u32(m_object->cNameSect(), "inv_grid_y");
+	w = m_inv_grid_rect.x2 >= 0 ? m_inv_grid_rect.x2 : pSettings->r_u32(m_object->cNameSect(), "inv_grid_width");
+	h = m_inv_grid_rect.y2 >= 0 ? m_inv_grid_rect.y2 : pSettings->r_u32(m_object->cNameSect(), "inv_grid_height");
 
 	return Irect().set(x, y, w, h);
 }
@@ -1482,10 +1503,10 @@ Irect CInventoryItem::GetUpgrIconRect() const
 {
 	u32 x, y, w, h;
 
-	x = READ_IF_EXISTS(pSettings, r_u32, m_object->cNameSect(), "upgr_icon_x", 0);
-	y = READ_IF_EXISTS(pSettings, r_u32, m_object->cNameSect(), "upgr_icon_y", 0);
-	w = READ_IF_EXISTS(pSettings, r_u32, m_object->cNameSect(), "upgr_icon_width", 0);
-	h = READ_IF_EXISTS(pSettings, r_u32, m_object->cNameSect(), "upgr_icon_height", 0);
+	x = m_upgr_icon_rect.x1 >= 0 ? m_upgr_icon_rect.x1 : READ_IF_EXISTS(pSettings, r_u32, m_object->cNameSect(), "upgr_icon_x", 0);
+	y = m_upgr_icon_rect.y1 >= 0 ? m_upgr_icon_rect.y1 : READ_IF_EXISTS(pSettings, r_u32, m_object->cNameSect(), "upgr_icon_y", 0);
+	w = m_upgr_icon_rect.x2 >= 0 ? m_upgr_icon_rect.x2 : READ_IF_EXISTS(pSettings, r_u32, m_object->cNameSect(), "upgr_icon_width", 0);
+	h = m_upgr_icon_rect.y2 >= 0 ? m_upgr_icon_rect.y2 : READ_IF_EXISTS(pSettings, r_u32, m_object->cNameSect(), "upgr_icon_height", 0);
 
 	return Irect().set(x, y, w, h);
 }

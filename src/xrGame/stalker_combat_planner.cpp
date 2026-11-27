@@ -178,8 +178,11 @@ void CStalkerCombatPlanner::initialize()
 
 	m_loaded = false;
 
-	if (!object().agent_manager().member().combat_members().empty())
-		CScriptActionPlanner::m_storage.set_property(eWorldPropertyUseSuddenness, false);
+    {
+        
+        if (!object().agent_manager().member().combat_members().empty())
+            CScriptActionPlanner::m_storage.set_property(eWorldPropertyUseSuddenness, false);
+    }
 
 	//  this is possible when i enter combat when it is wait after combat stage
 	//	VERIFY					(object().memory().enemy().selected());

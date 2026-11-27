@@ -8,9 +8,9 @@
 #include "../xrCore/mezz_stringbuffer.h"
 
 CGameMtlLibrary GMLib;
-//CSound_manager_interface* Sound = nullptr;
+//CSound_manager_interface* Sound = NULL;
 #ifdef _EDITOR
-CGameMtlLibrary* PGMLib = nullptr;
+CGameMtlLibrary* PGMLib = NULL;
 #endif
 CGameMtlLibrary::CGameMtlLibrary()
 {
@@ -179,6 +179,7 @@ void CGameMtlLibrary::Load()
 			if (materialsLtx->line_exist(M->m_Name, "flotation_factor"))		M->fFlotationFactor = materialsLtx->r_float(M->m_Name, "flotation_factor");
 			if (materialsLtx->line_exist(M->m_Name, "injurious_factor"))		M->fInjuriousSpeed = materialsLtx->r_float(M->m_Name, "injurious_factor");
 			if (materialsLtx->line_exist(M->m_Name, "density_factor"))			M->fDensityFactor = materialsLtx->r_float(M->m_Name, "density_factor");
+			if (materialsLtx->line_exist(M->m_Name, "collision_sound_vel"))     M->fCollisionSoundVel = materialsLtx->r_float(M->m_Name, "collision_sound_vel");
 		}
 		xr_delete(materialsLtx);
 	}
@@ -244,8 +245,8 @@ void CGameMtlLibrary::Load()
 		for (const auto& sec : materialsLtx->sections()) {
 			SGameMtlPair* M;
 			
-			std::string secStr = sec.Name.c_str();
-			auto materials = splitStringMulti(secStr, "@", false, true);
+			xr_string secStr = sec.Name.c_str();
+			auto materials = secStr.SplitStringMulti("@", false, true);
 			if (materials.size() < 2) {
 				Msg("![material_pairs.ltx] encountered wrongly defined pair %s, two materials are required", secStr.c_str());
 				continue;

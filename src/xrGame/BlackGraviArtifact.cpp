@@ -8,7 +8,6 @@
 #include "BlackGraviArtifact.h"
 #include "../xrphysics/PhysicsShell.h"
 #include "entity_alive.h"
-#include "ParticlesObject.h"
 #include "phmovementcontrol.h"
 #include "xrmessages.h"
 #include "physicsshellholder.h"
@@ -46,8 +45,7 @@ BOOL CBlackGraviArtefact::net_Spawn(CSE_Abstract* DC)
 	if (!inherited::net_Spawn(DC)) return FALSE;
 
 
-	CParticlesObject* pStaticPG;
-	pStaticPG = CParticlesObject::Create("anomaly\\galantine",FALSE);
+	intrusive_ptr<CParticlesObject> pStaticPG = Particles::Details::Create("anomaly\\galantine",FALSE);
 	Fmatrix pos;
 	//pos.rotateY(1.57);
 	//pos.mulA(pos);
@@ -104,8 +102,7 @@ void CBlackGraviArtefact::UpdateCLChild()
 
 			GraviStrike();
 
-			CParticlesObject* pStaticPG;
-			pStaticPG = CParticlesObject::Create(*m_sParticleName,TRUE);
+			intrusive_ptr<CParticlesObject> pStaticPG = Particles::Details::Create(*m_sParticleName,TRUE);
 			Fmatrix pos;
 			pos.set(XFORM());
 			Fvector vel;
@@ -118,7 +115,7 @@ void CBlackGraviArtefact::UpdateCLChild()
 			m_bStrike = false;
 		}
 	}
-	else if (H_Parent()) XFORM().set(H_Parent()->XFORM());
+	else if (H_Parent() && IsHidden()) XFORM().set(H_Parent()->XFORM());
 }
 
 //void CBlackGraviArtefact::Hit(float P, Fvector &dir,

@@ -3,9 +3,6 @@
 #define ParticleGroupH
 
 #include "../xrRender/dxParticleCustom.h"
-#include <tbb/spin_mutex.h>
-#include <vector>
-#include "../../xrCore/xrSyncronize.h"
 
 namespace PS
 {
@@ -84,7 +81,9 @@ namespace PS
 		float m_CurrentTime;
 		Fvector m_InitialPosition;
 	public:
-		DEFINE_VECTOR(dxRender_Visual*, VisualVec, VisualVecIt);
+		xrCriticalSection onframe_lock;
+		using VisualVec = xr_vector<dxRender_Visual*>;
+		using VisualVecIt = VisualVec::iterator;
 
 		struct SItem
 		{
@@ -92,18 +91,22 @@ namespace PS
 			VisualVec _children_related;
 			VisualVec _children_free;
 			xr_set<dxRender_Visual*> _children_destroy;
+
 		public:
+			~SItem();
+
 			void Set(dxRender_Visual* e);
 			void Clear();
-			~SItem();
 
 			IC u32 GetVisuals(xr_vector<dxRender_Visual*>& visuals)
 			{
 				visuals.reserve(_children_related.size() + _children_free.size() + 1);
-				if (_effect) visuals.push_back(_effect);
+				if (_effect)
+					visuals.push_back(_effect);
+
 				visuals.insert(visuals.end(), _children_related.begin(), _children_related.end());
 				visuals.insert(visuals.end(), _children_free.begin(), _children_free.end());
-				return visuals.size();
+				return u32(visuals.size());
 			}
 
 			void OnDeviceCreate();
@@ -115,49 +118,16 @@ namespace PS
 
 			void UpdateParent(const Fmatrix& m, const Fvector& velocity, BOOL bXFORM);
 			void OnFrame(u32 u_dt, const CPGDef::SEffect& def, Fbox& box, bool& bPlaying);
+			void DelayDeleteChilds();
 
 			u32 ParticlesCount();
-			BOOL IsPlaying();
+			BOOL IsPlaying() const;
 			void Play();
 			void Stop(BOOL def_stop);
-
-			void DelayDeleteChilds();
-			void ScheduleDelayDeleteChilds();
 		};
 
 		DEFINE_VECTOR(SItem, SItemVec, SItemVecIt)
 		SItemVec items;
-
-	public:
-		struct SParticleEvent {
-			enum EType {
-				eStartFree,
-				eStartRelated,
-				eStopRelated
-			} type;
-			CParticleEffect* emitter;
-			shared_str eff_name;
-			PAPI::Particle m;
-			u32 idx; // for StopRelated
-		};
-		struct SItemEventData {
-			std::vector<SParticleEvent> m_Events;
-			tbb::spin_mutex m_EventMutex;
-			
-			SItemEventData() {}
-			// copy constructor for vector resize
-			SItemEventData(const SItemEventData& other) {
-				m_Events = other.m_Events;
-			}
-			SItemEventData& operator=(const SItemEventData& other) {
-				if (this != &other) {
-					m_Events = other.m_Events;
-				}
-				return *this;
-			}
-		};
-		std::vector<SItemEventData> m_ItemEvents;
-
 	public:
 		enum
 		{
@@ -167,7 +137,6 @@ namespace PS
 
 		Flags8 m_RT_Flags;
 	public:
-		xrCriticalSection onframe_lock;
 		CParticleGroup();
 		virtual ~CParticleGroup();
 		virtual void OnFrame(u32 dt);
@@ -192,6 +161,9 @@ namespace PS
 
 		virtual void SetHudMode(BOOL b);
 		virtual BOOL GetHudMode();
+
+		virtual void SetLiveUpdate(BOOL b);
+		virtual BOOL GetLiveUpdate();
 
 		virtual float GetTimeLimit()
 		{

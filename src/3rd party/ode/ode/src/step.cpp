@@ -745,15 +745,16 @@ void dInternalStepIsland_x2 (dxWorld *world, dxBody * const *body, int nb,
 	  // get joint numbers and ensure ofs[j1] >= ofs[j2]
 	  int j1 = n1->joint->tag;
 	  int j2 = n2->joint->tag;
+
+	  // if either joint was tagged as -1 then it is an inactive (m=0)
+	  // joint that should not be considered
+	  if (j1==-1 || j2==-1) continue;
+
 	  if (ofs[j1] < ofs[j2]) {
 	    int tmp = j1;
 	    j1 = j2;
 	    j2 = tmp;
 	  }
-
-	  // if either joint was tagged as -1 then it is an inactive (m=0)
-	  // joint that should not be considered
-	  if (j1==-1 || j2==-1) continue;
 
 	  // determine if body i is the 1st or 2nd body of joints j1 and j2
 	  int jb1 = (joint[j1]->node[1].body == body[i]);
@@ -811,11 +812,16 @@ void dInternalStepIsland_x2 (dxWorld *world, dxBody * const *body, int nb,
     //dSetZero (rhs,m);
     for (i=0; i<nj; i++) {
       dReal *JJ = J + 2*8*ofs[i];
-      Multiply0_p81 (rhs+ofs[i],JJ,
-		     tmp1 + 8*joint[i]->node[0].body->tag, info[i].m);
-      if (joint[i]->node[1].body) {
-	MultiplyAdd0_p81 (rhs+ofs[i],JJ + 8*info[i].m,
-			  tmp1 + 8*joint[i]->node[1].body->tag, info[i].m);
+
+      if (joint[i]->node[0].body)
+      {
+          Multiply0_p81(rhs + ofs[i], JJ,
+              tmp1 + 8 * joint[i]->node[0].body->tag, info[i].m);
+      }
+      if (joint[i]->node[1].body)
+      {
+          MultiplyAdd0_p81(rhs + ofs[i], JJ + 8 * info[i].m,
+              tmp1 + 8 * joint[i]->node[1].body->tag, info[i].m);
       }
     }
     // complete rhs

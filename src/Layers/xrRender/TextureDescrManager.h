@@ -5,7 +5,6 @@
 #include "ETextureParams.h"
 
 class cl_dt_scaler;
-struct TH_LoadTHM;
 
 class CTextureDescrMngr
 {
@@ -15,7 +14,7 @@ class CTextureDescrMngr
 		//R_constant_setup*	cs;
 		u8 usage;
 
-		texture_assoc() : /*cs(nullptr),*/ usage(0)
+		texture_assoc() : /*cs(NULL),*/ usage(0)
 		{
 		}
 
@@ -33,12 +32,12 @@ class CTextureDescrMngr
 	};
 
 public:
-	struct texture_desc
+	static struct texture_desc
 	{
 		texture_assoc* m_assoc;
 		texture_spec* m_spec;
 
-		texture_desc(): m_assoc(nullptr), m_spec(nullptr)
+		texture_desc(): m_assoc(NULL), m_spec(NULL)
 		{
 		}
 	};
@@ -51,7 +50,7 @@ private:
 	map_CS m_detail_scalers;
 
 	static void LoadTHM(LPCSTR initial, map_TD& s_texture_details, map_CS& s_detail_scalers);
-	static void LoadTHMThread(void* args);
+	static void LoadLTX(LPCSTR initial, map_TD& s_texture_details);
 
 public:
 	~CTextureDescrMngr();

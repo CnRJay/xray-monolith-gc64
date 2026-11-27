@@ -39,7 +39,7 @@ u64 const day2ms = u64(24 * 60 * 60 * 1000);
 
 CUILogsWnd::CUILogsWnd()
 {
-	//	m_actor_ch_info			= nullptr;
+	//	m_actor_ch_info			= NULL;
 	m_previous_time = Device.dwTimeGlobal;
 	m_selected_period = 0;
 }
@@ -163,7 +163,7 @@ void CUILogsWnd::Init()
 void itemToCache(CUIWindow* w)
 {
 	w->SetAutoDelete(false);
-	w->SetParent(nullptr);
+	w->SetParent(NULL);
 }
 
 extern CActor* g_actor;
@@ -230,6 +230,7 @@ void CUILogsWnd::ReLoadNews()
 
 	if (!m_list->Empty())
 	{
+		xrCriticalSectionGuard guard(m_list->csUi);
 		m_items_cache.insert(m_items_cache.end(), m_list->Items().begin(), m_list->Items().end());
 		m_list->Items().clear();
 

@@ -39,7 +39,7 @@ const shared_str game_cl_TeamDeathmatch::GetTeamMenu(s16 team)
 		NODEFAULT;
 	};
 #ifdef DEBUG
-	return nullptr;
+	return NULL;
 #endif// DEBUG
 }
 
@@ -49,7 +49,7 @@ game_cl_TeamDeathmatch::game_cl_TeamDeathmatch()
 	PresetItemsTeam2.clear();
 
 	m_bTeamSelected = FALSE;
-	m_game_ui = nullptr;
+	m_game_ui = NULL;
 
 	m_bShowPlayersNames = false;
 	m_bFriendlyIndicators = false;
@@ -190,7 +190,7 @@ void game_cl_TeamDeathmatch::SetGameUI(CUIGameCustom* uigame)
 CUIGameCustom* game_cl_TeamDeathmatch::createGameUI()
 {
 	if (g_dedicated_server)
-		return nullptr;
+		return NULL;
 
 	CLASS_ID clsid = CLSID_GAME_UI_TEAMDEATHMATCH;
 	m_game_ui = smart_cast<CUIGameTDM*>(NEW_INSTANCE(clsid));
@@ -403,7 +403,7 @@ char* game_cl_TeamDeathmatch::getTeamSection(int Team)
 		}
 		break;
 	default:
-		return nullptr;
+		return NULL;
 	};
 };
 
@@ -425,7 +425,7 @@ void game_cl_TeamDeathmatch::shedule_Update(u32 dt)
 	//---------------------------------------------------------
 
 	if (m_game_ui)
-		m_game_ui->SetBuyMsgCaption(nullptr);
+		m_game_ui->SetBuyMsgCaption(NULL);
 
 	switch (m_phase)
 	{
@@ -691,9 +691,7 @@ void game_cl_TeamDeathmatch::UpdateMapLocations()
 			};
 			if (!Level().MapManager().HasMapLocation(FRIEND_LOCATION, id))
 			{
-				CMapLocation* location = Level().MapManager().AddMapLocation(FRIEND_LOCATION, id);
-				if (location)
-					location->EnablePointer();
+				(Level().MapManager().AddMapLocation(FRIEND_LOCATION, id))->EnablePointer();
 			}
 		}
 	};

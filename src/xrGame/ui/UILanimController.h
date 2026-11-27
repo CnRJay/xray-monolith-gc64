@@ -46,19 +46,22 @@ class CUILightAnimColorConrollerImpl : public CUILightAnimColorConroller
 {
 	color_animation m_lanim_clr;
 public:
+
+	virtual CUILightAnimColorConroller* ui_cast_light_anim_color_controller() { return this; }
+
 	void SetColorAnimation(LPCSTR lanim, u8 const& flags, float delay = 0.0f)
 	{
 		if (lanim && lanim[0] != 0)
 			m_lanim_clr.m_lanim = LALib.FindItem(lanim);
 		else
 		{
-			m_lanim_clr.m_lanim = nullptr;
+			m_lanim_clr.m_lanim = NULL;
 			return;
 		}
 
 		m_lanim_clr.m_lanim_delay_time = delay;
 		m_lanim_clr.m_lanimFlags.assign(flags);
-		R_ASSERT((m_lanim_clr.m_lanim==nullptr) || m_lanim_clr.m_lanimFlags.test(LA_TEXTCOLOR|LA_TEXTURECOLOR));
+		R_ASSERT((m_lanim_clr.m_lanim==NULL) || m_lanim_clr.m_lanimFlags.test(LA_TEXTCOLOR|LA_TEXTURECOLOR));
 	}
 
 	virtual void RemoveColorAnimation()
@@ -67,8 +70,6 @@ public:
 		m_lanim_clr.m_lanim_start_time = -1.0f;
 		m_lanim_clr.m_lanim_delay_time = 0.0f;
 		m_lanim_clr.m_lanimFlags.zero();
-		// Reset texture color
-		ColorAnimationSetTextureColor(color_rgba(255, 255, 255, 255), false);
 	}
 
 	virtual void ResetColorAnimation()
@@ -78,7 +79,7 @@ public:
 
 	virtual bool IsColorAnimationPresent()
 	{
-		if (m_lanim_clr.m_lanim == nullptr) return false;
+		if (m_lanim_clr.m_lanim == NULL) return false;
 
 		if (m_lanim_clr.m_lanimFlags.test(LA_CYCLIC) || m_lanim_clr.m_lanim_start_time < 0.0f)
 			return true;
@@ -92,7 +93,7 @@ public:
 
 	void UpdateColorAnimation()
 	{
-		if (m_lanim_clr.m_lanim == nullptr) return;
+		if (m_lanim_clr.m_lanim == NULL) return;
 		if (m_lanim_clr.m_lanim_start_time < 0.0f)
 			ResetColorAnimation();
 
@@ -132,4 +133,7 @@ public:
 	virtual void Update();
 	virtual void ColorAnimationSetTextureColor(u32 color, bool only_alpha);
 	virtual void ColorAnimationSetTextColor(u32 color, bool only_alpha);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUILightAnimColorConroller* ui_cast_light_anim_color_controller() { return this; }
 };

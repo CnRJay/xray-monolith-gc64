@@ -75,7 +75,7 @@ public:
 
 CCoverEvaluator::CCoverEvaluator(CRestrictedObject* object) : inherited(object)
 {
-	m_object = nullptr;
+	m_object = NULL;
 	m_dest_position.set(flt_max,flt_max,flt_max);
 	m_deviation = flt_max;
 	m_min_distance = flt_max;
@@ -119,7 +119,7 @@ void CCoverEvaluator::evaluate_cover(const CCoverPoint* cover_point, float weigh
 	//DBG().level_info(this).add_item(cover_point->position(), D3DCOLOR_XRGB(0,255,0));
 #endif
 	CMonsterSquad* squad = monster_squad().get_squad(m_object);
-	if (squad && squad->is_locked_cover(cover_point->level_vertex_id())) return;
+	if (squad->is_locked_cover(cover_point->level_vertex_id())) return;
 
 	if (fis_zero(weight))
 		return;

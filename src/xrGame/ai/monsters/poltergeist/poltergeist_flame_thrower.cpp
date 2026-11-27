@@ -125,7 +125,7 @@ void CPolterFlame::select_state(SFlameElement* elem, EFlameState state)
 		break;
 	case eStop:
 		// stop fire particles
-		if (elem->particles_object) CParticlesObject::Destroy(elem->particles_object);
+		if (elem->particles_object) Particles::Details::Destroy(elem->particles_object);
 
 		// start finish particles
 		m_object->PlayParticles(m_particles_stop, elem->position, elem->target_dir,TRUE);
@@ -169,7 +169,7 @@ void CPolterFlame::update_schedule()
 					// test hit
 					collide::rq_result rq;
 					if (Level().ObjectSpace.RayPick(elem->position, elem->target_dir, m_length, collide::rqtBoth, rq,
-					                                nullptr))
+					                                NULL))
 					{
 						if ((rq.O == elem->target_object) && (rq.range < m_length))
 						{
@@ -251,7 +251,7 @@ void CPolterFlame::on_destroy()
 	for (; I != E; ++I)
 	{
 		if ((*I)->sound._feedback()) (*I)->sound.stop();
-		if ((*I)->particles_object) CParticlesObject::Destroy((*I)->particles_object);
+		if ((*I)->particles_object) Particles::Details::Destroy((*I)->particles_object);
 
 		xr_delete((*I));
 	}

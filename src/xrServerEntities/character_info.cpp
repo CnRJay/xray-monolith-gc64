@@ -1,4 +1,4 @@
-//////////////////////////////////////////////////////////////////////////
+﻿//////////////////////////////////////////////////////////////////////////
 // character_info.cpp			игровая информация для персонажей в игре
 // 
 //////////////////////////////////////////////////////////////////////////
@@ -17,7 +17,7 @@
 //////////////////////////////////////////////////////////////////////////
 SCharacterProfile::SCharacterProfile()
 {
-	m_CharacterId = nullptr;
+	m_CharacterId = NULL;
 	m_Rank = NO_RANK;
 	m_Reputation = NO_REPUTATION;
 }
@@ -31,13 +31,13 @@ SCharacterProfile::~SCharacterProfile()
 
 CCharacterInfo::CCharacterInfo()
 {
-	m_ProfileId = nullptr;
-	m_SpecificCharacterId = nullptr;
+	m_ProfileId = NULL;
+	m_SpecificCharacterId = NULL;
 
 #ifdef XRGAME_EXPORTS
 	m_CurrentRank.set(NO_RANK);
 	m_CurrentReputation.set(NO_REPUTATION);
-	m_StartDialog = nullptr;
+	m_StartDialog = NULL;
 	m_Sympathy = 0.0f;
 #endif
 }
@@ -51,7 +51,7 @@ CCharacterInfo::~CCharacterInfo()
 void CCharacterInfo::Load(shared_str id)
 {
 	m_ProfileId = id;
-	inherited_shared::load_shared(m_ProfileId, nullptr);
+	inherited_shared::load_shared(m_ProfileId, NULL);
 }
 
 #ifdef XRGAME_EXPORTS
@@ -94,18 +94,18 @@ void CCharacterInfo::load_shared(LPCSTR)
 	CUIXml* pXML = item_data._xml;
 	pXML->SetLocalRoot(pXML->GetRoot());
 
-	XML_NODE* item_node = pXML->NavigateToNode(id_to_index::tag_name, item_data.pos_in_file);
+	XML_NODE* item_node = item_data._node;
 	R_ASSERT3(item_node, "profile id=", *item_data.id);
 
 	pXML->SetLocalRoot(item_node);
 
 
-	LPCSTR spec_char = pXML->Read("specific_character", 0, nullptr);
+	LPCSTR spec_char = pXML->Read("specific_character", 0, NULL);
 	if (!spec_char)
 	{
-		data()->m_CharacterId = nullptr;
+		data()->m_CharacterId = NULL;
 
-		LPCSTR char_class = pXML->Read("class", 0, nullptr);
+		LPCSTR char_class = pXML->Read("class", 0, NULL);
 
 		if (char_class)
 		{

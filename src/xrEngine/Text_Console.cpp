@@ -8,10 +8,10 @@ int g_svTextConsoleUpdateRate = 1;
 
 CTextConsole::CTextConsole()
 {
-	m_pMainWnd = nullptr;
-	m_hConsoleWnd = nullptr;
-	m_hLogWnd = nullptr;
-	m_hLogWndFont = nullptr;
+	m_pMainWnd = NULL;
+	m_hConsoleWnd = NULL;
+	m_hLogWnd = NULL;
+	m_hLogWndFont = NULL;
 
 	m_bScrollLog = true;
 	m_dwStartLine = 0;
@@ -23,7 +23,7 @@ CTextConsole::CTextConsole()
 
 CTextConsole::~CTextConsole()
 {
-	m_pMainWnd = nullptr;
+	m_pMainWnd = NULL;
 }
 
 //-------------------------------------------------------------------------------------------
@@ -272,7 +272,7 @@ void CTextConsole::DrawLog(HDC hDC, RECT* pRect)
 	TextOut(hDC, xb, Height - tm.tmHeight - 3, s_edt, xr_strlen(s_edt));
 
 	SetTextColor(hDC, RGB(205, 205, 225));
-	u32 log_line = LogFile.size() - 1;
+	u32 log_line = m_log_line_counter;
 	string16 q, q2;
 	itoa(log_line, q, 10);
 	xr_strcpy(q2, sizeof(q2), "[");
@@ -282,51 +282,59 @@ void CTextConsole::DrawLog(HDC hDC, RECT* pRect)
 
 	TextOut(hDC, Width - 8 * qn, Height - tm.tmHeight - tm.tmHeight, q2, qn);
 
-	int ypos = Height - tm.tmHeight - tm.tmHeight;
-	for (int i = LogFile.size() - 1 - scroll_delta; i >= 0; --i)
 	{
-		ypos -= tm.tmHeight;
-		if (ypos < y_top_max)
+		xrCriticalSectionGuard guardLog(&m_log_history_guard);
+		u32 log_line = m_log_history.GetSize();
+
+		int ypos = Height - tm.tmHeight - tm.tmHeight;
+		for (u32 i = scroll_delta; i < log_line; ++i)
 		{
-			break;
+			const xr_string& logLine = m_log_history.GetLooped(m_log_history.GetTail() - i);
+
+			if (!logLine.size()) {
+				continue;
+			}
+
+			ypos -= tm.tmHeight;
+			if (ypos < y_top_max)
+			{
+				break;
+			}
+
+			LPCSTR ls = logLine.c_str();
+
+			Console_mark cm = (Console_mark)ls[0];
+			COLORREF     c2 = (COLORREF)bgr2rgb(get_mark_color(cm));
+			SetTextColor(hDC, c2);
+			u8 b = (is_mark(cm)) ? 2 : 0;
+			LPCSTR pOut = ls + b;
+
+			BOOL res = TextOut(hDC, 10, ypos, pOut, xr_strlen(pOut));
+			if (!res)
+			{
+				R_ASSERT2(0, "TextOut(..) return NULL");
+			}
 		}
-		LPCSTR ls = LogFile[i].c_str();
 
-		if (!ls)
+		if (g_pGameLevel && (Device.dwTimeGlobal - m_last_time > 500))
 		{
-			continue;
+			m_last_time = Device.dwTimeGlobal;
+
+			m_server_info.ResetData();
+			g_pGameLevel->GetLevelInfo(&m_server_info);
 		}
-		Console_mark cm = (Console_mark)ls[0];
-		COLORREF c2 = (COLORREF)bgr2rgb(get_mark_color(cm));
-		SetTextColor(hDC, c2);
-		u8 b = (is_mark(cm)) ? 2 : 0;
-		LPCSTR pOut = ls + b;
 
-		BOOL res = TextOut(hDC, 10, ypos, pOut, xr_strlen(pOut));
-		if (!res)
+		ypos = 5;
+		for (u32 i = 0; i < m_server_info.Size(); ++i)
 		{
-			R_ASSERT2(0, "TextOut(..) return NULL");
-		}
-	}
+			SetTextColor(hDC, m_server_info[i].color);
+			TextOut(hDC, 10, ypos, m_server_info[i].name, xr_strlen(m_server_info[i].name));
 
-	if (g_pGameLevel && (Device.dwTimeGlobal - m_last_time > 500))
-	{
-		m_last_time = Device.dwTimeGlobal;
-
-		m_server_info.ResetData();
-		g_pGameLevel->GetLevelInfo(&m_server_info);
-	}
-
-	ypos = 5;
-	for (u32 i = 0; i < m_server_info.Size(); ++i)
-	{
-		SetTextColor(hDC, m_server_info[i].color);
-		TextOut(hDC, 10, ypos, m_server_info[i].name, xr_strlen(m_server_info[i].name));
-
-		ypos += tm.tmHeight;
-		if (ypos > y_top_max)
-		{
-			break;
+			ypos += tm.tmHeight;
+			if (ypos > y_top_max)
+			{
+				break;
+			}
 		}
 	}
 }
@@ -346,7 +354,7 @@ void CTextConsole::OnFrame()
 	 return;
 	 }
 	 */
-	InvalidateRect(m_hConsoleWnd, nullptr, FALSE);
+	InvalidateRect(m_hConsoleWnd, NULL, FALSE);
 	SetCursor(LoadCursor(NULL, IDC_ARROW));
 	// m_bNeedUpdate = true;
 }

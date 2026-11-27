@@ -16,14 +16,12 @@ CALifeGroupRegistry::~CALifeGroupRegistry()
 
 void CALifeGroupRegistry::add(CSE_ALifeDynamicObject* object)
 {
-	CSE_ALifeOnlineOfflineGroup* group = object->cast_online_offline_group();
+	CSE_ALifeOnlineOfflineGroup* group = smart_cast<CSE_ALifeOnlineOfflineGroup*>(object);
 	if (!group)
 		return;
 
-#ifdef DEBUG
 	OBJECTS::const_iterator I = objects().find(group->ID);
 	VERIFY(I == objects().end());
-#endif
 	m_objects.insert(std::make_pair(group->ID, group));
 }
 

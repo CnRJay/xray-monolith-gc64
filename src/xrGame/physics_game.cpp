@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "ParticlesObject.h"
 #include "../xrEngine/gamemtllib.h"
 #include "level.h"
 #include "gamepersistent.h"
@@ -52,7 +51,7 @@ public:
 
 	virtual void run()
 	{
-		CParticlesObject* ps = CParticlesObject::Create(ps_name,TRUE);
+		intrusive_ptr<CParticlesObject> ps = Particles::Details::Create(ps_name,TRUE);
 
 		Fmatrix pos;
 		Fvector zero_vel = {0.f, 0.f, 0.f};
@@ -176,23 +175,22 @@ static void play_object(dxGeomUserData* data, SGameMtlPair* mtl_pair, const dCon
 	VERIFY(c);
 
 	CPHSoundPlayer* sp = nullptr;
-#ifdef	DEBUG
-						__try{
-							sp=data->ph_ref_object->ObjectPhSoundPlayer();
-						}
-						__except(EXCEPTION_EXECUTE_HANDLER){
-							Msg( "data->ph_ref_object: %p ", data->ph_ref_object );
-							Msg( "data: %p ", data );
-							Msg( "materials: %s ", mtl_pair->dbg_Name() );
-							FlushLog();
-							FATAL( "bad data->ph_ref_object" );
-						}
-#else
-	if (data->ph_ref_object)
-		sp = data->ph_ref_object->ObjectPhSoundPlayer();
-#endif
+
+	try
+	{
+        if (data->ph_ref_object)
+		    sp = data->ph_ref_object->ObjectPhSoundPlayer();
+	}
+	catch (...)
+	{
+		Msg("! Physics callbacks sound player play_object error");
+		sp = nullptr;
+	}
+
 	if (sp)
+	{
 		sp->Play(mtl_pair, *(Fvector*)c->pos);
+	}
 }
 
 template <class Pars>
@@ -289,10 +287,11 @@ void TContactShotMark(CDB::TRI* T, dContactGeom* c)
 			if (square_cam_dist < SQUARE_SOUND_EFFECT_DIST)
 			{
 				SGameMtl* static_mtl = GMLib.GetMaterialByIdx(T->material);
+				SGameMtl* other_mtl = GMLib.GetMaterialByIdx(data->material);
 				VERIFY(static_mtl);
-				if (!static_mtl->Flags.test(SGameMtl::flPassable))
+				if (data->ph_ref_attachment || !static_mtl->Flags.test(SGameMtl::flPassable))
 				{
-					if (vel_cret > Pars::vel_cret_sound)
+					if (vel_cret > other_mtl->fCollisionSoundVel)
 					{
 						if (!mtl_pair->CollideSounds.empty())
 						{

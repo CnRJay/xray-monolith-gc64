@@ -157,16 +157,7 @@ void CActor::NewPdaContact(CInventoryOwner* pInvOwner)
 
 void CActor::LostPdaContact(CInventoryOwner* pInvOwner)
 {
-	CGameObject* GO = smart_cast<CGameObject*>(pInvOwner);
-	if (GO)
-	{
-		for (int t = ALife::eRelationTypeFriend; t < ALife::eRelationTypeLast; ++t)
-		{
-			ALife::ERelationType tt = (ALife::ERelationType)t;
-			Level().MapManager().RemoveMapLocation(RELATION_REGISTRY().GetSpotName(tt), GO->ID());
-		}
-		Level().MapManager().RemoveMapLocation("deadbody_location", GO->ID());
-	};
+	Level().MapManager().RemoveRelationLocation(pInvOwner);
 }
 
 void CActor::AddGameNews_deffered(GAME_NEWS_DATA& news_data, u32 delay)

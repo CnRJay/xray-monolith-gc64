@@ -30,7 +30,7 @@ CPhysicObject::CPhysicObject(void):
 	m_activated(false)
 {
 #ifdef CPHYSICOBJECT_CHANGE
-	m_physic_contact_callback = nullptr;
+	m_physic_contact_callback = NULL;
 #endif
 }
 
@@ -46,7 +46,7 @@ BOOL CPhysicObject::net_Spawn(CSE_Abstract* DC)
 	R_ASSERT(po);
 	m_type = EPOType(po->type);
 	m_mass = po->mass;
-	m_collision_hit_callback = nullptr;
+	m_collision_hit_callback = NULL;
 	m_anim_blend = 0;
 	if (!inherited::net_Spawn(DC)) return FALSE;
 
@@ -228,7 +228,7 @@ void CPhysicObject::RunStartupAnim(CSE_Abstract* D)
 	if (Visual() && smart_cast<IKinematics*>(Visual()))
 	{
 		//		CSE_PHSkeleton	*po	= smart_cast<CSE_PHSkeleton*>(D);
-		IKinematicsAnimated* PKinematicsAnimated = nullptr;
+		IKinematicsAnimated* PKinematicsAnimated = NULL;
 		R_ASSERT(Visual()&&smart_cast<IKinematics*>(Visual()));
 		PKinematicsAnimated = smart_cast<IKinematicsAnimated*>(Visual());
 		if (PKinematicsAnimated)
@@ -358,12 +358,12 @@ void CPhysicObject::Load(LPCSTR section)
 	CPHSkeleton::Load(section);
 
 #ifdef CPHYSICOBJECT_CHANGE
-	m_physic_contact_callback = READ_IF_EXISTS(pSettings, r_string, cNameSect_str(), "on_physic_contact", nullptr);
+	m_physic_contact_callback = READ_IF_EXISTS(pSettings, r_string, cNameSect_str(), "on_physic_contact", NULL);
 	if (m_physic_contact_callback && strlen(m_physic_contact_callback))
 	{
 		if (ai().script_engine().functor(m_physic_contact_callback, m_physic_contact_function) == false)
 		{
-			m_physic_contact_callback = nullptr;
+			m_physic_contact_callback = NULL;
 		}
 	}
 #endif
@@ -391,7 +391,7 @@ void CPhysicObject::UpdateCL()
 	//двигаем объект за анимацией
 	if (m_pPhysicsShell->PPhysicsShellAnimator())
 	{
-		m_pPhysicsShell->AnimatorOnFrame();
+		m_pPhysicsShell->AnimatorOnFrame(!!Render->ViewBase.testSphere_dirty(SpatialComponent->spatial.sphere.P, SpatialComponent->spatial.sphere.R));
 	}
 
 	if (!IsGameTypeSingle())
@@ -596,7 +596,7 @@ void CPhysicObject::net_Export(NET_Packet& P)
 		return;
 	}
 
-	CPHSynchronize* pSyncObj = nullptr;
+	CPHSynchronize* pSyncObj = NULL;
 	SPHNetState State;
 	pSyncObj = this->PHGetSyncItem(0);
 
@@ -1036,7 +1036,7 @@ void CPhysicObject::PhysicContactCallback(bool &do_colide, bool bo1, dContact &c
 	CGameObject *who = (gd2) ? smart_cast<CGameObject *>(gd2->ph_ref_object) : NULL;
 
 	CPhysicObject *phy = (obj) ? smart_cast<CPhysicObject *>(obj) : NULL;
-	if (phy == nullptr || who == nullptr)
+	if (phy == NULL || who == NULL)
 	{
 		return;
 	}

@@ -1,26 +1,29 @@
 #include "stdafx.h"
+#include "shader_bus.h"
 #include "../xrcdb/ispatial.h"
 #include "irenderable.h"
+#include "ICollidable.h"
 
 IRenderable::IRenderable()
 {
+	ISpatialOwner::spatial_create(g_SpatialSpace, this, STYPE_RENDERABLE);
+
 	renderable.xform.identity();
 	renderable.visual = nullptr;
 	renderable.pROS = nullptr;
 	renderable.pROS_Allowed = TRUE;
-	ISpatial* self = fast_dynamic_cast<ISpatial*>(this);
-	if (self) self->spatial.type |= STYPE_RENDERABLE;
 }
 
-extern ENGINE_API BOOL g_bRendering;
+extern ENGINE_API xr_atomic_bool g_bRendering;
 
 IRenderable::~IRenderable()
 {
 	VERIFY(!g_bRendering);
 	Render->model_Delete(renderable.visual);
 	if (renderable.pROS) Render->ros_destroy(renderable.pROS);
-	renderable.visual = nullptr;
-	renderable.pROS = nullptr;
+	renderable.visual = NULL;
+	renderable.pROS = NULL;
+	ShaderBus::object_forget(this);
 }
 
 IRender_ObjectSpecific* IRenderable::renderable_ROS()

@@ -66,8 +66,16 @@ void CAgentMemberManager::remove(CEntity* member)
 	if (!stalker)
 		return;
 
+	// not a member (e.g. a corpse): nothing to remove, mask() and erase() would run past the end
+	if (std::find_if(m_members.begin(), m_members.end(), CMemberPredicate(stalker)) == m_members.end())
+		return;
+
 	if (registered_in_combat(stalker))
 		unregister_in_combat(stalker);
+
+    // Force rebuild m_combat_members
+    m_actuality = false;
+    m_combat_members.clear();
 
 	squad_mask_type m = mask(stalker);
 	object().memory().update_memory_masks(m);

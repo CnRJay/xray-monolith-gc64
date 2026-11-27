@@ -25,4 +25,6 @@ public:
 
 	virtual void __stdcall OnItemDBClick(CUIWindow* w, void* pData);
 	virtual void __stdcall OnItemDrop(CUIWindow* w, void* pData);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 };

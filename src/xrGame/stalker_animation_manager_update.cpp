@@ -13,6 +13,7 @@
 #include "script_callback_ex.h"
 #include "profiler.h"
 #include "stalker_movement_manager_smart_cover.h"
+#include "Inventory.h"
 
 void CStalkerAnimationManager::play_delayed_callbacks()
 {
@@ -244,14 +245,23 @@ void CStalkerAnimationManager::update_impl()
 
 void CStalkerAnimationManager::update()
 {
-	START_PROFILE("stalker/client_update/animations")
+	START_PROFILE("stalker/client_update/animations", PROF_CAT(Animation))
 		try
 		{
 			update_impl();
 		}
 		catch (...)
 		{
-			Msg("! error in stalker with visual %s", *object().cNameVisual());
+			Msg("! error in stalker [%s], profile [%s] with visual [%s]",
+				object().cNameSect().c_str(),
+				object().cast_inventory_owner()->CharacterInfo().GetSpecificCharacterId().c_str(),
+				object().cNameVisual().c_str());
+
+			for (auto& invItem : m_object->cast_inventory_owner()->m_inventory->m_all)
+			{
+				Msg("# Inventory item: [%s] - %s", invItem->m_section_id.c_str(), invItem->m_name.c_str());
+			}
+
 			/* avo: prevent game from crashing */
 			global().reset();
 			head().reset();

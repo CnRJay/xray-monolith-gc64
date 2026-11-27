@@ -31,6 +31,8 @@ public:
 	void SetVisibleForBtn(ETEAMMENU_BTN btn, bool state);
 	void SetCurTeam(int team);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	void InitTeamLogo();
 

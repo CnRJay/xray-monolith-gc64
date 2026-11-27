@@ -131,6 +131,10 @@ public:
 		return (u32(GetElapsed_ticks() * u64(1000) / CPU::qpc_freq));
 	}
 
+	IC float GetElapsed_ms_f() const {
+		return float(double(GetElapsed_ticks() * u64(1000)) / CPU::qpc_freq);
+	}
+
 	IC float GetElapsed_sec() const
 	{
 #ifndef _EDITOR

@@ -54,5 +54,5 @@ void pauseMngr::UnRegister(CTimer_paused& t)
 {
 	const auto it = std::find(m_timers.cbegin(), m_timers.cend(), &t);
 	if (it != m_timers.end())
-		m_timers.erase(it);
+		m_timers.erase_fast(it);
 }

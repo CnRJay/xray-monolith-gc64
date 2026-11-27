@@ -5,6 +5,7 @@
 
 #if defined(USE_DX11)
 #include <backends/imgui_impl_dx11.h>
+#include "../xrRenderDX10/dx10GpuTimeline.h"
 #elif defined(USE_DX10)
 #include <backends/imgui_impl_dx10.h>
 #else
@@ -19,14 +20,14 @@ void dxImGuiRender::Copy(IImGuiRender& _in)
 void dxImGuiRender::SetState(ImDrawData* data)
 {
 #if defined(USE_DX11) || defined(USE_DX10)
-    D3D_VIEWPORT VP = { 0.f, 0.f, static_cast<FLOAT>(data->DisplaySize.x), static_cast<FLOAT>(data->DisplaySize.y), 0.f, 1.f };
+    D3D_VIEWPORT VP = { 0, 0, data->DisplaySize.x, data->DisplaySize.y, 0, 1.f };
 #if defined(USE_DX11)
     HW.pContext->RSSetViewports(1, &VP);
 #else
     HW.pDevice->RSSetViewports(1, &VP);
 #endif
 #else
-    D3DVIEWPORT9 VP = { 0, 0, static_cast<DWORD>(data->DisplaySize.x), static_cast<DWORD>(data->DisplaySize.y), 0, 1.f };
+    D3DVIEWPORT9 VP = { 0, 0, data->DisplaySize.x, data->DisplaySize.y, 0, 1.f };
     HW.pDevice->SetViewport(&VP);
 #endif
 
@@ -67,7 +68,11 @@ void dxImGuiRender::Frame()
 void dxImGuiRender::Render(ImDrawData* data)
 {
 #if defined(USE_DX11)
+    // The timeline window shows its own draw cost through this scope
+    const u32 scope = ps_r__gpu_timeline ? gpu_timeline::scope_begin(L"imgui") : gpu_timeline::no_scope;
     ImGui_ImplDX11_RenderDrawData(data);
+    if (scope != gpu_timeline::no_scope)
+        gpu_timeline::scope_end(scope);
 #elif defined(USE_DX10)
     ImGui_ImplDX10_RenderDrawData(data);
 #else

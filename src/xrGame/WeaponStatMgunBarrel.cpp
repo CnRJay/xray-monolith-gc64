@@ -91,7 +91,7 @@ void SStmBarrel::StartParticles(CParticlesObject *&pParticles, LPCSTR particles_
         UpdateParticles(pParticles, pos, vel);
         return;
     }
-    pParticles = CParticlesObject::Create(particles_name, (BOOL)auto_remove_flag);
+    pParticles = Particles::Details::Create(particles_name, (BOOL)auto_remove_flag).get();
     UpdateParticles(pParticles, pos, vel);
     pParticles->Play(false);
 }
@@ -101,7 +101,7 @@ void SStmBarrel::StopParticles(CParticlesObject *&pParticles)
     if (pParticles == nullptr)
         return;
     pParticles->Stop();
-    CParticlesObject::Destroy(pParticles);
+    Particles::Details::Destroy(pParticles);
 }
 
 void SStmBarrel::UpdateParticles(CParticlesObject *&pParticles, const Fvector &pos, const Fvector &vel)
@@ -112,7 +112,7 @@ void SStmBarrel::UpdateParticles(CParticlesObject *&pParticles, const Fvector &p
     if (!pParticles->IsAutoRemove() && !pParticles->IsLooped() && !pParticles->PSI_alive())
     {
         pParticles->Stop();
-        CParticlesObject::Destroy(pParticles);
+        Particles::Details::Destroy(pParticles);
     }
 }
 
@@ -157,7 +157,7 @@ void SStmBarrel::StartFlameParticles()
         return;
     }
     StopFlameParticles();
-    m_pFlameParticles = CParticlesObject::Create(m_sFlameParticles.c_str(), FALSE);
+    m_pFlameParticles = Particles::Details::Create(m_sFlameParticles.c_str(), FALSE);
     UpdateFlameParticles();
     m_pFlameParticles->Play(false);
 }
@@ -181,7 +181,7 @@ void SStmBarrel::UpdateFlameParticles()
     if (!m_pFlameParticles->IsLooped() && !m_pFlameParticles->IsPlaying() && !m_pFlameParticles->PSI_alive())
     {
         m_pFlameParticles->Stop();
-        CParticlesObject::Destroy(m_pFlameParticles);
+        Particles::Details::Destroy(m_pFlameParticles);
     }
 }
 
@@ -279,7 +279,7 @@ void SStmBarrel::OnShellDrop(const Fvector &play_pos, const Fvector &parent_vel)
 {
     if (m_sShellParticles.size() == 0)
         return;
-    CParticlesObject *pShellParticles = CParticlesObject::Create(m_sShellParticles.c_str(), TRUE);
+    intrusive_ptr<CParticlesObject> pShellParticles = Particles::Details::Create(m_sShellParticles.c_str(), TRUE);
     pShellParticles->UpdateParent(Fmatrix().set(m_fire_xfm).translate_over(play_pos), parent_vel);
     pShellParticles->Play(false);
 }

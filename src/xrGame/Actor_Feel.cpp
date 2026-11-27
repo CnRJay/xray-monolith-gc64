@@ -79,7 +79,7 @@ ICF static BOOL info_trace_callback(collide::rq_result& result, LPVOID params)
 		else
 		{
 			//check obstacle flag
-			if (result.O->spatial.type & STYPE_OBSTACLE)
+			if (result.O->SpatialComponent->spatial.type & STYPE_OBSTACLE)
 				bOverlaped = TRUE;
 
 			return TRUE;
@@ -113,7 +113,7 @@ BOOL CActor::CanPickItem(const CFrustum& frustum, const Fvector& from, CObject* 
 			collide::ray_defs RD(from, dir, range, CDB::OPT_CULL, collide::rqtBoth);
 			VERIFY(!fis_zero(RD.dir.square_magnitude()));
 			RQR.r_clear();
-			Level().ObjectSpace.RayQuery(RQR, RD, info_trace_callback, &bOverlaped, nullptr, item);
+			Level().ObjectSpace.RayQuery(RQR, RD, info_trace_callback, &bOverlaped, NULL, item);
 		}
 	}
 	return !bOverlaped;
@@ -185,15 +185,15 @@ void CActor::PickupModeUpdate_COD(pickup_result_t pickup_result)
 	g_SpatialSpace->q_frustum(ISpatialResult, 0, STYPE_COLLIDEABLE, frustum);
 
 	float maxlen = 1000.0f;
-	CInventoryItem* pNearestItem = nullptr;
+	CInventoryItem* pNearestItem = NULL;
 
 	for (u32 o_it = 0; o_it < ISpatialResult.size(); o_it++)
 	{
-		ISpatial* spatial = ISpatialResult[o_it];
+		ISpatialShared spatial = ISpatialResult[o_it];
 		CInventoryItem* pIItem = smart_cast<CInventoryItem*>(spatial->dcast_CObject());
 
 		if (0 == pIItem) continue;
-		if (pIItem->object().H_Parent() != nullptr) continue;
+		if (pIItem->object().H_Parent() != NULL) continue;
 		if (!pIItem->CanTake()) continue;
 		if (smart_cast<CExplosiveRocket*>(&pIItem->object())) continue;
 
@@ -224,17 +224,17 @@ void CActor::PickupModeUpdate_COD(pickup_result_t pickup_result)
 		CFrustum frustum;
 		frustum.CreateFromMatrix(Device.mFullTransform,FRUSTUM_P_LRTB | FRUSTUM_P_FAR);
 		if (!CanPickItem(frustum, Device.vCameraPosition, &pNearestItem->object()))
-			pNearestItem = nullptr;
+			pNearestItem = NULL;
 	}
 	if (pNearestItem && pNearestItem->cast_game_object())
 	{
 		if (Level().m_feel_deny.is_object_denied(pNearestItem->cast_game_object()))
-			pNearestItem = nullptr;
+			pNearestItem = NULL;
 	}
 	if (pNearestItem && pNearestItem->cast_game_object())
 	{
 		if (!pNearestItem->cast_game_object()->getVisible())
-			pNearestItem = nullptr;
+			pNearestItem = NULL;
 	}
 
 	CurrentGameUI()->UIMainIngameWnd->SetPickUpItem(pNearestItem);
@@ -276,6 +276,7 @@ void CActor::PickupModeUpdate_COD(pickup_result_t pickup_result)
 
 void CActor::Check_for_AutoPickUp()
 {
+	PROF_EVENT(PROF_CAT(GameLogic));
 	// mp only
 	if (!psActorFlags.test(AF_AUTOPICKUP)) return;
 	if (IsGameTypeSingle()) return;
@@ -287,13 +288,13 @@ void CActor::Check_for_AutoPickUp()
 	Fbox APU_Box;
 	APU_Box.set(Fvector().sub(bc, m_AutoPickUp_AABB), Fvector().add(bc, m_AutoPickUp_AABB));
 
-	xr_vector<ISpatial*> ISpatialResult;
+	xr_vector<ISpatialShared> ISpatialResult;
 	g_SpatialSpace->q_box(ISpatialResult, 0, STYPE_COLLIDEABLE, bc, m_AutoPickUp_AABB);
 
 	// Determine visibility for dynamic part of scene
 	for (u32 o_it = 0; o_it < ISpatialResult.size(); o_it++)
 	{
-		ISpatial* spatial = ISpatialResult[o_it];
+		ISpatialShared spatial = ISpatialResult[o_it];
 		CInventoryItem* pIItem = smart_cast<CInventoryItem*>(spatial->dcast_CObject());
 
 		if (0 == pIItem) continue;
@@ -323,7 +324,7 @@ void CActor::Check_for_AutoPickUp()
 BOOL drawPickupItemNames = TRUE;
 void CActor::PickupInfoDraw(CObject* object)
 {
-	LPCSTR draw_str = nullptr;
+	LPCSTR draw_str = NULL;
 
 	CInventoryItem* item = smart_cast<CInventoryItem*>(object);
 	if (!item) return;

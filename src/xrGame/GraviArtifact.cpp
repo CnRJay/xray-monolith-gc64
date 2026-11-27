@@ -65,7 +65,7 @@ void CGraviArtefact::UpdateCLChild()
 			}
 		}
 	}
-	else if (H_Parent())
+	else if(H_Parent() && IsHidden())
 	{
 		XFORM().set(H_Parent()->XFORM());
 

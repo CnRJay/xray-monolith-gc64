@@ -118,12 +118,8 @@ void CAI_Crow::Load(LPCSTR section)
 {
 	inherited::Load(section);
 	//////////////////////////////////////////////////////////////////////////
-	ISpatial* self = smart_cast<ISpatial*>(this);
-	if (self)
-	{
-		self->spatial.type &= ~STYPE_VISIBLEFORAI;
-		self->spatial.type &= ~STYPE_REACTTOSOUND;
-	}
+	SpatialComponent->spatial.type &= ~STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type &= ~STYPE_REACTTOSOUND;
 	//////////////////////////////////////////////////////////////////////////
 
 	// sounds
@@ -159,17 +155,7 @@ BOOL CAI_Crow::net_Spawn(CSE_Abstract* DC)
 	m_Anims.m_fly.Load(M, "fly_fwd");
 	m_Anims.m_idle.Load(M, "fly_idle");
 
-	renderable.visual->flags.set(IRenderVisualFlags::eIgnoreOptimization, TRUE);
-
-	xr_vector<IRenderVisual*>* children = renderable.visual->get_children();
-
-	if (children)
-	{
-		for (auto* child : *children)
-		{
-			child->flags.set(IRenderVisualFlags::eIgnoreOptimization, TRUE);
-		}
-	}
+    renderable.visual->MarkIgnoreOptimization(TRUE);
 
 	o_workload_frame = 0;
 	o_workload_rframe = 0;
@@ -220,8 +206,7 @@ void CAI_Crow::switch2_FlyIdle()
 void CAI_Crow::switch2_DeathDead()
 {
 	// AI need to pickup this
-	ISpatial* self = smart_cast<ISpatial*>(this);
-	if (self) self->spatial.type |= STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type |= STYPE_VISIBLEFORAI;
 	//
 	smart_cast<IKinematicsAnimated*>(Visual())->PlayCycle(m_Anims.m_death_dead.GetRandom());
 }
@@ -353,10 +338,10 @@ void CAI_Crow::UpdateCL()
 	}
 }
 
-void CAI_Crow::renderable_Render()
+void CAI_Crow::renderable_Render(IDSGraphManager* DM)
 {
 	UpdateWorkload(Device.fTimeDelta);
-	inherited::renderable_Render();
+	inherited::renderable_Render(DM);
 	o_workload_rframe = Device.dwFrame;
 }
 
@@ -364,7 +349,7 @@ collide::rq_result GetPickResult(Fvector pos, Fvector dir, float range, CObject*
 void CAI_Crow::shedule_Update(u32 DT)
 {
 	float fDT = float(DT) / 1000.F;
-	spatial.type &= ~STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type &= ~STYPE_VISIBLEFORAI;
 
 	inherited::shedule_Update(DT);
 
@@ -400,7 +385,7 @@ void CAI_Crow::shedule_Update(u32 DT)
 		{
 			fGoalChangeTime += fGoalChangeDelta + fGoalChangeDelta * Random.randF(-0.5f, 0.5f);
 
-			Level().ObjectSpace.GetNearest(nearbyObjects, Position(), 300.0f, nullptr);
+			Level().ObjectSpace.GetNearest(nearbyObjects, Position(), 300.0f, NULL);
 			for (CObject* obj : nearbyObjects) 
 			{
 				if (CEntityAlive* entity = smart_cast<CEntityAlive*>(obj); entity && !entity->g_Alive()) 

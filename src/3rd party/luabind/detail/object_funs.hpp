@@ -47,6 +47,7 @@ namespace luabind
 				if (e) e(L, LUABIND_TYPEID(T));
 
 				assert(0 && "object_cast failed. If you want to handle this error use luabind::set_error_callback()");
+				
 #endif
 			}
 
@@ -69,6 +70,7 @@ namespace luabind
 				if (e) e(L, LUABIND_TYPEID(T));
 
 				assert(0 && "object_cast failed. If you want to handle this error use luabind::set_error_callback()");
+				
 #endif
 			}
 #endif
@@ -88,11 +90,8 @@ namespace luabind
 			lua_State* L = obj.lua_state();
 			detail::stack_pop p(L, 1);
 
-#ifndef LUABIND_NO_ERROR_CHECKING
-
 			if (converter.match(L, LUABIND_DECORATE_TYPE(T), -1) < 0)
 				return std::optional<T>();
-#endif
 
             return std::optional<T>(converter.apply(L, LUABIND_DECORATE_TYPE(T), -1));
 		}

@@ -11,6 +11,9 @@
 #include "patrol_path.h"
 #include "patrol_point.h"
 #include "levelgamedef.h"
+#include "ai_space.h"
+#include "level_graph.h"
+#include "game_graph.h"
 
 CPatrolPathStorage::~CPatrolPathStorage()
 {
@@ -46,6 +49,53 @@ void CPatrolPathStorage::load_raw(const CLevelGraph* level_graph, const CGameLev
 	chunk->close();
 }
 
+u32 CPatrolPathStorage::load_fragment(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id, IReader& stream, const LPCSTR source)
+{
+	IReader* chunk = stream.open_chunk(WAY_PATROLPATH_CHUNK);
+	if (!chunk)
+		return 0;
+
+	u32 skipped = 0;
+	u32 chunk_iterator;
+	for (IReader* sub_chunk = chunk->open_chunk_iterator(chunk_iterator); sub_chunk; sub_chunk = chunk->open_chunk_iterator(chunk_iterator, sub_chunk))
+	{
+		if (!sub_chunk->find_chunk(WAYOBJECT_CHUNK_NAME))
+		{
+			Msg("! [spawn_overlays] spawns\\%s path #%d: no name, skipped", source, chunk_iterator);
+			++skipped;
+			continue;
+		}
+		shared_str patrol_name;
+		sub_chunk->r_stringZ(patrol_name);
+
+		if (!sub_chunk->find_chunk(WAYOBJECT_CHUNK_VERSION) || sub_chunk->r_u16() != WAYOBJECT_VERSION)
+		{
+			Msg("! [spawn_overlays] spawns\\%s path %s: not a version %d way object, skipped", source, *patrol_name, WAYOBJECT_VERSION);
+			++skipped;
+			continue;
+		}
+		if (m_registry.find(patrol_name) != m_registry.end())
+		{
+			Msg("! [spawn_overlays] spawns\\%s path %s: named twice in the file, skipped", source, *patrol_name);
+			++skipped;
+			continue;
+		}
+
+		auto* patrol_path = xr_new<CPatrolPath>(patrol_name);
+		if (string256 reason; !patrol_path->load_fragment(graph, level_id, *sub_chunk, reason))
+		{
+			Msg("! [spawn_overlays] spawns\\%s path %s: %s, skipped", source, *patrol_name, reason);
+			xr_delete(patrol_path);
+			++skipped;
+			continue;
+		}
+		m_registry.insert(std::make_pair(patrol_name, patrol_path));
+	}
+
+	chunk->close();
+	return skipped;
+}
+
 void CPatrolPathStorage::load(IReader& stream)
 {
 	IReader* chunk;
@@ -55,6 +105,7 @@ void CPatrolPathStorage::load(IReader& stream)
 	chunk->close();
 
 	m_registry.clear();
+	m_compiled.clear();
 
 	PATROL_REGISTRY::value_type pair;
 
@@ -83,44 +134,171 @@ void CPatrolPathStorage::load(IReader& stream)
 #endif
 
 		m_registry.insert(pair);
+		m_compiled.insert(pair.first);
 	}
 
 	chunk->close();
 }
 
-void CPatrolPathStorage::load_from_config()
+void CPatrolPathStorage::load_from_config(const CGameGraph* game_graph)
 {
 	// Open patrol_paths.ltx
 	string_path fname;
 	FS.update_path(fname, "$game_config$", "patrol_paths.ltx");
-	CInifile* ini_paths = xr_new<CInifile>(fname, TRUE);
+	auto* ini_paths = xr_new<CInifile>(fname, TRUE);
 
 	Msg("[PP] %s initialized", fname);
 
+	u32 level_sections = 0;
+
 	// Iterate sections. Each section is a unique patrol path
-	CInifile::Root& paths = ini_paths->sections();
-	for (CInifile::Root::iterator i = paths.begin(), ie = paths.end(); i != ie; ++i)
+	const CInifile::Root& paths = ini_paths->sections();
+	for (const auto& path : paths)
 	{
 		// Get patrol path name
-		LPCSTR patrol_name = (*i).Name.c_str();
+		LPCSTR patrol_name = path.Name.c_str();
 
 		Msg("[PP] Reading section %s", patrol_name);
 
-		// Assert unique
-		const_iterator exists = m_registry.find(patrol_name);
-		R_ASSERT3(exists == m_registry.end(), "Duplicated patrol path found", patrol_name);
+		// A section that cannot be loaded is skipped and logged, never fatal.
+		const bool overlay = ini_paths->line_exist(patrol_name, "level");
+		const LPCSTR source_key = overlay ? "level" : "points";
+		const LPCSTR source = ini_paths->line_exist(patrol_name, source_key) ? ini_paths->DLTX_getFilenameOfLine(patrol_name, source_key) : nullptr;
+		const LPCSTR file = source ? source : "patrol_paths.ltx";
 
-		// Build CPatrolPath object
-		CPatrolPath* patrol_path = &xr_new<CPatrolPath>(patrol_name)->load_from_config(ini_paths, patrol_name);
+		// 'level = <name>': points may carry no vertex ids, they are approximated on that level
+		const GameGraph::SLevel* level = nullptr;
+		if (overlay)
+		{
+			const LPCSTR level_name = ini_paths->r_string(patrol_name, "level");
+			if (!level_name || !*level_name)
+			{
+				Msg("! [spawn_overlays] %s [%s]: 'level' is empty, skipped", file, patrol_name);
+				continue;
+			}
+			if (!game_graph)
+			{
+				Msg("! [spawn_overlays] %s [%s]: no game graph (no ALife), skipped", file, patrol_name);
+				continue;
+			}
+			level = game_graph->header().level(level_name, true);
+			if (!level)
+			{
+				Msg("- [spawn_overlays] %s [%s]: level '%s' is not installed, skipped", file, patrol_name, level_name);
+				continue;
+			}
+		}
+
+		const bool replaces = m_registry.find(patrol_name) != m_registry.end();
+		if (replaces && !overlay)
+		{
+			Msg("! [spawn_overlays] %s [%s]: a compiled path has this name, skipped", file, patrol_name);
+			continue;
+		}
+
+		auto* patrol_path = xr_new<CPatrolPath>(patrol_name);
+		if (string256 reason; !patrol_path->load_from_config(ini_paths, patrol_name, game_graph, level, reason))
+		{
+			Msg("! [spawn_overlays] %s [%s]: %s, skipped", file, patrol_name, reason);
+			xr_delete(patrol_path);
+			continue;
+		}
+
+		if (replaces)
+		{
+			Msg("* [spawn_overlays] %s [%s]: replaces the compiled path of that name", file, patrol_name);
+			erase(patrol_name);
+		}
 
 		// Insert in registry
 		PATROL_REGISTRY::value_type pair = std::make_pair(patrol_name, patrol_path);
 		m_registry.insert(pair);
+
+		if (level)
+			++level_sections;
 	}
 
 	Msg("[PP] Done reading patrol paths from configs");
+	if (level_sections)
+		Msg("* [spawn_overlays] paths: +%d from patrol_paths.ltx 'level =' sections", level_sections);
 
 	xr_delete(ini_paths);
+}
+
+void CPatrolPathStorage::resolve_level(const CLevelGraph* level_graph, const CGameLevelCrossTable* cross, const CGameGraph* game_graph)
+{
+	u32 resolved = 0;
+	for (auto& I : m_registry)
+		resolved += I.second->resolve(level_graph, cross, game_graph);
+	if (resolved)
+		Msg("* [spawn_overlays] patrol paths: %d points snapped to the AI map of %s", resolved, *game_graph->header().level(level_graph->level_id()).name());
+}
+
+void CPatrolPathStorage::merge(CPatrolPathStorage& source, MOVED_PATHS& moved)
+{
+	moved.clear();
+	for (u32 i = 0; i < source.m_registry.size();)
+	{
+		const auto I = source.m_registry.begin() + i;
+		const shared_str name = I->first;
+		CPatrolPath* path = I->second;
+		if (m_registry.find(name) != m_registry.end())
+		{
+			++i;
+			continue;
+		}
+
+		m_registry.insert(std::make_pair(name, path));
+		source.m_registry.erase(I);
+		moved.push_back(std::make_pair(name, path));
+	}
+}
+
+void CPatrolPathStorage::erase(const shared_str& name)
+{
+	const auto I = m_registry.find(name);
+	if (I == m_registry.end())
+		return;
+	xr_delete(I->second);
+	m_registry.erase(I);
+	m_compiled.erase(name);
+}
+
+void CPatrolPathStorage::approximate_level(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id)
+{
+	u32 marked = 0;
+	for (auto& I : m_registry)
+		marked += I.second->approximate_level(graph, level_id);
+	Msg("* [spawn_overlays] patrol paths: %d points on %s will be re-snapped to its new AI map", marked, *graph.header().level(level_id).name());
+}
+
+u32 CPatrolPathStorage::erase_level(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id)
+{
+	return erase_on_level(graph, level_id, false);
+}
+
+u32 CPatrolPathStorage::erase_compiled_level(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id)
+{
+	return erase_on_level(graph, level_id, true);
+}
+
+u32 CPatrolPathStorage::erase_on_level(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id, const bool compiled_only)
+{
+	u32 erased = 0;
+	for (u32 i = 0; i < m_registry.size();)
+	{
+		const auto I = m_registry.begin() + i;
+		if (!I->second->on_level(graph, level_id) || (compiled_only && m_compiled.find(I->first) == m_compiled.end()))
+		{
+			++i;
+			continue;
+		}
+		m_compiled.erase(I->first);
+		xr_delete(I->second);
+		m_registry.erase(I);
+		++erased;
+	}
+	return erased;
 }
 
 void CPatrolPathStorage::save(IWriter& stream)
@@ -149,4 +327,55 @@ void CPatrolPathStorage::save(IWriter& stream)
 	}
 
 	stream.close_chunk();
+}
+
+void CPatrolPathStorage::remove_path(shared_str patrol_name)
+{
+	m_registry.erase(patrol_name);
+}
+
+void CPatrolPathStorage::add_path(shared_str patrol_name, CPatrolPath *path)
+{
+	remove_path(patrol_name);
+	m_registry.insert(std::make_pair(patrol_name, path));
+}
+
+const CPatrolPath* CPatrolPathStorage::safe_path(shared_str patrol_name, bool no_assert, bool on_level) const
+{
+	if (auto it = m_registry.find(patrol_name); it == m_registry.end())
+	{
+		return path(patrol_name, no_assert);
+	}
+	else
+	{
+		for (auto&& [key, vertex] : it->second->vertices())
+		{
+			auto& pp = vertex->data();
+
+			const u32 point_lvid = pp.level_vertex_id();
+			const GameGraph::_GRAPH_ID point_gvid = pp.game_vertex_id();
+			const Fvector& point_pos = pp.position();
+			const shared_str& point_name = pp.name();
+
+			if (on_level || (ai().game_graph().valid_vertex_id(point_gvid) &&
+				ai().game_graph().vertex(point_gvid)->level_id() == ai().level_graph().level_id()))
+			{
+				if (!ai().level_graph().valid_vertex_id(point_lvid))
+				{
+                    const u32 prev_vertex_id = pp.m_level_vertex_id;
+                    pp.m_level_vertex_id = ai().level_graph().vertex(pp.
+                        m_position);
+                    Msg("! [%s]: path [%s] pp [%s] level_vertex_id [%u] -> %u",
+                        __FUNCTION__, patrol_name.c_str(), pp.m_name.c_str(),
+                        prev_vertex_id, pp.m_level_vertex_id);
+				}
+			}
+			else
+			{
+				return path(patrol_name, no_assert);
+			}
+		}
+
+		return path(patrol_name, no_assert);
+	}
 }

@@ -32,7 +32,7 @@ public:
 	~CUIMpPlayersAdm();
 	void Init(CUIXml& xml_doc);
 	void RefreshPlayersList();
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 	void xr_stdcall FillPlayersList(u32 const);
 	void SetMaxPingLimit();
 	void SetMaxPingLimitText();
@@ -40,5 +40,8 @@ public:
 	void GetSelPlayerConfig();
 	void KickSelPlayer();
 	void BanSelPlayer();
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 	//				void		SetBanSelPlayerText();
 };

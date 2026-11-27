@@ -3,7 +3,7 @@
 
 #include "../3rd party/crypto/crypto.h"
 
-typedef fastdelegate::FastDelegate1<long> sha_process_yielder;
+typedef xr_delegate<void(long)> sha_process_yielder;
 
 class xr_dsa_signer
 {
@@ -21,7 +21,7 @@ public:
 protected:
 	crypto::xr_dsa::private_key_t m_private_key;
 private:
-	xr_dsa_signer() : m_dsa(NULL, nullptr, nullptr)
+	xr_dsa_signer() : m_dsa(NULL, NULL, NULL)
 	{
 	};
 

@@ -9,7 +9,7 @@
 
 
 CUIEditBox::CUIEditBox()
-	: m_frameLine(nullptr)
+	: m_frameLine(NULL)
 {
 }
 

@@ -40,7 +40,7 @@ CPHJoint::~CPHJoint()
 	xr_delete(m_destroy_info);
 	VERIFY(!bActive);
 	axes.clear();
-	if (m_back_ref)*m_back_ref = nullptr;
+	if (m_back_ref)*m_back_ref = NULL;
 };
 
 void CPHJoint::SetBackRef(CPhysicsJoint** j)
@@ -566,15 +566,15 @@ void CPHJoint::SetLimits(const float low, const float high, const int axis_num)
 
 CPHJoint::CPHJoint(CPhysicsJoint::enumType type, CPhysicsElement* first, CPhysicsElement* second)
 {
-	pShell = nullptr;
+	pShell = NULL;
 	m_bone_id = u16(-1);
-	m_back_ref = nullptr;
-	m_destroy_info = nullptr;
-	pFirstGeom = nullptr;
+	m_back_ref = NULL;
+	m_destroy_info = NULL;
+	pFirstGeom = NULL;
 	pFirst_element = cast_PHElement(first);
 	pSecond_element = cast_PHElement(second);
-	m_joint = nullptr;
-	m_joint1 = nullptr;
+	m_joint = NULL;
+	m_joint1 = NULL;
 	eType = type;
 	bActive = false;
 
@@ -622,8 +622,6 @@ void CPHJoint::SetLimitsVsSecondElement(const float low, const float high, const
 void CPHJoint::Create()
 {
 	if (bActive) return;
-	xrCriticalSectionGuard guard(&JointCS);
-	if (bActive) return;
 	switch (eType)
 	{
 	case ball: CreateBall();
@@ -667,8 +665,6 @@ void CPHJoint::Activate()
 void CPHJoint::Deactivate()
 {
 	if (!bActive) return;
-	xrCriticalSectionGuard guard(&JointCS);
-	if (!bActive) return;
 	switch (eType)
 	{
 	case ball: ;
@@ -683,10 +679,10 @@ void CPHJoint::Deactivate()
 		if (m_joint1->world)pShell->Island().RemoveJoint(m_joint1);
 		dJointDestroy(m_joint);
 		dJointDestroy(m_joint1);
-		m_joint1 = nullptr;
+		m_joint1 = NULL;
 		break;
 	}
-	m_joint = nullptr;
+	m_joint = NULL;
 	bActive = false;
 }
 

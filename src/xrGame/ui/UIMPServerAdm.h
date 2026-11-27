@@ -67,10 +67,13 @@ public:
 	CUIMpServerAdm();
 	~CUIMpServerAdm();
 	void Init(CUIXml& xml_doc);
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 	void ShowChangeWeatherBtns();
 	void ShowChangeGameTypeBtns();
 	void ShowChangeGameLimitsBtns();
 	void OnBackBtn();
 	bool IsBackBtnShown() { return m_pBackBtn->IsShown(); };
+
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 };

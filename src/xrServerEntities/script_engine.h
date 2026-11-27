@@ -14,6 +14,14 @@
 #include "associative_vector.h"
 #include "script_storage.h"
 
+#define USE_LUA_FUNCTOR_CACHE
+
+#ifdef USE_LUA_FUNCTOR_CACHE
+#include <typeinfo>
+#include <luabind/luabind.hpp>
+#include <_global_functions.h>
+#endif
+
 //AVO: lua re-org
 #include "lua.hpp"
 /*extern "C" {
@@ -72,6 +80,46 @@ protected:
 private:
 	string128 m_last_no_file;
 	u32 m_last_no_file_length;
+
+#ifdef USE_LUA_FUNCTOR_CACHE
+
+	// Functor cache
+	struct FunctorCacheKey
+	{
+		xr_string function_name;
+		size_t result_type_hash;
+		
+		bool operator<(const FunctorCacheKey& other) const
+		{
+			int name_cmp = xr_strcmp(function_name.c_str(), other.function_name.c_str());
+			if (name_cmp != 0)
+				return name_cmp < 0;
+			return result_type_hash < other.result_type_hash;
+		}
+
+		bool operator==(const FunctorCacheKey& other) const
+		{
+			return result_type_hash == other.result_type_hash && function_name == other.function_name;
+		}
+	};
+
+	struct FunctorCacheKeyHash
+	{
+		size_t operator()(const FunctorCacheKey& s) const noexcept
+		{
+			size_t h1 = xr_hash<std::string_view>()(s.function_name.c_str());
+			size_t h2 = s.result_type_hash;
+			return hash_combine(0, h1, h2);
+		}
+	};
+	
+	typedef xr_unordered_map<FunctorCacheKey, ::luabind::object, FunctorCacheKeyHash> FunctorCache;
+	FunctorCache m_functor_cache;
+
+public:
+	bool m_cache_valid;
+	void invalidate_functor_cache();
+#endif
 
 	bool no_file_exists(LPCSTR file_name, u32 string_length);
 	void add_no_file(LPCSTR file_name, u32 string_length);

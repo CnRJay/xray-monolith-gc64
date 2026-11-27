@@ -20,7 +20,6 @@
     <ClCompile Include="luabind\src\stack_content_by_name.cpp" />
     <ClCompile Include="luabind\src\weak_ref.cpp" />
     <ClCompile Include="luabind\src\wrapper_base.cpp" />
-    <ClCompile Include="luabind_memory.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="luabind\src\luabind_api.h" />

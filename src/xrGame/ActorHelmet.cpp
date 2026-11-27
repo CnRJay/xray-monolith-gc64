@@ -233,7 +233,7 @@ float CHelmet::get_HitFracActor() const
 
 float CHelmet::HitThroughArmor(float hit_power, s16 element, float ap, bool& add_wound, ALife::EHitType hit_type)
 {
-	if (strstr(Core.Params, "-dbgbullet"))
+	if (Core.ParamsData.test(ECoreParams::dbgbullet))
 		Msg("CHelmet::HitThroughArmor hit_type=%d | unmodified hit_power=%f", (u32)hit_type, hit_power);
 
 	float NewHitPower = hit_power;
@@ -260,7 +260,7 @@ float CHelmet::HitThroughArmor(float hit_power, s16 element, float ap, bool& add
 
 				NewHitPower *= d_hit_power;
 
-				if (strstr(Core.Params, "-dbgbullet"))
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
 					Msg("CHelmet::HitThroughArmor AP(%f) <= bone_armor(%f) [HitFracActor=%f] modified hit_power=%f", ap,
 						BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
 			}
@@ -276,7 +276,7 @@ float CHelmet::HitThroughArmor(float hit_power, s16 element, float ap, bool& add
 
 				NewHitPower *= d_hit_power;
 
-				if (strstr(Core.Params, "-dbgbullet"))
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
 					Msg("CHelmet::HitThroughArmor AP(%f) > bone_armor(%f) [HitFracActor=%f] modified hit_power=%f", ap,
 						BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
 			}
@@ -293,9 +293,10 @@ float CHelmet::HitThroughArmor(float hit_power, s16 element, float ap, bool& add
 				//пуля НЕ пробила бронь
 				NewHitPower *= m_boneProtection->m_fHitFracActor;
 				//add_wound = false; 	//раны нет
-				if (strstr(Core.Params, "-dbgbullet"))
-					Msg("CHelmet::HitThroughArmor AP(%f) <= bone_armor(%f) [HitFracActor=%f] modified hit_power=%f", ap,
-						BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
+
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
+					Msg("CCustomOutfit::HitThroughArmor AP(%f) <= bone_armor(%f) [HitFracActor=%f] modified hit_power=%f",
+						ap, BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
 			}
 			else
 			{
@@ -304,9 +305,9 @@ float CHelmet::HitThroughArmor(float hit_power, s16 element, float ap, bool& add
 
 				NewHitPower *= d_hit_power;
 
-				if (strstr(Core.Params, "-dbgbullet"))
-					Msg("CHelmet::HitThroughArmor AP(%f) > bone_armor(%f) [HitFracActor=%f] modified hit_power=%f", ap,
-						BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
+				if (Core.ParamsData.test(ECoreParams::dbgbullet))
+					Msg("CCustomOutfit::HitThroughArmor AP(%f) > bone_armor(%f) [HitFracActor=%f] modified hit_power=%f",
+						ap, BoneArmor, m_boneProtection->m_fHitFracActor, NewHitPower);
 			}
 		}
 	}
@@ -326,18 +327,18 @@ float CHelmet::HitThroughArmor(float hit_power, s16 element, float ap, bool& add
 		if (NewHitPower < 0.f)
 			NewHitPower = 0.f;
 
-		if (strstr(Core.Params, "-dbgbullet"))
+		if (Core.ParamsData.test(ECoreParams::dbgbullet))
 			Msg("CHelmet::HitThroughArmor hit_type=%d | After HitTypeProtection(%f) hit_power=%f", (u32)hit_type,
 			    protect * one, NewHitPower);
 	}
 
-	if (strstr(Core.Params, "-dbgbullet"))
+	if (Core.ParamsData.test(ECoreParams::dbgbullet))
 		Msg("CHelmet::HitThroughArmor hit_type=%d | After HitFractionActor hit_power=%f", (u32)hit_type, NewHitPower);
 
 	//увеличить изношенность шлема
 	Hit(hit_power, hit_type);
 
-	if (strstr(Core.Params, "-dbgbullet"))
+	if (Core.ParamsData.test(ECoreParams::dbgbullet))
 		Msg("CCustomOutfit::HitThroughArmor hit_type=%d | After immunities hit_power=%f", (u32)hit_type, NewHitPower);
 
 	return NewHitPower;

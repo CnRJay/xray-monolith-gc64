@@ -89,7 +89,7 @@ public:
 public:
 	CUIMpTradeWnd();
 	virtual ~CUIMpTradeWnd();
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 
 	//
 	virtual void Update();
@@ -130,6 +130,8 @@ public:
 
 	bool HasItemInGroup(shared_str const& section_name);
 	CItemMgr const* GetItemMngr() const { return m_item_mngr; };
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 private:
 	//data

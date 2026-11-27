@@ -141,6 +141,16 @@ GameGraph::_GRAPH_ID CMovementManager::game_dest_vertex_id() const
 
 void CMovementManager::set_level_dest_vertex(u32 const& level_vertex_id)
 {
+	if (!ai().level_graph().valid_vertex_id(level_vertex_id))
+	{
+		Msg(
+			"! [CMovementManager::set_level_dest_vertex] ignoring invalid level vertex id [%u] for object [%s]",
+			level_vertex_id,
+			object().cName().c_str()
+		);
+		return;
+	}
+
 	VERIFY2(restrictions().accessible(level_vertex_id), *object().cName());
 	level_path().set_dest_vertex(level_vertex_id);
 	m_path_actuality = m_path_actuality && level_path().actual();
@@ -158,14 +168,9 @@ const xr_vector<DetailPathManager::STravelPathPoint>& CMovementManager::path() c
 
 void CMovementManager::update_path()
 {
-	START_PROFILE("Build Path::update")
+	START_PROFILE("Build Path::update", PROF_CAT(Navigation))
 		if (!enabled() || wait_for_distributed_computation())
 			return;
-
-		if (!ai().level_graph().valid_vertex_id(object().ai_location().level_vertex_id()))
-		{
-			return;
-		}
 
 		if (!game_path().evaluator())
 			game_path().set_evaluator(base_game_params());
@@ -200,18 +205,9 @@ void CMovementManager::update_path()
 						if (!restrictions().accessible(level_path().dest_vertex_id()))
 						{
 							Fvector temp;
-							u32 nearest = restrictions().accessible_nearest(ai().level_graph().vertex_position(level_path().dest_vertex_id()), temp);
-							if (ai().level_graph().valid_vertex_id(nearest))
-							{
-								level_path().set_dest_vertex(nearest);
-								detail().set_dest_position(temp);
-							}
-							else
-							{
-								Msg("! Accessible nearest failed in CMovementManager::update_path for object %s", *object().cName());
-								level_path().set_dest_vertex(object().ai_location().level_vertex_id());
-								detail().set_dest_position(object().Position());
-							}
+							level_path().set_dest_vertex(restrictions().accessible_nearest(
+								ai().level_graph().vertex_position(level_path().dest_vertex_id()), temp));
+							detail().set_dest_position(temp);
 						}
 						else
 						{

@@ -7,8 +7,12 @@
 #include "ai/monsters/zombie/zombie.h"
 #include "script_sound_info.h"
 #include "script_monster_hit_info.h"
+#include "script_monster_enemy_info.h"
+#include "script_monster_home_info.h"
+#include "script_monster_movement_info.h"
 #include "ai/monsters/monster_home.h"
 #include "ai/monsters/control_animation_base.h"
+#include "ai/monsters/control_manager_custom.h"
 
 //////////////////////////////////////////////////////////////////////////
 // Burer
@@ -58,7 +62,7 @@ bool CScriptGameObject::burer_get_force_gravi_attack()
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "object is not CBurer to call burer_set_force_gravi_attack");
+		                                "object is not CBurer to call burer_get_force_gravi_attack");
 		return false;
 	}
 
@@ -103,7 +107,7 @@ void CScriptGameObject::force_visibility_state(int state)
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member force_visibility_state!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member force_visibility_state!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 
@@ -116,7 +120,7 @@ int CScriptGameObject::get_visibility_state()
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member get_visibility_state!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member get_visibility_state!", object().cNameSect().c_str()).c_str());
 		return CAI_Bloodsucker::full_visibility;
 	}
 
@@ -128,7 +132,7 @@ void CScriptGameObject::set_override_animation(pcstr anim_name)
 	CBaseMonster* monster = smart_cast<CBaseMonster*>(&object());
 	if (!monster)
 	{
-		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, "object is not of CBaseMonster class!");
+		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, "set_override_animation: object is not of CBaseMonster class!");
 		return;
 	}
 
@@ -140,7 +144,7 @@ void CScriptGameObject::set_override_animation(u32 AnimType, u32 AnimIndex)
 	CBaseMonster* monster = smart_cast<CBaseMonster*>(&object());
 	if (!monster)
 	{
-		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, "object is not of CBaseMonster class!");
+		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, "set_override_animation: object is not of CBaseMonster class!");
 		return;
 	}
 
@@ -152,7 +156,7 @@ void CScriptGameObject::clear_override_animation()
 	CBaseMonster* monster = smart_cast<CBaseMonster*>(&object());
 	if (!monster)
 	{
-		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, "object is not of CBaseMonster class!");
+		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError, "clear_override_animation: object is not of CBaseMonster class!");
 		return;
 	}
 
@@ -165,7 +169,7 @@ void CScriptGameObject::force_stand_sleep_animation(u32 index)
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member force_stand_sleep_animation!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member force_stand_sleep_animation!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 
@@ -178,7 +182,7 @@ void CScriptGameObject::release_stand_sleep_animation()
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member release_stand_sleep_animation!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member release_stand_sleep_animation!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 
@@ -191,7 +195,7 @@ void CScriptGameObject::set_invisible(bool val)
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member set_invisible!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member set_invisible!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 
@@ -204,7 +208,7 @@ void CScriptGameObject::set_manual_invisibility(bool val)
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member set_manual_invisible!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member set_manual_invisibility!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 	val ? monster->set_manual_control(true) : monster->set_manual_control(false);
@@ -216,7 +220,7 @@ void CScriptGameObject::bloodsucker_drag_jump(CScriptGameObject* e, LPCSTR e_str
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CScriptGameObject : cannot process drag, anim, jump for CAI_Bloodsucker!");
+		                                "bloodsucker_drag_jump: CScriptGameObject : cannot process drag, anim, jump for CAI_Bloodsucker!");
 		return;
 	}
 
@@ -234,7 +238,7 @@ void CScriptGameObject::set_enemy(CScriptGameObject* e)
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member set_enemy!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member set_enemy!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 	CGameObject* game_object = &e->object();
@@ -248,7 +252,7 @@ void CScriptGameObject::set_vis_state(float val)
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member set_vis_state!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member set_vis_state!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 	if (val == 1)
@@ -267,7 +271,7 @@ void CScriptGameObject::off_collision(bool val)
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member set_vis_state!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member off_collision!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 	monster->set_collision_off(val);
@@ -279,7 +283,7 @@ void CScriptGameObject::set_alien_control(bool val)
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CAI_Bloodsucker : cannot access class member alien_control_activate!");
+		                                make_string("CAI_Bloodsucker [%s]: cannot access class member set_alien_control!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 
@@ -301,13 +305,13 @@ CScriptSoundInfo CScriptGameObject::GetSoundInfo()
 
 			const CGameObject* pO = smart_cast<const CGameObject *>(se.who);
 			ret_val.set((pO && !pO->getDestroy()) ? pO->lua_game_object() : 0, bDangerous, se.position, se.power,
-			            int(se.time));
+			            int(se.time), int(se.type), l_tpMonster->SoundMemory.GetNumSounds());
 		}
 	}
 	else
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CScriptGameObject : cannot access class member GetSoundInfo!");
+		                                make_string("CScriptGameObject [%s]: cannot access class member GetSoundInfo!", object().cNameSect().c_str()).c_str());
 	}
 	return (ret_val);
 }
@@ -323,13 +327,84 @@ CScriptMonsterHitInfo CScriptGameObject::GetMonsterHitInfo()
 		{
 			CGameObject* pO = smart_cast<CGameObject *>(l_tpMonster->HitMemory.get_last_hit_object());
 			ret_val.set((pO && !pO->getDestroy()) ? pO->lua_game_object() : 0,
-			            l_tpMonster->HitMemory.get_last_hit_dir(), l_tpMonster->HitMemory.get_last_hit_time());
+			            l_tpMonster->HitMemory.get_last_hit_dir(), int(l_tpMonster->HitMemory.get_last_hit_time()),
+			            l_tpMonster->HitMemory.get_last_hit_position(), l_tpMonster->HitMemory.get_num_hits());
 		}
 	}
 	else
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CScriptGameObject : cannot access class member GetMonsterHitInfo!");
+		                                make_string("CScriptGameObject [%s]: cannot access class member GetMonsterHitInfo!", object().cNameSect().c_str()).c_str());
+	}
+	return (ret_val);
+}
+
+CScriptMonsterEnemyInfo CScriptGameObject::GetMonsterEnemyInfo()
+{
+	CScriptMonsterEnemyInfo ret_val;
+
+	CBaseMonster* monster = smart_cast<CBaseMonster *>(&object());
+	if (monster)
+	{
+		const CEntityAlive* enemy = monster->EnemyMan.get_enemy();
+		CGameObject* pO = smart_cast<CGameObject *>(const_cast<CEntityAlive*>(enemy));
+		ret_val.set((pO && !pO->getDestroy()) ? pO->lua_game_object() : 0,
+		            monster->EnemyMan.get_enemy_position(),
+		            monster->EnemyMan.get_enemy_vertex(),
+		            int(monster->EnemyMan.get_enemy_time_last_seen()),
+		            int(monster->EnemyMan.get_enemies_count()),
+		            monster->EnemyMan.get_my_vertex_enemy_last_seen(),
+		            monster->EnemyMan.get_enemy_vertex_enemy_last_seen());
+	}
+	else
+	{
+		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
+		                                "CScriptGameObject : cannot access class member GetMonsterEnemyInfo!");
+	}
+	return (ret_val);
+}
+
+CScriptMonsterHomeInfo CScriptGameObject::GetMonsterHomeInfo()
+{
+	CScriptMonsterHomeInfo ret_val;
+
+	CBaseMonster* monster = smart_cast<CBaseMonster *>(&object());
+	if (monster && monster->Home)
+	{
+		CMonsterHome* home = monster->Home;
+		bool has = home->has_home();
+		ret_val.set(home->get_home_point(),
+		            home->get_min_radius(), home->get_mid_radius(), home->get_max_radius(),
+		            home->is_aggressive(), has, has ? home->at_home() : false);
+	}
+	else
+	{
+		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
+		                                "CScriptGameObject : cannot access class member GetMonsterHomeInfo!");
+	}
+	return (ret_val);
+}
+
+CScriptMonsterMovementInfo CScriptGameObject::GetMonsterMovementInfo()
+{
+	CScriptMonsterMovementInfo ret_val;
+
+	CBaseMonster* monster = smart_cast<CBaseMonster *>(&object());
+	if (monster)
+	{
+		CControl_Manager& ctrl = monster->control();
+		CControlPathBuilder& pb = ctrl.path_builder();
+		const int path_capturer = ctrl.is_captured(ControlCom::eControlPath)
+			? int(ctrl.com_type(ctrl.get_capturer(ControlCom::eControlPath)))
+			: -1;
+		ret_val.set(ctrl.movement().velocity_current(), ctrl.movement().velocity_target(),
+		            ctrl.movement().real_velocity(),
+		            pb.path_completed(), pb.actual_all(), path_capturer);
+	}
+	else
+	{
+		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
+		                                "CScriptGameObject : cannot access class member GetMonsterMovementInfo!");
 	}
 	return (ret_val);
 }
@@ -366,7 +441,7 @@ bool CScriptGameObject::fake_death_fall_down()
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CZombie : cannot access class member fake_death_fall_down!");
+		                                make_string("CZombie [%s]: cannot access class member fake_death_fall_down!", object().cNameSect().c_str()).c_str());
 		return false;
 	}
 
@@ -379,7 +454,7 @@ void CScriptGameObject::fake_death_stand_up()
 	if (!monster)
 	{
 		ai().script_engine().script_log(ScriptStorage::eLuaMessageTypeError,
-		                                "CZombie : cannot access class member fake_death_fall_down!");
+		                                make_string("CZombie [%s]: cannot access class member fake_death_stand_up!", object().cNameSect().c_str()).c_str());
 		return;
 	}
 
@@ -402,4 +477,15 @@ void CScriptGameObject::set_default_panic_threshold()
 {
 	CBaseMonster* monster = smart_cast<CBaseMonster *>(&object());
 	if (monster) monster->set_default_panic_threshold();
+}
+
+void CScriptGameObject::set_monster_melee_strike(LPCSTR anim_left, LPCSTR anim_right, float rear_arc_deg)
+{
+	CBaseMonster* monster = smart_cast<CBaseMonster *>(&object());
+	if (!monster || !monster->Visual()) return;
+	monster->com_man().add_melee_jump_data(anim_left, anim_right);
+	// rear_arc_deg is the size of the rear cone that triggers the strike; <= 0 keeps 120 (the useful arc).
+	// the engine fires when the enemy sits beyond (180 - arc/2) degrees off the front, so a wider arc = a lower threshold.
+	float arc = (rear_arc_deg > 0.f) ? rear_arc_deg : 120.f;
+	monster->set_melee_face_eps((180.f - arc * 0.5f) * 0.0174532925f);
 }

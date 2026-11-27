@@ -3,10 +3,12 @@
 #include "../xrcdb/xr_collide_defs.h"
 #include "render.h"
 #include "pure_relcase.h"
+#include "xr_object.h"
 
 class IRender_Sector;
-class CObject;
 class ISpatial;
+
+extern BOOL g_ai_enhanced_vision;
 
 namespace Feel
 {
@@ -15,21 +17,25 @@ namespace Feel
 	const float fuzzy_guaranteed = 0.001f; // distance which is supposed 100% visible
 	const float lr_granularity = 0.1f; // assume similar positions
 
-	class ENGINE_API Vision : private pure_relcase
+	class ENGINE_API Vision:
+		private pure_relcase,
+        private pure_relcase_visual
 	{
 	private:
 		xr_vector<CObject*> seen;
 		xr_vector<CObject*> query;
 		xr_vector<CObject*> diff;
 		collide::rq_results RQR;
-		xr_vector<ISpatial*> r_spatial;
-		CObject const* m_owner;
+		xr_vector<ISpatialShared> r_spatial;
+		CObject* m_owner;
+		CFrustum Frustum;
+		xrSRWLock lock_query, lock_visible;
 
 		void o_new(CObject* E);
 		void o_delete(CObject* E);
 		void o_trace(Fvector& P, float dt, float vis_threshold);
 	public:
-		Vision(CObject const* owner);
+		Vision(CObject* owner);
 		virtual ~Vision();
 
 		struct feel_visible_Item
@@ -48,28 +54,48 @@ namespace Feel
 		xr_vector<feel_visible_Item> feel_visible;
 	public:
 		void feel_vision_clear();
-		void feel_vision_query(Fmatrix& mFull, Fvector& P);
-		void feel_vision_update(CObject* parent, Fvector& P, float dt, float vis_threshold);
+		void feel_vision_query(Fmatrix& mFull);
+		void feel_vision_update(Fvector& P, float dt, float vis_threshold);
 		void __stdcall feel_vision_relcase(CObject* object);
 
 		void feel_vision_get(xr_vector<CObject*>& R)
 		{
-			R.clear();
-			xr_vector<feel_visible_Item>::iterator I = feel_visible.begin(), E = feel_visible.end();
-			for (; I != E; ++I) if (positive(I->fuzzy)) R.push_back(I->O);
+            R.clear();
+            xrSRWLockGuard guard(&lock_visible, true);
+            if (feel_visible.size() > 0xffff)
+            {
+                Msg("![feel_vision_get] abnormally high size of feel_visible, clear and skip");
+                feel_visible.clear_and_free();
+                return;
+            }			
+			for (const feel_visible_Item& item : feel_visible)
+			{
+				if (item.O && !item.O->getDestroy() && positive(item.fuzzy))
+					R.push_back(item.O);
+			}
 		}
 
 		Fvector feel_vision_get_vispoint(CObject* _O)
 		{
-			xr_vector<feel_visible_Item>::iterator I = feel_visible.begin(), E = feel_visible.end();
-			for (; I != E; ++I)
-				if (_O == I->O)
-				{
-					VERIFY(positive(I->fuzzy));
-					return I->cp_LAST;
-				}
-			VERIFY2(0, "There is no such object in the potentially visible list");
-			return Fvector().set(flt_max, flt_max, flt_max);
+			Fvector feel_zero_point = { 0.f,0.f,0.f };
+			if (!_O || _O->getDestroy() || feel_visible.empty())
+				return feel_zero_point;
+
+			xrSRWLockGuard guard(&lock_visible, true);
+			auto it = std::find_if(feel_visible.begin(), feel_visible.end(),
+				[_O](const feel_visible_Item& item) {
+                    if (g_ai_enhanced_vision)
+                        return _O == item.O;
+                    else
+                        return _O == item.O && positive(item.fuzzy);
+				});
+
+			if (it != feel_visible.end())
+			{
+				return it->cp_LAST;
+			}
+
+			return feel_zero_point;
 		}
 
 		virtual bool feel_vision_isRelevant(CObject* O) = 0;

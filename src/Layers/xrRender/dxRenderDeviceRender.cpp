@@ -2,6 +2,78 @@
 #include "dxRenderDeviceRender.h"
 
 #include "ResourceManager.h"
+#include "../../xrEngine/shader_bus.h"
+#if defined(USE_DX11)
+#include "../xrRenderDX10/dx10GpuTimeline.h"
+#endif
+
+// a shader bus texture lane's $user$bus_ alias and the texture it shows
+struct bus_texture_slot
+{
+	ref_texture alias;
+	ref_texture target;
+	ID3DBaseTexture* applied;
+};
+
+static xr_vector<bus_texture_slot> bus_texture_slots;
+static u32 bus_texture_serial = 0;
+
+// empties every alias so no surface outlives a reset or the device
+static void bus_textures_release()
+{
+	for (u32 i = 0; i < bus_texture_slots.size(); ++i)
+	{
+		bus_texture_slots[i].alias->surface_set(nullptr);
+		bus_texture_slots[i].applied = nullptr;
+	}
+}
+
+// rebuilds the slots when a lane's texture changed and follows targets whose surface moved
+static void bus_textures_update()
+{
+	const u32 serial = ShaderBus::texture_serial();
+	if (serial != bus_texture_serial)
+	{
+		bus_texture_serial = serial;
+
+		// the old slots keep their textures loaded until the new slots take them
+		xr_vector<bus_texture_slot> old_slots;
+		old_slots.swap(bus_texture_slots);
+
+		shared_str id, name;
+		for (u32 i = 0; ShaderBus::texture_get(i, id, name); ++i)
+		{
+			if (!name.size())
+				continue;
+
+			bus_texture_slot slot;
+			slot.target.create(name.c_str());
+			if (!slot.target)
+				continue;
+
+			string_path alias;
+			xr_sprintf(alias, "$user$bus_%s", id.c_str());
+			slot.alias.create(alias);
+			slot.applied = nullptr;
+			bus_texture_slots.push_back(slot);
+		}
+
+		for (u32 i = 0; i < old_slots.size(); ++i)
+			old_slots[i].alias->surface_set(nullptr);
+	}
+
+	for (u32 i = 0; i < bus_texture_slots.size(); ++i)
+	{
+		bus_texture_slot& slot = bus_texture_slots[i];
+		ID3DBaseTexture* surface = slot.target->surface_get();
+		if (surface != slot.applied)
+		{
+			slot.alias->surface_set(surface);
+			slot.applied = surface;
+		}
+		_RELEASE(surface);
+	}
+}
 
 dxRenderDeviceRender::dxRenderDeviceRender()
 	: Resources(0)
@@ -39,6 +111,9 @@ void dxRenderDeviceRender::OnDeviceDestroy(BOOL bKeepTextures)
 	m_WireShader.destroy();
 	m_SelectionShader.destroy();
 
+	bus_textures_release();
+	bus_texture_slots.clear();
+	bus_texture_serial = 0;
 	Resources->OnDeviceDestroy(bKeepTextures);
 	RCache.OnDeviceDestroy();
 }
@@ -60,6 +135,7 @@ void dxRenderDeviceRender::Reset(HWND hWnd, u32& dwWidth, u32& dwHeight, float& 
     _SHOW_REF("*ref -CRenderDevice::ResetTotal: DeviceREF:",HW.pDevice);
 #endif // DEBUG
 
+	bus_textures_release();
 	Resources->reset_begin();
 	Memory.mem_compact();
 
@@ -282,8 +358,10 @@ void dxRenderDeviceRender::ResourcesPrefetchCreateTexture(LPCSTR name)
 	Resources->_CreateTexture(name);
 }
 
+xrCriticalSection resources_lock;
 void dxRenderDeviceRender::ResourcesGetMemoryUsage(u32& m_base, u32& c_base, u32& m_lmaps, u32& c_lmaps)
 {
+    xrCriticalSectionGuard g(resources_lock);
 	if (Resources)
 		Resources->_GetMemoryUsage(m_base, c_base, m_lmaps, c_lmaps);
 }
@@ -348,10 +426,17 @@ void dxRenderDeviceRender::Begin()
 #if !defined(USE_DX10) && !defined(USE_DX11)
 	CHK_DX(HW.pDevice->BeginScene());
 #endif	//	USE_DX10
+
+#if defined(USE_DX11)
+	if (ps_r__gpu_timeline)
+		gpu_timeline::frame_start();
+#endif
+
 	RCache.OnFrameBegin();
 	RCache.set_CullMode(CULL_CW);
 	RCache.set_CullMode(CULL_CCW);
 	if (HW.Caps.SceneMode) overdrawBegin();
+	bus_textures_update();
 }
 
 void dxRenderDeviceRender::Clear()
@@ -383,10 +468,16 @@ void dxRenderDeviceRender::End()
 
 	if (HW.Caps.SceneMode) overdrawEnd();
 
+	// Draw calls and polys this frame
+	PROF_TAG("draws", RCache.stat.calls);
+	PROF_TAG("polys", RCache.stat.polys);
 	RCache.OnFrameEnd();
 	Memory.dbg_check();
 
-	DoAsyncScreenshot();
+	{
+		PROF_EVENT("Async Screenshot", PROF_CAT(IO));
+		DoAsyncScreenshot();
+	}
 
 #if defined(USE_DX10) || defined(USE_DX11)
     UINT present_flags = 0;
@@ -399,15 +490,35 @@ void dxRenderDeviceRender::End()
 	if (is_windowed && !use_vsync && HW.m_SupportsVRR) {
         present_flags |= DXGI_PRESENT_ALLOW_TEARING;
 	}
+
+	if (ps_r__gpu_timeline)
+		gpu_timeline::frame_end();
 # endif
 
-	HW.m_pSwapChain->Present(present_interval, present_flags);
+	CRenderDevice::FrameRecord* const record = Device.frame_record_on ? &Device.frame_record : nullptr;
+	if (record)
+	{
+		record->present[0] = CPU::QPC();
+		record->presented = false;
+	}
+	{
+		const HRESULT hr = HW.m_pSwapChain->Present(present_interval, present_flags);
+		// Occluded windows or failed Presents show nothing
+		if (record)
+			record->presented = hr == S_OK;
+# if defined(USE_DX11)
+		if (ps_r__gpu_timeline)
+			gpu_timeline::frame_presented();
+# endif
+	}
+	if (record)
+		record->present[1] = CPU::QPC();
 #else //!USE_DX10 || USE_DX11
 	CHK_DX(HW.pDevice->EndScene());
 
-	HW.pDevice->Present(NULL, nullptr, NULL, nullptr);
+	HW.pDevice->Present(NULL, NULL, NULL, NULL);
 #endif //-USE_DX10
-	//HRESULT _hr		= HW.pDevice->Present( NULL, nullptr, NULL, NULL );
+	//HRESULT _hr		= HW.pDevice->Present( NULL, NULL, NULL, NULL );
 	//if				(D3DERR_DEVICELOST==_hr)	return;			// we will handle this later
 }
 

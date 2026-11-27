@@ -16,7 +16,6 @@
 #include "object_factory.h"
 #include "alife_object_registry.h"
 #include "../xrEngine/xr_ioconsole.h"
-#include "../xrCore/profiler.h"
 
 #ifdef DEBUG
 #	include "moving_objects.h"
@@ -28,8 +27,8 @@ extern void destroy_lua_wpn_params();
 
 void restart_all()
 {
-	PROF_EVENT("restart_all");
-	if (strstr(Core.Params, "-keep_lua"))
+	PROF_EVENT("restart_all", PROF_CAT(Scene));
+	if (Core.ParamsData.test(ECoreParams::keep_lua))
 		return;
 
 	destroy_lua_wpn_params();
@@ -47,7 +46,7 @@ CALifeSimulator::CALifeSimulator(xrServer* server, shared_str* command_line) :
 	CALifeInteractionManager(server, alife_section),
 	CALifeSimulatorBase(server, alife_section)
 {
-	PROF_EVENT("CALifeSimulator::CALifeSimulator");
+	PROF_EVENT("CALifeSimulator::CALifeSimulator", PROF_CAT(AI));
 	restart_all();
 
 	ai().set_alife(this);
@@ -75,10 +74,7 @@ CALifeSimulator::CALifeSimulator(xrServer* server, shared_str* command_line) :
 	LPCSTR start_game_callback = pSettings->r_string(alife_section, "start_game_callback");
 	::luabind::functor<void> functor;
 	R_ASSERT2(ai().script_engine().functor(start_game_callback,functor), "failed to get start game callback");
-	{
-		PROF_EVENT("start_game_callback");
-		functor();
-	}
+	functor();
 
 	load(p.m_game_or_spawn, !xr_strcmp(p.m_new_or_load, "load") ? false : true, !xr_strcmp(p.m_new_or_load, "new"));
 }

@@ -24,13 +24,10 @@ public:
 	virtual CPhysicsShellHolder* cast_physics_shell_holder() { return this; }
 	virtual CInventoryItem* cast_inventory_item() { return this; }
 	virtual CAttachableItem* cast_attachable_item() { return this; }
-	virtual CWeapon* cast_weapon() { return 0; }
-	virtual CFoodItem* cast_food_item() { return 0; }
-	virtual CMissile* cast_missile() { return 0; }
-	virtual CFlashlight* cast_flashlight() { return 0; }
-	virtual CHudItem* cast_hud_item() { return 0; }
-	virtual CWeaponAmmo* cast_weapon_ammo() { return 0; }
-	virtual CGameObject* cast_game_object() { return this; };
+	virtual CFoodItem* cast_food_item() { return nullptr; }
+	virtual CFlashlight* cast_flashlight() { return nullptr; }
+	virtual CGameObject* cast_game_object() { return this; }
+	virtual CEatableItem* cast_eatable_item() { return this; }
 
 public:
 	virtual void Load(LPCSTR section);
@@ -49,7 +46,7 @@ public:
 	virtual void save(NET_Packet& output_packet);
 	virtual void load(IReader& input_packet);
 	virtual BOOL net_SaveRelevant() { return TRUE; }
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM);
 	virtual void reload(LPCSTR section);
 	virtual void reinit();
 	virtual void activate_physic_shell();

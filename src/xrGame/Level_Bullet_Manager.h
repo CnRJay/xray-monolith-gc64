@@ -8,8 +8,6 @@
 #include "weaponammo.h"
 #include "tracer.h"
 
-#include "../xrEngine/pure_relcase.h"
-
 //коэфициенты и параметры патрона
 struct SBullet_Hit
 {
@@ -154,7 +152,6 @@ protected:
 	xrCriticalSection		m_Lock				;
 
 	BulletVec m_Bullets; // working set, locked
-	BulletVec m_BulletsRendered; // copy for rendering
 	xr_vector<_event> m_Events;
 
 #ifdef DEBUG
@@ -253,9 +250,12 @@ public:
 	               bool SendHit, bool AimBullet = false, int iShotNum = 0);
 
 	void CommitEvents(); // @ the start of frame
-	void CommitRenderSet(); // @ the end of frame
 	void Render();
-	void __stdcall net_Relcase(CObject* obj);
+    void __stdcall net_Relcase(CObject* obj);
+
+#ifdef CBULLETMANAGER_EX
+    	bool ValidateHitDynamicVisualMesh(SBullet& B, collide::rq_result& R, Fvector& collide_position, float range);
+#endif
 };
 
 struct bullet_test_callback_data
@@ -266,4 +266,7 @@ struct bullet_test_callback_data
 #if 1//def DEBUG
 	float high_time;
 #endif // #ifdef DEBUG
+#ifdef CBULLETMANAGER_EX
+    float max_distance;
+#endif
 };

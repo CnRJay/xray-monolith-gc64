@@ -405,7 +405,7 @@ void CSoundRender_CoreA::_initialize(int stage)
 	deviceSpecifier = alcGetString(pDevice, ALC_DEVICE_SPECIFIER);
 
 	// Create context
-	pContext = alcCreateContext(pDevice, nullptr);
+	pContext = alcCreateContext(pDevice, NULL);
 	if (pContext == nullptr) {
 		CHECK_OR_EXIT(0, "SOUND: OpenAL: Failed to create context.");
 		bPresent = FALSE;
@@ -528,7 +528,7 @@ void CSoundRender_CoreA::_clear()
 		xr_delete(T);
 	}
 	// Reset the current context to NULL.
-	alcMakeContextCurrent(nullptr);
+	alcMakeContextCurrent(NULL);
 	// Release the context and the device.
 	alcDestroyContext(pContext);
 	pContext = nullptr;
@@ -539,7 +539,7 @@ void CSoundRender_CoreA::_clear()
 
 void CSoundRender_CoreA::update_listener(const Fvector& P, const Fvector& D, const Fvector& N, float dt)
 {
-	PROF_EVENT("Sound: update_listener");
+	PROF_EVENT("Sound: update_listener", PROF_CAT(Audio));
 	inherited::update_listener(P, D, N, dt);
 
 	Listener.curVelocity.sub(P, Listener.position);

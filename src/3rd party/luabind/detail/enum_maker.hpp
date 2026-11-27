@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include <type_traits>
+#include <utility>
 #include <vector>
 #include <string>
 
@@ -31,7 +33,6 @@
 namespace luabind
 {
 	struct value;
-
 	struct value_vector;
 
 	struct value
@@ -41,16 +42,16 @@ namespace luabind
 		template<class T>
 		value(const char* name, T v)
 			: name_(name)
-			, val_(v)
-		{}
+			, val_(static_cast<int>(v))
+		{
+		}
 
 		const char* name_;
 		int val_;
 
 		inline value_vector operator,(const value& rhs) const;
 
-	private: 
-
+	private:
 		value() {}
 	};
 
@@ -66,10 +67,8 @@ namespace luabind
 	inline value_vector value::operator,(const value& rhs) const
 	{
 		value_vector v;
-
 		v.push_back(*this);
 		v.push_back(rhs);
-
 		return v;
 	}
 
@@ -93,43 +92,93 @@ namespace luabind
 
 	namespace detail
 	{
+		template<typename T>
+		struct is_value_type : std::false_type {};
+
+		template<> struct is_value_type<value> : std::true_type {};
+		template<> struct is_value_type<value_vector> : std::true_type {};
+
+		template<typename T>
+		inline constexpr bool is_value_type_v = is_value_type<std::decay_t<T>>::value;
+
+		template<typename... Ts>
+		using all_values_t = std::conjunction<std::bool_constant<is_value_type_v<Ts>>...>;
+
 		template<typename From>
 		struct enum_maker
 		{
-			explicit enum_maker(From&& from): from_(std::move(from)) {}
+			explicit enum_maker(From&& from) : from_(std::move(from)) {}
 
-            enum_maker(const enum_maker&) = delete;
-            enum_maker& operator= (const enum_maker&) = delete;
+			enum_maker(const enum_maker&) = delete;
+			enum_maker& operator= (const enum_maker&) = delete;
 
-            enum_maker(enum_maker&& that) noexcept
-                : from_(std::move(that.from_))
-            {
-            }
-
-            enum_maker& operator= (enum_maker&& that) noexcept
-            {
-                from_ = std::move(that.from_);
-                return *this;
-            }
-
-			From operator[](const value& val) &&
+			enum_maker(enum_maker&& that) noexcept
+				: from_(std::move(that.from_))
 			{
-				from_.add_static_constant(val.name_, val.val_);
+			}
+
+			enum_maker& operator= (enum_maker&& that) noexcept
+			{
+				from_ = std::move(that.from_);
+				return *this;
+			}
+
+			From operator[](const value& val)&&
+			{
+				add_value(val);
 				return std::move(from_);
 			}
 
-			From operator[](const value_vector& values) &&
+			From operator[](const value_vector& values)&&
 			{
-				for (value_vector::const_iterator i = values.begin(); i != values.end(); ++i)
-				{
-					from_.add_static_constant(i->name_, i->val_);
-				}
-
+				add_value(values);
 				return std::move(from_);
+			}
+
+			From& operator[](const value& val)&
+			{
+				add_value(val);
+				return from_;
+			}
+
+			From& operator[](const value_vector& values)&
+			{
+				add_value(values);
+				return from_;
+			}
+
+
+			template<typename... Args,
+				typename = std::enable_if_t<all_values_t<Args...>::value>>
+				From operator[](Args&&... args)&&
+			{
+				// expands in left-to-right order
+				(add_value(std::forward<Args>(args)), ...);
+				return std::move(from_);
+			}
+
+			template<typename... Args,
+				typename = std::enable_if_t<all_values_t<Args...>::value>>
+				From & operator[](Args&&... args)&
+			{
+				(add_value(std::forward<Args>(args)), ...);
+				return from_;
 			}
 
 		private:
-            From from_;
+			void add_value(const value& v)
+			{
+				from_.add_static_constant(v.name_, v.val_);
+			}
+
+			void add_value(const value_vector& vv)
+			{
+				for (auto const& v : vv)
+					from_.add_static_constant(v.name_, v.val_);
+			}
+
+		private:
+			From from_;
 		};
 	}
 }

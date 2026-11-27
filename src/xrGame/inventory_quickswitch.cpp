@@ -23,7 +23,7 @@ public:
 		m_except_set(except_set),
 		m_ignore_ammo(ignore_ammo)
 	{
-		m_best_fit = nullptr;
+		m_best_fit = NULL;
 	};
 
 	next_weapon_searcher(next_weapon_searcher const& copy) :
@@ -99,7 +99,7 @@ PIItem CInventory::GetNextItemInActiveSlot(u8 const priority_value, bool ignore_
 		m_next_items_exceptions.clear();
 		m_next_items_exceptions.insert(ActiveItem());
 	}
-	PIItem best_fit = nullptr;
+	PIItem best_fit = NULL;
 	priority_group& tmp_prior_group = GetPriorityGroup(priority_value, m_iActiveSlot);
 	next_weapon_searcher tmp_predicate(
 		tmp_prior_group,
@@ -123,7 +123,7 @@ PIItem CInventory::GetNextItemInActiveSlot(u8 const priority_value, bool ignore_
 		{
 			m_next_items_exceptions.clear();
 			m_next_items_exceptions.insert(ActiveItem());
-			return nullptr;
+			return NULL;
 		}
 		return GetNextItemInActiveSlot(0, true);
 	}
@@ -145,7 +145,7 @@ bool CInventory::ActivateNextItemInActiveSlot()
 
 	PIItem new_item = GetNextItemInActiveSlot(0, false);
 
-	if (new_item == nullptr)
+	if (new_item == NULL)
 	{
 		return false; //only 1 item for this slot
 	}
@@ -169,6 +169,7 @@ bool CInventory::ActivateNextItemInActiveSlot()
 	new_item->object().u_EventGen(P, GEG_PLAYER_ITEM2SLOT, new_item->object().H_Parent()->ID());
 	P.w_u16(new_item->object().ID());
 	P.w_u16(m_iActiveSlot);
+	P.w_u8(0); // do activate
 	new_item->object().u_EventSend(P);
 
 	//activate

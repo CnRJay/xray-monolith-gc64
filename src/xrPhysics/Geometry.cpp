@@ -85,7 +85,7 @@ void TransformedGeometryExtensionLocalParams(dGeomID geom_transform, const dReal
 
 CODEGeom::CODEGeom()
 {
-	m_geom_transform = nullptr;
+	m_geom_transform = NULL;
 	m_bone_id = u16(-1);
 }
 
@@ -153,8 +153,8 @@ void CODEGeom::get_global_center_bt(Fvector& center)
 void CODEGeom::get_xform(Fmatrix& form) const
 {
 	VERIFY(m_geom_transform);
-	const dReal* rot = nullptr;
-	const dReal* pos = nullptr;
+	const dReal* rot = NULL;
+	const dReal* pos = NULL;
 	dVector3 p;
 	dMatrix3 r;
 	get_final_tx_bt(pos, rot, p, r);
@@ -336,7 +336,7 @@ void CODEGeom::set_callback_data(void* cd)
 
 void* CODEGeom::get_callback_data()
 {
-	if (!m_geom_transform) return nullptr;
+	if (!m_geom_transform) return NULL;
 	if (geom())
 	{
 		VERIFY(dGeomGetUserData(geom()));
@@ -416,12 +416,14 @@ void CODEGeom::destroy()
 	}
 	dGeomDestroyUserData(m_geom_transform);
 	dGeomDestroy(m_geom_transform);
-	m_geom_transform = nullptr;
+	m_geom_transform = NULL;
 }
 
 CBoxGeom::CBoxGeom(const Fobb& box)
 {
 	m_box = box;
+	def_half_size = box.m_halfsize;
+	def_translate = box.m_translate;
 }
 
 void CBoxGeom::get_mass(dMass& m)
@@ -477,8 +479,8 @@ void CODEGeom::set_local_form_bt(const Fmatrix& xform)
 void CBoxGeom::get_Extensions(const Fvector& axis, float center_prg, float& lo_ext, float& hi_ext) const
 {
 	VERIFY(m_geom_transform);
-	const dReal* rot = nullptr;
-	const dReal* pos = nullptr;
+	const dReal* rot = NULL;
+	const dReal* pos = NULL;
 	dVector3 p;
 	dMatrix3 r;
 	dGeomID g = geometry_bt();
@@ -616,6 +618,8 @@ void CBoxGeom::set_build_position(const Fvector& ref_point)
 CSphereGeom::CSphereGeom(const Fsphere& sphere)
 {
 	m_sphere = sphere;
+	def_radius = sphere.R;
+	def_translate = sphere.P;
 }
 
 void CSphereGeom::get_mass(dMass& m)
@@ -642,8 +646,8 @@ void CSphereGeom::set_radius(float r)
 void CSphereGeom::get_Extensions(const Fvector& axis, float center_prg, float& lo_ext, float& hi_ext) const
 {
 	VERIFY(m_geom_transform);
-	const dReal* rot = nullptr;
-	const dReal* pos = nullptr;
+	const dReal* rot = NULL;
+	const dReal* pos = NULL;
 	dVector3 p;
 	dMatrix3 r;
 	dGeomID g = geometry_bt();
@@ -687,6 +691,9 @@ void CSphereGeom::set_build_position(const Fvector& ref_point)
 CCylinderGeom::CCylinderGeom(const Fcylinder& cyl)
 {
 	m_cylinder = cyl;
+	m_def_radius = cyl.m_radius;
+	m_def_height = cyl.m_height;
+	def_translate = cyl.m_center;
 }
 
 void CCylinderGeom::get_mass(dMass& m)
@@ -713,8 +720,8 @@ float CCylinderGeom::radius()
 void CCylinderGeom::get_Extensions(const Fvector& axis, float center_prg, float& lo_ext, float& hi_ext) const
 {
 	VERIFY(m_geom_transform) ;
-	const dReal* rot = nullptr;
-	const dReal* pos = nullptr;
+	const dReal* rot = NULL;
+	const dReal* pos = NULL;
 	dVector3 p;
 	dMatrix3 r;
 	dGeomID g = geometry_bt();

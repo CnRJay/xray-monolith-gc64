@@ -31,6 +31,7 @@ protected:
 	float m_vertInterval;
 
 	Flags16 m_flags;
+	bool m_pad_drag_active;
 	shared_str m_scrollbar_profile;
 	Ivector2 m_visible_rgn;
 
@@ -48,17 +49,22 @@ public:
 	CUIScrollView(CUIFixedScrollBar* scroll_bar);
 	virtual ~CUIScrollView();
 	void InitScrollView(); // need parent to be initialized
-	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = nullptr);
+	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData = NULL);
 	virtual bool OnMouseAction(float x, float y, EUIMessages mouse_action);
 	virtual void Draw();
 	virtual void Update();
+	void GetVisibleRect(Frect& rect);
 	void AddWindow(CUIWindow* pWnd, bool auto_delete);
 	void RemoveWindow(CUIWindow* pWnd);
 	void Clear();
 	void ScrollToBegin();
 	void ScrollToEnd();
 	bool GetVertFlip() { return !!m_flags.test(eVertFlip); }
-	bool Empty() { return m_pad->GetChildWndList().empty(); }
+	bool Empty()
+	{
+		xrCriticalSectionGuard guard(m_pad->csUi);
+		return m_pad->GetChildWndList().empty();
+	}
 	u32 GetSize();
 	WINDOW_LIST& Items() { return m_pad->GetChildWndList(); }
 	CUIWindow* GetItem(u32 idx);
@@ -80,7 +86,10 @@ public:
 	float Scroll2ViewV(); // calculate scale for scroll position
 	CUIScrollBar* ScrollBar() { return m_VScrollBar; }
 
-	typedef fastdelegate::FastDelegate2<CUIWindow*, CUIWindow*, bool> cmp_function;
+	virtual CUIWindow* ui_cast_window() { return this; }
+	virtual CUIScrollView* ui_cast_scroll_view() { return this; }
+
+	typedef xr_delegate<bool(CUIWindow*, CUIWindow*)> cmp_function;
 	cmp_function m_sort_function;
 };
 

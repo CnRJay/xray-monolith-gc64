@@ -19,7 +19,7 @@ static CRITICAL_SECTION CS;
 // TShellChangeThread -------------------------------------------------------
 CFS_PathNotificator::CFS_PathNotificator() : CThread(0)
 {
-	FMutex = CreateMutex(NULL, true /* initial owner - must be Release'd by this thread*/, nullptr);
+	FMutex = CreateMutex(NULL, true /* initial owner - must be Release'd by this thread*/, NULL);
 	if (FMutex)
 		WaitForSingleObject(FMutex, INFINITE);
 }
@@ -63,7 +63,7 @@ void CFS_PathNotificator::RegisterPath(FS_Path& path)
 
 void CFS_PathNotificator::Execute(void)
 {
-	PROF_EVENT();
+	PROF_EVENT(PROF_CAT(IO));
 
 	EnterCriticalSection(&CS);
 	for (PathIt it = events.begin(); it != events.end(); it++)

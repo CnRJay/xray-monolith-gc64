@@ -27,7 +27,7 @@ bool CPHMovementControl::ActivateBoxDynamic(DWORD id, int num_it/*=8*/, int num_
 		if (Device.dwTimeGlobal - trying_times[id] < 500 && dif.magnitude() < 0.05f)
 			return false;
 	}
-	if (!m_character || m_character->PhysicsRefObject()->ObjectPPhysicsShell())
+	if (!m_character || (m_character->PhysicsRefObject() && m_character->PhysicsRefObject()->ObjectPPhysicsShell()))
 		return false;
 	DWORD old_id = BoxID();
 

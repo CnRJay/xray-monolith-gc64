@@ -1,7 +1,7 @@
 #ifndef DEMO_MESSAGE_FILER
 #define DEMO_MESSAGE_FILER
 
-#include <fastdelegate/fastdelegate.h>
+#include "../xrCore/xr_delegate.h"
 #include "../xrCore/net_utils.h"
 #include "associative_vector.h"
 
@@ -10,7 +10,7 @@
 class message_filter
 {
 public:
-	typedef fastdelegate::FastDelegate3<u32, u32, NET_Packet&> msg_type_subtype_func_t;
+	typedef xr_delegate<void(u32, u32, NET_Packet&)> msg_type_subtype_func_t;
 	message_filter();
 	~message_filter();
 	void filter(u16 const& msg_type,

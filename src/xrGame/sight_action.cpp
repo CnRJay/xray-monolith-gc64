@@ -13,6 +13,8 @@
 #include "ai_object_location.h"
 #include "stalker_movement_manager_smart_cover.h"
 #include "inventory.h"
+#include "../xrEngine/CameraBase.h"
+#include "Actor.h"
 
 //#define SIGHT_TEST
 
@@ -164,7 +166,33 @@ void CSightAction::execute_position(Fvector const& look_position)
 void CSightAction::execute_object()
 {
 	Fvector look_pos;
-	m_object_to_look->Center(look_pos);
+
+	// demonized: my edit, very ugly but it works
+	const CActor* cpActor = smart_cast<const CActor*>(m_object_to_look);
+	if(cpActor)
+	{
+		CActor* pActor = const_cast<CActor*>(cpActor);
+		if(pActor->HUDview())
+		{
+			look_pos = pActor->cam_FirstEye()->Position();
+			look_pos.y -= 0.9f;
+		}
+		else
+		{
+			IKinematics* kinematics = PKinematics(pActor->Visual());
+			VERIFY(kinematics);
+
+			u16 bone_id = kinematics->LL_BoneID("bip01_head");
+			VERIFY2(bone_id != BI_NONE, make_string("Cannot find bone %s", bone_id));
+			Fvector pos;
+			kinematics->LL_GetBoneWorldPosition(bone_id, pActor->XFORM(), pos);
+			look_pos = pos;
+			look_pos.y -= 0.9f;
+		}
+		m_object->Visual()->dcast_PKinematics()->CalculateBBox(FALSE);
+	}
+	else
+		m_object_to_look->Center(look_pos);
 
 	Fvector my_position = m_object->eye_matrix.c;
 

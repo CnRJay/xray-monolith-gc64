@@ -196,7 +196,7 @@ private:
 	except_next_items_t m_next_items_exceptions;
 	u32 m_next_item_iteration_time;
 
-	std::vector<u8> m_blocked_slots;
+	xr_vector<u8> m_blocked_slots;
 	bool IsSlotBlocked(u16 slot_id) const;
 	void TryActivatePrevSlot();
 	void TryDeactivateActiveSlot();

@@ -22,7 +22,7 @@ CMapSpot::CMapSpot(CMapLocation* ml)
 	m_mark_focused = false;
 	m_bScale = false;
 	m_location_level = 0;
-	m_border_static = nullptr;
+	m_border_static = NULL;
 	m_scale_bounds.set(-1.0f, -1.0f);
 	m_lbtn_down_pos.set(0.0f, 0.0f);
 	m_lbtn_armed = false;
@@ -62,6 +62,14 @@ void CMapSpot::Load(CUIXml* xml, LPCSTR path)
 		if (!Heading())
 		{
 			m_border_static->SetWidth(m_border_static->GetWidth() * UI().get_current_kx());
+			if (!UI().is_widescreen())
+			{
+				m_border_static->SetHeight(m_border_static->GetHeight() * UI().get_current_kx());
+			}
+			else
+			{
+				m_border_static->SetTextureOffset(1, 0);
+			}
 			m_border_static->SetStretchTexture(true);
 		}
 	}
@@ -85,7 +93,7 @@ void CMapSpot::Update()
 	{
 		if (Device.dwTimeGlobal > (m_dwFocusReceiveTime + 500))
 		{
-			GetMessageTarget()->SendMessage(this, MAP_SHOW_HINT, nullptr);
+			GetMessageTarget()->SendMessage(this, MAP_SHOW_HINT, NULL);
 		}
 	}
 }
@@ -134,7 +142,7 @@ void CMapSpot::OnFocusLost()
 	// Disarm so a later UP after the cursor re-enters can't fire a stale click.
 	m_lbtn_armed = false;
 	inherited::OnFocusLost();
-	GetMessageTarget()->SendMessage(this, MAP_HIDE_HINT, nullptr);
+	GetMessageTarget()->SendMessage(this, MAP_HIDE_HINT, NULL);
 }
 
 void CMapSpot::show_static_border(bool status)
@@ -163,7 +171,7 @@ CMapSpotPointer::~CMapSpotPointer()
 
 LPCSTR CMapSpotPointer::GetHint()
 {
-	return nullptr;
+	return NULL;
 }
 
 //////////////////////////////////////////////////
@@ -181,7 +189,7 @@ void CMiniMapSpot::Load(CUIXml* xml, LPCSTR path)
 	inherited::Load(xml, path);
 
 	string256 buf;
-	XML_NODE* n = nullptr;
+	XML_NODE* n = NULL;
 
 	Frect base_rect;
 	base_rect.x1 = 0;
@@ -195,7 +203,7 @@ void CMiniMapSpot::Load(CUIXml* xml, LPCSTR path)
 	n = xml->NavigateToNode(buf, 0);
 	if (n)
 	{
-		LPCSTR texture = xml->Read(buf, 0, nullptr);
+		LPCSTR texture = xml->Read(buf, 0, NULL);
 		CUITextureMaster::InitTexture(texture, &m_UIStaticItem);
 		if (strchr(texture, '\\'))
 		{
@@ -208,6 +216,7 @@ void CMiniMapSpot::Load(CUIXml* xml, LPCSTR path)
 		else
 			m_tex_rect_above = m_UIStaticItem.GetTextureRect();
 
+		m_tex_above = texture;
 		m_icon_above = m_UIStaticItem.GetShader();
 	}
 
@@ -215,7 +224,7 @@ void CMiniMapSpot::Load(CUIXml* xml, LPCSTR path)
 	n = xml->NavigateToNode(buf, 0);
 	if (n)
 	{
-		LPCSTR texture = xml->Read(buf, 0, nullptr);
+		LPCSTR texture = xml->Read(buf, 0, NULL);
 		CUITextureMaster::InitTexture(texture, &m_UIStaticItem);
 		if (strchr(texture, '\\'))
 		{
@@ -228,13 +237,14 @@ void CMiniMapSpot::Load(CUIXml* xml, LPCSTR path)
 		else
 			m_tex_rect_below = m_UIStaticItem.GetTextureRect();
 
+		m_tex_below = texture;
 		m_icon_below = m_UIStaticItem.GetShader();
 	}
 	strconcat(sizeof(buf), buf, path, ":texture");
 	n = xml->NavigateToNode(buf, 0);
 	if (n)
 	{
-		LPCSTR texture = xml->Read(buf, 0, nullptr);
+		LPCSTR texture = xml->Read(buf, 0, NULL);
 		CUITextureMaster::InitTexture(texture, &m_UIStaticItem);
 		if (strchr(texture, '\\'))
 		{
@@ -247,10 +257,61 @@ void CMiniMapSpot::Load(CUIXml* xml, LPCSTR path)
 		else
 			m_tex_rect_normal = m_UIStaticItem.GetTextureRect();
 
+		m_tex_normal = texture;
 		m_icon_normal = m_UIStaticItem.GetShader();
 	}
 
 	m_UIStaticItem.SetTextureRect(_stored_rect);
+}
+
+// the three icons take the shader of the screen that hosts the spot
+void CMiniMapSpot::SetIconShader(LPCSTR sh)
+{
+	if (m_tex_above.size())
+	{
+		CUITextureMaster::InitTexture(m_tex_above, &m_UIStaticItem, sh);
+		m_icon_above = m_UIStaticItem.GetShader();
+	}
+	if (m_tex_below.size())
+	{
+		CUITextureMaster::InitTexture(m_tex_below, &m_UIStaticItem, sh);
+		m_icon_below = m_UIStaticItem.GetShader();
+	}
+	if (m_tex_normal.size())
+	{
+		CUITextureMaster::InitTexture(m_tex_normal, &m_UIStaticItem, sh);
+		m_icon_normal = m_UIStaticItem.GetShader();
+	}
+	m_UIStaticItem.SetTextureRect(m_tex_rect_normal);
+}
+
+void CMiniMapSpot::SetNormalIcon(LPCSTR texture, LPCSTR sh)
+{
+	m_tex_normal = texture;
+	CUITextureMaster::InitTexture(m_tex_normal, &m_UIStaticItem, sh);
+	m_tex_rect_normal = m_UIStaticItem.GetTextureRect();
+	m_icon_normal = m_UIStaticItem.GetShader();
+}
+
+// the icons shown above and below the player, each with the rect its texture registers
+void CMiniMapSpot::SetHeightIcons(LPCSTR above, LPCSTR below, LPCSTR sh)
+{
+	if (above && xr_strlen(above))
+	{
+		m_tex_above = above;
+		CUITextureMaster::InitTexture(m_tex_above, &m_UIStaticItem, sh);
+		m_tex_rect_above = m_UIStaticItem.GetTextureRect();
+		m_icon_above = m_UIStaticItem.GetShader();
+	}
+	if (below && xr_strlen(below))
+	{
+		m_tex_below = below;
+		CUITextureMaster::InitTexture(m_tex_below, &m_UIStaticItem, sh);
+		m_tex_rect_below = m_UIStaticItem.GetTextureRect();
+		m_icon_below = m_UIStaticItem.GetShader();
+	}
+	m_UIStaticItem.SetShader(m_icon_normal);
+	m_UIStaticItem.SetTextureRect(m_tex_rect_normal);
 }
 
 void CMiniMapSpot::Draw()
@@ -300,10 +361,10 @@ CComplexMapSpot::CComplexMapSpot(CMapLocation* ml)
 	m_infinity_time = false;
 	m_last_delay = 0;
 	m_timer_finish = 0;
-	m_left_icon = nullptr;
-	m_right_icon = nullptr;
-	m_top_icon = nullptr;
-	m_timer = nullptr;
+	m_left_icon = NULL;
+	m_right_icon = NULL;
+	m_top_icon = NULL;
+	m_timer = NULL;
 }
 
 CComplexMapSpot::~CComplexMapSpot()
@@ -331,6 +392,11 @@ void CComplexMapSpot::Load(CUIXml* xml, LPCSTR path) // complex_spot_template
 	m_left_icon = CreateStaticOrig(*xml, "left_icon");
 	m_right_icon = CreateStaticOrig(*xml, "right_icon");
 	m_top_icon = CreateStaticOrig(*xml, "top_icon");
+	m_top_icon->SetStretchTexture(true);
+	m_top_icon->SetWidth(m_top_icon->GetWidth() * UI().get_current_kx());
+	if (!UI().is_widescreen()) {
+		m_top_icon->SetHeight(m_top_icon->GetHeight() * UI().get_current_kx());
+	}
 	m_timer = CreateStaticOrig(*xml, "timer");
 
 	xml->SetLocalRoot(stored_root);
@@ -393,6 +459,7 @@ void CComplexMapSpot::SetWndSize(const Fvector2& size)
 		return;
 	}
 	float k = size.x / m_originSize.x;
+	xrCriticalSectionGuard guard(csUi);
 
 	for (WINDOW_LIST_it it = m_ChildWndList.begin(); m_ChildWndList.end() != it; ++it)
 	{

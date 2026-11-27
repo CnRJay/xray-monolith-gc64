@@ -48,7 +48,7 @@ public:
 	float smooth_volume;
 	float occluder_volume; // USER
 	float fade_volume;
-	Fvector occluder[3];
+	Fvector occluder [3];
 
 	State m_current_state;
 	u32 m_stream_cursor;
@@ -98,7 +98,7 @@ public:
 
 	virtual void set_range(float min, float max)
 	{
-		VERIFY(_valid(min) && _valid(max));
+		VERIFY(_valid(min)&&_valid(max));
 		p_source.min_distance = min;
 		p_source.max_distance = max;
 	}

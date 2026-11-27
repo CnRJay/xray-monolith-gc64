@@ -20,6 +20,8 @@ public:
 	void SetInfo(CInventoryItem* slot_wpn, CInventoryItem& cur_wpn);
 	bool Check(const shared_str& wpn_section);
 
+	virtual CUIWindow* ui_cast_window() { return this; }
+
 protected:
 	CUIDoubleProgressBar m_progressAccuracy; // red or green
 	CUIDoubleProgressBar m_progressHandling;
@@ -59,6 +61,8 @@ public:
 
 	void InitFromXml(CUIXml& xml_doc);
 	void SetInfo(CInventoryItem const* slot_wpn, CInventoryItem const& cur_wpn);
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 
 protected:
 	CUIDoubleProgressBar m_progress; // red or green

@@ -32,13 +32,13 @@ CONDITIONAL COMPILATION :
                       File Scope Global Variables
 //////////////////////////////////////////////////////////////////////*/
 // The custom unhandled exception filter (crash handler)
-static PFNCHFILTFN g_pfnCallBack = nullptr ;
+static PFNCHFILTFN g_pfnCallBack = NULL ;
 
 // The original unhandled exception filter
-static LPTOP_LEVEL_EXCEPTION_FILTER g_pfnOrigFilt = nullptr ;
+static LPTOP_LEVEL_EXCEPTION_FILTER g_pfnOrigFilt = NULL ;
 
 // The array of modules to limit crash handler to
-static HMODULE * g_ahMod = nullptr ;
+static HMODULE * g_ahMod = NULL ;
 // The size, in items, of g_ahMod
 static UINT g_uiModCount = 0 ;
 
@@ -106,7 +106,7 @@ public  :
             VERIFY ( HeapFree ( GetProcessHeap ( ) ,
                                 0                  ,
                                 g_ahMod             ) ) ;
-            g_ahMod = nullptr ;
+            g_ahMod = NULL ;
         }
         if ( NULL != g_pfnOrigFilt )
         {
@@ -132,14 +132,14 @@ BOOL __stdcall SetCrashHandlerFilter ( PFNCHFILTFN pFn )
         {
             // Restore the original unhandled exception filter.
             SetUnhandledExceptionFilter ( g_pfnOrigFilt ) ;
-            g_pfnOrigFilt = nullptr ;
+            g_pfnOrigFilt = NULL ;
             if ( NULL != g_ahMod )
             {
                 VERIFY ( HeapFree ( GetProcessHeap ( ) , 0 , g_ahMod ) ) ;				
 				//free ( g_ahMod ) ;
-                g_ahMod = nullptr ;
+                g_ahMod = NULL ;
             }
-            g_pfnCallBack = nullptr ;
+            g_pfnCallBack = NULL ;
         }
     }
     else
@@ -450,7 +450,7 @@ LPCTSTR __stdcall GetFaultReason ( EXCEPTION_POINTERS * pExPtrs )
 
         // Start looking up the exception address.
         PIMAGEHLP_SYMBOL pSym = (PIMAGEHLP_SYMBOL)&g_stSymbol ;
-        FillMemory ( pSym , SYM_BUFF_SIZE , 0 ) ;
+        FillMemory ( pSym , NULL , SYM_BUFF_SIZE ) ;
         pSym->SizeOfStruct = sizeof ( IMAGEHLP_SYMBOL ) ;
         pSym->MaxNameLength = SYM_BUFF_SIZE - sizeof ( IMAGEHLP_SYMBOL);
 
@@ -558,7 +558,7 @@ LPCTSTR __stdcall GetFaultReason ( EXCEPTION_POINTERS * pExPtrs )
     __except ( EXCEPTION_EXECUTE_HANDLER )
     {
         ASSERT ( !"Crashed in GetFaultReason" ) ;
-        szRet = nullptr ;
+        szRet = NULL ;
     }
     return ( szRet ) ;
 }
@@ -591,7 +591,7 @@ BOOL __stdcall GetFaultReasonVB ( EXCEPTION_POINTERS * pExPtrs ,
     }
     __except ( EXCEPTION_EXECUTE_HANDLER )
     {
-        szRet = nullptr ;
+        szRet = NULL ;
     }
     return ( NULL != szRet ) ;
 }
@@ -702,7 +702,7 @@ LPCTSTR __stdcall
                                   NULL                               ) ;
         if ( ( FALSE == bSWRet ) || ( 0 == g_stFrame.AddrFrame.Offset ))
         {
-            szRet = nullptr ;
+            szRet = NULL ;
             return ( szRet ) ;
         }
 
@@ -715,7 +715,7 @@ LPCTSTR __stdcall
                                         g_stFrame.AddrPC.Offset       );
         if ( 0 == dwModBase )
         {
-            szRet = nullptr ;
+            szRet = NULL ;
             return ( szRet ) ;
         }
 
@@ -873,7 +873,7 @@ LPCTSTR __stdcall
     __except ( EXCEPTION_EXECUTE_HANDLER )
     {
         ASSERT ( !"Crashed in InternalGetStackTraceString" ) ;
-        szRet = nullptr ;
+        szRet = NULL ;
     }
 
     return ( szRet ) ;
@@ -906,7 +906,7 @@ BOOL __stdcall
     }
     __except ( EXCEPTION_EXECUTE_HANDLER )
     {
-        szRet = nullptr ;
+        szRet = NULL ;
     }
     return ( NULL != szRet ) ;
 }
@@ -938,7 +938,7 @@ BOOL __stdcall
     }
     __except ( EXCEPTION_EXECUTE_HANDLER )
     {
-        szRet = nullptr ;
+        szRet = NULL ;
     }
     return ( NULL != szRet ) ;
 }
@@ -1012,7 +1012,7 @@ BOOL __stdcall GetRegisterStringVB ( EXCEPTION_POINTERS * pExPtrs ,
     }
     __except ( EXCEPTION_EXECUTE_HANDLER )
     {
-        szRet = nullptr ;
+        szRet = NULL ;
     }
     return ( NULL != szRet ) ;
 

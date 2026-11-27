@@ -32,13 +32,13 @@ u32 g_sv_traffic_optimization_level = eto_none;
 xrClientData::xrClientData() :
 	IClient(Device.GetTimerGlobal())
 {
-	ps = nullptr;
+	ps = NULL;
 	Clear();
 }
 
 void xrClientData::Clear()
 {
-	owner = nullptr;
+	owner = NULL;
 	net_Ready = FALSE;
 	net_Accepted = FALSE;
 	net_PassUpdates = TRUE;
@@ -56,10 +56,10 @@ xrClientData::~xrClientData()
 
 xrServer::xrServer() : IPureServer(Device.GetTimerGlobal(), g_dedicated_server)
 {
-	m_file_transfers = nullptr;
+	m_file_transfers = NULL;
 	m_aDelayedPackets.clear();
-	m_server_logo = nullptr;
-	m_server_rules = nullptr;
+	m_server_logo = NULL;
+	m_server_rules = NULL;
 	m_last_updates_size = 0;
 	m_last_update_time = 0;
 }
@@ -95,6 +95,34 @@ CSE_Abstract* xrServer::ID_to_entity(u16 ID)
 	xrS_entities::iterator I = entities.find(ID);
 	if (entities.end() != I) return I->second;
 	else return 0;
+}
+
+xr_vector<u16> xrServer::get_entity_ids_in_spawn_order()
+{
+	xr_vector<u16> ids;
+	ids.reserve(entities.size());
+	for (const auto& entry : entities)
+		ids.push_back(entry.first);
+	std::sort(ids.begin(), ids.end());
+
+	xr_vector<u16> ordered_ids;
+	ordered_ids.reserve(ids.size());
+	xr_unordered_set<u16> visited;
+	visited.reserve(ids.size());
+	xr_vector<u16> chain;
+
+	// Actor ID 0 comes first; parents precede children even when their IDs are higher.
+	// Mark IDs before following parents so malformed cycles cannot loop indefinitely.
+	for (u16 id : ids)
+	{
+		chain.clear();
+		for (CSE_Abstract* entity = ID_to_entity(id); entity && visited.insert(entity->ID).second;
+		     entity = ID_to_entity(entity->ID_Parent))
+			chain.push_back(entity->ID);
+		ordered_ids.insert(ordered_ids.end(), chain.rbegin(), chain.rend());
+	}
+
+	return ordered_ids;
 }
 
 //--------------------------------------------------------------------
@@ -353,7 +381,7 @@ void xrServer::SendUpdatesToAll()
 
 
 	//sending game_update 
-	fastdelegate::FastDelegate1<IClient*, void> sendtofd;
+	xr_delegate<void(IClient*)> sendtofd;
 	sendtofd.bind(this, &xrServer::SendGameUpdateTo);
 	ForEachClientDoSender(sendtofd);
 
@@ -415,14 +443,14 @@ u32 xrServer::OnDelayedMessage(NET_Packet& P, ClientID sender) // Non-Zero means
 				string1024 buff;
 				P.r_stringZ(buff);
 				Msg("* Radmin [%s] is running command: %s", CL->ps->getName(), buff);
-				SetLogCB(console_log_cb);
+				xrLogger::AddLogCallback(console_log_cb);
 				_tmp_log.clear();
 				LPSTR result_command;
 				string64 tmp_number_str;
 				xr_sprintf(tmp_number_str, " raid:%u", CL->ID.value());
 				STRCONCAT(result_command, buff, tmp_number_str);
 				Console->Execute(result_command);
-				SetLogCB(nullptr);
+				xrLogger::RemoveLogCallback(console_log_cb);	
 
 				NET_Packet P_answ;
 				for (u32 i = 0; i < _tmp_log.size(); ++i)
@@ -676,7 +704,7 @@ u32 xrServer::OnMessage(NET_Packet& P, ClientID sender) // Non-Zero means broadc
 					if (static_cast<IClient*>(CL) != GetServerClient())
 					{
 						game_PlayerState* tmp_ps = CL->ps;
-						u32 tmp_pid = tmp_ps != nullptr ? tmp_ps->m_account.profile_id() : 0;
+						u32 tmp_pid = tmp_ps != NULL ? tmp_ps->m_account.profile_id() : 0;
 						Game().m_WeaponUsageStatistic->OnUpdateRespond(&P, CL->m_cdkey_digest, tmp_pid);
 					}
 				}
@@ -873,9 +901,9 @@ if( dbg_net_Draw_Flags.test( dbg_destroy ) )
 	m_tID_Generator.vfFreeID(P->ID, Device.TimerAsync());
 
 	if (P->owner && P->owner->owner == P)
-		P->owner->owner = nullptr;
+		P->owner->owner = NULL;
 
-	P->owner = nullptr;
+	P->owner = NULL;
 	if (!ai().get_alife() || !P->m_bALifeControl)
 	{
 		F_entity_Destroy(P);
@@ -889,7 +917,7 @@ void xrServer::Server_Client_Check(IClient* CL)
 	{
 		if (!CL->flags.bConnected)
 		{
-			SV_Client = nullptr;
+			SV_Client = NULL;
 		};
 		return;
 	};
@@ -930,7 +958,7 @@ CSE_Abstract* xrServer::GetEntity(u32 Num)
 	{
 		if (C == Num) return I->second;
 	};
-	return nullptr;
+	return NULL;
 };
 
 
@@ -983,9 +1011,8 @@ static	BOOL	_ve_use					= TRUE;
 
 bool xrServer::verify_entities				() const
 {
-	if (!_ve_initialized)	{
-		_ve_initialized					= TRUE;
-		if (strstr(Core.Params,"-~ve"))	_ve_use=FALSE;
+	if (!_ve_initialized) {
+		_ve_initialized = TRUE;
 	}
 	if (!_ve_use)						return true;
 

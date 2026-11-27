@@ -174,7 +174,7 @@ private:
 	/// PrepareActorForNewRound, MoveActorToPoint.
 	void StartNewRound();
 	void ActorDeliverArtefactOnBase(CSE_ActorMP* actor, ETeam actorTeam, ETeam teamOfArtefact);
-	void DropArtefact(CSE_ActorMP* aOwner, CSE_ALifeItemArtefact* artefact, Fvector const* dropPosition = nullptr);
+	void DropArtefact(CSE_ActorMP* aOwner, CSE_ALifeItemArtefact* artefact, Fvector const* dropPosition = NULL);
 	void ReturnArtefactToBase();
 	void CheckForArtefactDelivering();
 	void CheckForArtefactReturning(u32 currentTime);

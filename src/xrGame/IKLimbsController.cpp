@@ -63,17 +63,38 @@ void CIKLimbsController::LimbCalculate(SCalculateData& cd)
 	cd.m_limb->ApplyState(cd);
 }
 
-void CIKLimbsController::LimbUpdate(CIKLimb& L)
+bool CIKLimbsController::LimbUpdate(CIKLimb& L, ik_anim_error& error)
 {
 	IKinematicsAnimated* skeleton_animated = m_object->Visual()->dcast_PKinematicsAnimated();
 	VERIFY(skeleton_animated);
-	L.Update(m_object, m_legs_blend, _pose_extrapolation);
+	return L.Update(m_object, m_legs_blend, _pose_extrapolation, error);
 }
 
-IC void update_blend(CBlend* & b)
+void CIKLimbsController::SkipAnimation(const ik_anim_error& error)
 {
-	if (b && CBlend::eFREE_SLOT == b->blend_state())
-		b = 0;
+	// Keep the animated pose. No IK transforms or object shift have been applied yet.
+	// Retry owned blends next update; discard a pointer that cannot be read safely.
+	if (!error.blend_in_pool)
+		m_legs_blend = nullptr;
+	for (CIKLimb& limb : _bone_chains)
+		limb.ResetAnimation();
+	_object_shift = object_shift();
+	_pose_extrapolation.init(m_object->XFORM());
+
+	if (!print_ik_warnings)
+		return;
+
+	// A broken animation may be selected every frame; log at most once per five seconds per object.
+	if (!m_animation_error_logged || u32(Device.dwTimeGlobal - m_last_animation_error_time) >= 5000)
+	{
+		m_animation_error_logged = true;
+		m_last_animation_error_time = Device.dwTimeGlobal;
+		LPCSTR bone = error.limb < _bone_chains.size() ? _bone_chains[error.limb].bone_name() : "<unavailable>";
+		Msg("! IK skipped: %s; object [%s] id [%u], section [%s], visual [%s], bone [%s], "
+			"animation [%s], animation_set [%s]",
+			error.reason, m_object->cName().c_str(), u32(m_object->ID()), m_object->cNameSect().c_str(),
+			m_object->cNameVisual().c_str(), bone, error.animation, error.animation_set);
+	}
 }
 
 IC float lerp(float t, float a, float b)
@@ -259,8 +280,6 @@ int ik_shift_object = 1;
 
 void CIKLimbsController::Calculate()
 {
-	update_blend(m_legs_blend);
-
 	Fmatrix& obj = m_object->XFORM();
 #ifdef	DEBUG
 	if( ph_dbg_draw_mask1.test( phDbgDrawIKSHiftObject ) )
@@ -346,12 +365,52 @@ void _stdcall CIKLimbsController::IKVisualCallback(IKinematics* K)
 		return;
 #endif
 
-	CGameObject* O = ((CGameObject*)K->GetUpdateCallbackParam());
-	CPhysicsShellHolder* Sh = smart_cast<CPhysicsShellHolder*>(O);
-	VERIFY(Sh);
-	CIKLimbsController* ik = Sh->character_ik_controller();
-	VERIFY(ik);
-	ik->Calculate();
+	if(CGameObject* O = (CGameObject*)K->GetUpdateCallbackParam())
+	{
+		if(CPhysicsShellHolder* Sh = O->cast_physics_shell_holder())
+		{
+			if(CIKLimbsController* ik = Sh->character_ik_controller())
+			{
+			    if(!Sh->m_pPhysicsShell)
+			    {
+				    Fvector ce;
+				    O->Center(ce);
+				    if (Render->ViewBase.testSphere_dirty(ce, O->Radius()))
+				    {
+					    if (Device.vCameraPosition.distance_to_sqr(O->Position()) > 3000.f)
+					    {
+						    //if (Device.dwFrame < ik->optimize_frame)
+						    return;
+						    //ik->optimize_frame = Device.dwFrame + Random.randI(8);
+					    }
+
+                        {
+                            PROF_EVENT("IK_UPDATE_CALCULATE", PROF_CAT(Animation));
+                            ik->_pose_extrapolation.update(O->XFORM());
+                            // A completed blend is normal; clear it without reporting an error.
+                            IKinematicsAnimated* animated = O->Visual()->dcast_PKinematicsAnimated();
+                            if (animated && ik->m_legs_blend && animated->LL_IsBlendInPool(ik->m_legs_blend) &&
+                                ik->m_legs_blend->blend_state() == CBlend::eFREE_SLOT)
+                                ik->m_legs_blend = nullptr;
+
+                            ik_anim_error error;
+                            for (CIKLimb& limb : ik->_bone_chains)
+                            {
+                                if (!ik->LimbUpdate(limb, error))
+                                {
+                                    ik->SkipAnimation(error);
+                                    return;
+                                }
+                            }
+
+                            ik->Calculate();
+                        }
+					    
+				    }
+			    }
+			}
+		}
+	}
 }
 
 void CIKLimbsController::PlayLegs(CBlend* b)
@@ -379,12 +438,6 @@ void CIKLimbsController::Update()
 	VERIFY(skeleton_animated);
 
 	skeleton_animated->UpdateTracks();
-	update_blend(m_legs_blend);
-
-	_pose_extrapolation.update(m_object->XFORM());
-	xr_vector<CIKLimb>::iterator i = _bone_chains.begin(), e = _bone_chains.end();
-	for (; e != i; ++i)
-		LimbUpdate(*i);
 
 	/*
 	Fmatrix predict;

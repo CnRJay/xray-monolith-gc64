@@ -9,7 +9,7 @@
 
 Flags32 psCrosshair_Flags = {};
 
-extern ENGINE_API BOOL g_bRendering;
+extern ENGINE_API xr_atomic_bool g_bRendering;
 u32 g_crosshair_color = C_WHITE;
 
 CrosshairSettings g_crosshair_camera_far = CrosshairSettings(
@@ -375,6 +375,9 @@ void CHUDTarget::Render()
 		return;
 
 	if (!m_bShowCrosshair)
+		return;
+
+	if (load_screen_renderer.IsActive())
 		return;
 
 	CHUDManager& hud = HUD();

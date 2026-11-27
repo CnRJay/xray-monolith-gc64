@@ -17,6 +17,7 @@ extern xr_string TranslateName(LPCSTR nameStr);
 class CSE_Abstract;
 class CInventory;
 class CInventoryItem;
+class CMissile;
 class CTrade;
 class CPda;
 class CGameObject;
@@ -30,6 +31,15 @@ class CTradeParameters;
 class CPurchaseList;
 class CWeapon;
 class CCustomOutfit;
+class CHelmet;
+class CActor;
+class CAI_Stalker;
+class CEntity;
+class CBaseMonster;
+class CCar;
+class CAI_Trader;
+class CPhraseDialogManager;
+class CAI_PhraseDialogManager;
 
 class CInventoryOwner : public CAttachmentOwner
 {
@@ -39,6 +49,18 @@ public:
 
 public:
 	virtual CInventoryOwner* cast_inventory_owner() { return this; }
+	virtual CAttachmentOwner* cast_attachment_owner() { return this; }
+	virtual CActor* cast_actor() { return nullptr; }
+	virtual CEntityAlive* cast_entity_alive() { return nullptr; }
+	virtual CEntity* cast_entity() { return nullptr; }
+	virtual CAI_Stalker* cast_stalker() { return nullptr; }
+	virtual CGameObject* cast_game_object() { return nullptr; }
+	virtual CBaseMonster* cast_base_monster() { return nullptr; }
+	virtual CCar* cast_car() { return nullptr; }
+	virtual CAI_Trader* cast_trader() { return nullptr; }
+	virtual CPhraseDialogManager* cast_phrase_dialog_manager() { return nullptr; }
+	virtual CAI_PhraseDialogManager* cast_ai_phrase_dialog_manager() { return nullptr; }
+
 public:
 
 	virtual DLL_Pure* _construct();
@@ -65,6 +87,8 @@ public:
 		m_game_name_str = name;
 		m_game_name = TranslateName(name);
 	}
+
+	void SetDisplayName(LPCSTR name) { m_game_name = name; }
 
 	CPda* GetPDA() const;
 
@@ -214,7 +238,7 @@ protected:
 	xr_string m_game_name_str;
 
 public:
-	virtual void renderable_Render();
+	virtual void renderable_Render(IDSGraphManager* DM);
 	virtual void OnItemTake(CInventoryItem* inventory_item);
 
 	virtual void OnItemBelt(CInventoryItem* inventory_item, const SInvItemPlace& previous_place);
@@ -269,6 +293,7 @@ public:
 
 	virtual bool can_use_dynamic_lights() { return true; }
 	virtual bool use_default_throw_force();
+	virtual float default_missile_throw_force(CMissile* missile);
 	virtual float missile_throw_force();
 	virtual bool use_throw_randomness();
 	virtual bool NeedOsoznanieMode() { return m_need_osoznanie_mode != FALSE; }

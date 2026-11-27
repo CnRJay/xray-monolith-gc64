@@ -1,5 +1,3 @@
-#ifndef xr_device
-#define xr_device
 #pragma once
 
 // Note:
@@ -10,6 +8,7 @@
 //class ENGINE_API CGammaControl;
 
 #include "pure.h"
+#include "../xrCore/xrSyncronize.h"
 //#include "hw.h"
 #include "../xrcore/ftimer.h"
 #include "stats.h"
@@ -21,10 +20,18 @@
 #define VIEWPORT_NEAR  Device.ViewportNear //0.2f
 #define R_VIEWPORT_NEAR 0.005f
 
+// Shared projection volume for 3D UI icons. X/Y placement and model fitting
+// use the same height, so the value defines a coordinate system rather than
+// the final on-screen size.
+constexpr float UI_3D_ICON_ORTHO_HEIGHT = 2.f;
+constexpr float UI_3D_ICON_NEAR_PLANE = 0.01f;
+constexpr float UI_3D_ICON_FAR_PLANE = 100.f;
+constexpr float UI_3D_ICON_DISTANCE = 10.f;
+
 #define DEVICE_RESET_PRECACHE_FRAME_COUNT 10
 
 // demonized: toggle bone optimization
-#define OPTIMIZE_CALCULATE_BONES
+//#define OPTIMIZE_CALCULATE_BONES
 
 #include "../Include/xrRender/FactoryPtr.h"
 #include "../Include/xrRender/RenderDeviceRender.h"
@@ -36,8 +43,6 @@
 #include "../Include/xrRender/Kinematics.h"
 
 class engine_impl;
-
-#pragma pack(push,4)
 
 class IRenderDevice
 {
@@ -63,7 +68,7 @@ public:
 
 	// Engine flow-control (Updates once per Present)
 	u32 dwFrame;
-	
+
 	// Used for cache clearing when in SVP mode.
 	u32 dwViewport = 0;
 
@@ -78,14 +83,30 @@ public:
 	Fvector vCameraTop;
 	Fvector vCameraRight;
 
+	// demonized: Cam has fixed 83 fov, Hud is psHUD_FOV * 83.f
 	Fmatrix mView;
+	Fmatrix mViewHud;
+	Fmatrix mViewCam;
 	Fmatrix mProject;
 	Fmatrix mProjectHud;
+	Fmatrix mProjectCam;
 	Fmatrix mFullTransform;
 	Fmatrix mFullTransformHud;
+	Fmatrix mFullTransformCam;
+	Fmatrix mProjectCamAttached;
+	Fmatrix mProject3DIcons;
+	Fmatrix mFullTransformCamAttached;
+	Fmatrix mFullTransform3DIcons;
 
 	Fmatrix mView_prev;
+	Fmatrix mViewHud_prev;
+	Fmatrix mViewCam_prev;
 	Fmatrix mProject_prev;
+	Fmatrix mProjectHud_prev;
+	Fmatrix mProjectCam_prev;
+	Fmatrix mFullTransform_prev;
+	Fmatrix mFullTransformHud_prev;
+	Fmatrix mFullTransformCam_prev;
 
 	Fvector4 wind_anim_prev;
 	Fvector4 wind_anim_saved;
@@ -101,8 +122,9 @@ public:
 	float fASPECT;
 	float ViewportNear = 0.2f;
 
-	// Data for the main camera (1), and svp camera (2)
-	struct MatrixData {
+	// Data for the main camera (0), and svp camera (1)
+	struct MatrixData
+	{
 		Fmatrix mView;
 		Fmatrix mProject;
 		Fmatrix mProjectHud;
@@ -110,41 +132,6 @@ public:
 
 	MatrixData matrices[2];
 	MatrixData matrices_previous[2];
-
-	struct SRenderFrameData
-	{
-		struct SViewport
-		{
-			Fmatrix mView;
-			Fmatrix mProject;
-			Fmatrix mProjectHud;
-			Fmatrix mFullTransform;
-			Fmatrix mFullTransformHud;
-		};
-
-		SViewport viewport[2];
-
-		Fvector vCameraPosition;
-		Fvector vCameraDirection;
-		Fvector vCameraTop;
-		Fvector vCameraRight;
-		Fmatrix mInvFullTransform;
-		Fmatrix mInvView;
-		float fFOV;
-		float fASPECT;
-
-		u32 dwFrame;
-		float fTimeDelta;
-		float fTimeGlobal;
-		u32 dwTimeDelta;
-		u32 dwTimeGlobal;
-
-		Fvector4 wind_anim_curr;
-		Fvector4 wind_anim_prev;
-	};
-
-	SRenderFrameData frame_data;
-
 protected:
 
 	u32 Timer_MM_Delta;
@@ -177,14 +164,13 @@ class ENGINE_API CRenderDeviceBase :
 public:
 };
 
-#pragma pack(pop)
 // refs
 class ENGINE_API CRenderDevice : public CRenderDeviceBase
 {
 public:
 	class ENGINE_API CSecondVPParams //--#SM+#-- +SecondVP+
 	{
-		bool isActive; // Oeaa aeoeaaoee ?aiaa?a ai aoi?ie au?ii?o
+		bool isActive;
 
 	public:
 		struct Lens { Fmatrix m_W; float radius; };
@@ -195,7 +181,8 @@ public:
 		Fvector3 w_sfp;
 
 		// Objective lens screen space bounding box (FIXME: Hardcoded to 50% screen size)
-		Irect computeRect(float width, float height) {
+		Irect computeRect(float width, float height)
+		{
 			Fvector v = { width, height };
 
 			auto c = Fvector(v).mul(0.5);
@@ -214,7 +201,6 @@ public:
 		bool IsSVPFrame() { return isSVPFrame; }
 
 		// Fetch the bone matrix of `v` from renderable skeleton (set in r4)
-		//    No longer required once scope calculations are moved into r4
 		std::function<bool(IKinematics* k, IRenderVisual* v, Fmatrix& m)> get_bone_matrix;
 		std::function<void()> update_lens_params;
 	};	
@@ -283,17 +269,47 @@ public:
 	//CRegistrator <pureFrame > seqFrame;
 	CRegistrator<pureFrame> seqFrameMT;
 	CRegistrator<pureDeviceReset> seqDeviceReset;
-	xr_vector<fastdelegate::FastDelegate0<>> seqParallel;
-	xr_vector<fastdelegate::FastDelegate0<>> seqParallelRender;
-	xr_vector<fastdelegate::FastDelegate0<>> seqParallelBeforRender;
+	xr_vector<xr_delegate<void()>> seqParallel;
+
+	// ForserX: Pre-Render sequence
+	xr_vector<xr_delegate<void()>> seqParallelRender;
+	xr_vector<xr_delegate<void()>> seqParallelBeforRender;
+
+	// seqParallelBeforRender is filled from the particle worker thread
+	// (CParticleGroup::SItem::OnFrame) and drained on the main thread in
+	// CRenderDevice::on_idle(). Guard every access with this section.
+	// Same pattern as CEventAPI::CS and CEffect_Rain::rainCS.
+	xrCriticalSection seqParallelBeforRenderCS;
+
+	xr_delegate<void()> ParticleWorkerCallback;
+	xr_delegate<void()> ModelDefferClear;
 
 	bool isRendering;
+
+	// CPU stamps of one frame for the perf hub, written only while frame_record_on
+	// Each field has one writer, and the hub reads them after the join
+	struct FrameRecord
+	{
+		enum { task_pre_render, task_parallel_render, task_bones, task_game, task_count };
+
+		u32 frame;
+		u64 start;
+		u64 cap[2];
+		u64 present[2];
+		u64 join[2];
+		u64 task[task_count][2];
+		// Ticks the render thread spun on GPU readbacks, none block in this renderer
+		u64 wait;
+		bool presented;
+	};
+	FrameRecord frame_record;
+	bool frame_record_on;
 
 	// LuaGC
 	int LuaGCCount;
 	bool LuaGCDone;
-	fastdelegate::FastDelegate0<int> LuaGC;
-	fastdelegate::FastDelegate0<void> LuaGCDebug;
+    xr_delegate<int()> LuaGC;
+    xr_delegate<void()> LuaGCDebug;
 
 	// Dependent classes
 	//CResourceManager* Resources;
@@ -342,18 +358,18 @@ public:
         m_engine(0)
 #endif // #ifdef INGAME_EDITOR
 #ifdef PROFILE_CRITICAL_SECTIONS
-        ,mt_csEnter(MUTEX_PROFILE_ID(CRenderDevice::mt_csEnter))
-        ,mt_csLeave(MUTEX_PROFILE_ID(CRenderDevice::mt_csLeave))
+        
 #endif // #ifdef PROFILE_CRITICAL_SECTIONS
 	{
-		m_hWnd = nullptr;
+		m_hWnd = NULL;
 		b_is_Active = FALSE;
 		b_is_Ready = FALSE;
 		b_hide_cursor = FALSE;
 		Timer.Start();
 		m_bNearer = FALSE;
+		frame_record_on = false;
 		
-		m_SecondViewport.SetSVPActive(false);		
+		m_SecondViewport.SetSVPActive(false);
 	};
 
 	void Pause(BOOL bOn, BOOL bTimer, BOOL bSound, LPCSTR reason);
@@ -451,6 +467,10 @@ public:
 		return hud_to_world(m, mProjectHud);
 	}
 
+	Fmatrix& cam_to_world(Fmatrix& m)
+	{
+		return hud_to_world(m, mProjectCamAttached);
+	}
 	Fvector& world_to_hud(Fvector& v, const Fmatrix& p)
 	{
 		mInvView.transform_tiny(v);
@@ -499,14 +519,11 @@ public:
 	}
 
 	// Multi-threading
-	xrCriticalSection mt_csEnter;
-	xrCriticalSection mt_csLeave;
-	volatile BOOL mt_bMustExit;
-	xr_task_group seqParallelRender_tasks;
+	xr_task_group secondary_tasks;
 
-	ICF void remove_from_seq_parallel(const fastdelegate::FastDelegate0<>& delegate)
+	ICF void remove_from_seq_parallel(const xr_delegate<void()>& delegate)
 	{
-		xr_vector<fastdelegate::FastDelegate0<>>::iterator I = std::find(
+		xr_vector<xr_delegate<void()>>::iterator I = std::find(
 			seqParallel.begin(),
 			seqParallel.end(),
 			delegate
@@ -578,6 +595,7 @@ private:
 };
 
 extern ENGINE_API CRenderDevice Device;
+extern ENGINE_API CRenderDevice* DevicePtr;
 
 #ifndef _EDITOR
 #define RDEVICE Device
@@ -591,7 +609,7 @@ extern ENGINE_API float refresh_rate;
 
 extern ENGINE_API bool g_bBenchmark;
 
-typedef fastdelegate::FastDelegate0<bool> LOADING_EVENT;
+typedef xr_delegate<bool()> LOADING_EVENT;
 extern ENGINE_API xr_list<LOADING_EVENT> g_loading_events;
 
 class ENGINE_API CLoadScreenRenderer : public pureRender
@@ -604,7 +622,10 @@ public:
 
 	bool b_registered;
 	bool b_need_user_input;
+
+	bool IsActive() const {
+		return b_registered;
+	}
 };
 
 extern ENGINE_API CLoadScreenRenderer load_screen_renderer;
-#endif

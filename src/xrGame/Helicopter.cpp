@@ -17,12 +17,14 @@ float STEP = 0.02f;
 
 CHelicopter::CHelicopter()
 {
-	m_pParticle = nullptr;
-	m_light_render = nullptr;
-	m_lanim = nullptr;
+	m_pParticle = NULL;
+	m_light_render = NULL;
+	m_lanim = NULL;
 
-	ISpatial* self = smart_cast<ISpatial*>(this);
-	if (self) self->spatial.type |= STYPE_VISIBLEFORAI;
+	SpatialComponent->spatial.type |= STYPE_VISIBLEFORAI;
+
+	// demonized: check if object is eligible for bone calc optimization
+	SpatialComponent->canOptimizeCalculateBones = false;
 
 	m_movement.parent = this;
 	m_body.parent = this;
@@ -244,17 +246,7 @@ BOOL CHelicopter::net_Spawn(CSE_Abstract* DC)
 	Device.seqRender.Add(this,REG_PRIORITY_LOW-1);
 #endif
 
-	renderable.visual->flags.set(IRenderVisualFlags::eIgnoreOptimization, TRUE);
-
-	xr_vector<IRenderVisual*>* children = renderable.visual->get_children();
-
-	if (children)
-	{
-		for (auto* child : *children)
-		{
-			child->flags.set(IRenderVisualFlags::eIgnoreOptimization, TRUE);
-		}
-	}
+    renderable.visual->MarkIgnoreOptimization(TRUE);
 
 	return TRUE;
 }
@@ -269,7 +261,7 @@ void CHelicopter::net_Destroy()
 	CPHDestroyable::RespawnInit();
 	m_engineSound.stop();
 	m_brokenSound.stop();
-	CParticlesObject::Destroy(m_pParticle);
+	Particles::Details::Destroy(m_pParticle);
 	m_light_render.destroy();
 	m_movement.net_Destroy();
 #ifdef DEBUG

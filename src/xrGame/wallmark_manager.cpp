@@ -89,7 +89,7 @@ void CWalmarkManager::PlaceWallmarks(const Fvector& start_pos)
 	//.	LPCSTR				sect				= pSettings->r_string(m_owner->cNameSect(), "wallmark_section");
 	Load("explosion_marks");
 
-	//.	Device.seqParallel.push_back	(fastdelegate::FastDelegate0<>(this,&CWalmarkManager::StartWorkflow));
+	//.	Device.seqParallel.push_back	(xr_make_delegate(this,&CWalmarkManager::StartWorkflow));
 
 	StartWorkflow();
 }
@@ -166,7 +166,7 @@ void CWalmarkManager::StartWorkflow()
 
 		if (test > 0.f)
 		{
-			if (Level().ObjectSpace.RayTest(m_pos, pdir, test, collide::rqtStatic, nullptr, m_owner))
+			if (Level().ObjectSpace.RayTest(m_pos, pdir, test, collide::rqtStatic, NULL, m_owner))
 			{
 				++_ray_test;
 				continue;

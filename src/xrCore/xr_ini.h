@@ -1,6 +1,6 @@
 #pragma once
 
-#include <fastdelegate/fastdelegate.h>
+#include "xr_delegate.h"
 
 // refs
 class CInifile;
@@ -78,7 +78,7 @@ public:
 	typedef Root::const_iterator RootCIt;
 
 #ifndef _EDITOR
-	typedef fastdelegate::FastDelegate1<LPCSTR, bool> allow_include_func_t;
+	typedef xr_delegate<bool(LPCSTR)> allow_include_func_t;
 #endif
 	static CInifile* Create(LPCSTR szFileName, BOOL ReadOnly = TRUE);
 	static void Destroy(CInifile*);
@@ -94,7 +94,7 @@ private:
 	Root DATA;
 	void Load(IReader* F, LPCSTR path
 #ifndef _EDITOR
-	          , allow_include_func_t allow_include_func = nullptr
+	          , allow_include_func_t allow_include_func = NULL
 #endif
 	);
 public:
@@ -104,7 +104,7 @@ public:
 	CInifile(IReader* F,
 	         LPCSTR path = 0
 #ifndef _EDITOR
-	         , allow_include_func_t allow_include_func = nullptr
+	         , allow_include_func_t allow_include_func = NULL
 #endif
 	);
 
@@ -114,7 +114,7 @@ public:
 	         BOOL SaveAtEnd = TRUE,
 	         u32 sect_count = 0
 #ifndef _EDITOR
-	         , allow_include_func_t allow_include_func = nullptr
+	         , allow_include_func_t allow_include_func = NULL
 #endif
 	);
 
@@ -134,6 +134,7 @@ public:
 	static void InvalidateCache(LPCSTR path = nullptr);
 	static void CInifile::GetCacheStats(u64& files_cached, u64& total_bytes, u64& section_count)
 	{
+        xrCriticalSectionGuard g(CacheCS);
 		total_bytes = 0;
 		section_count = 0;
 		files_cached = CachedData.size();
@@ -339,6 +340,7 @@ public:
 	void w_bool(LPCSTR S, LPCSTR L, BOOL V, LPCSTR comment = 0);
 
 	void remove_line(LPCSTR S, LPCSTR L);
+	bool remove_section(LPCSTR S);
 };
 
 // Main configuration file

@@ -16,14 +16,12 @@ CALifeSmartTerrainRegistry::~CALifeSmartTerrainRegistry()
 
 void CALifeSmartTerrainRegistry::add(CSE_ALifeDynamicObject* object)
 {
-	CSE_ALifeSmartZone* zone = object->cast_smart_zone();
+	CSE_ALifeSmartZone* zone = smart_cast<CSE_ALifeSmartZone*>(object);
 	if (!zone)
 		return;
 
-#ifdef DEBUG
 	OBJECTS::const_iterator I = objects().find(object->ID);
 	VERIFY(I == objects().end());
-#endif
 	m_objects.insert(std::make_pair(object->ID, zone));
 }
 

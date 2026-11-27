@@ -20,11 +20,11 @@ void SetupGPU(IRenderDeviceRender* pRender)
 	BOOL bForceGPU_NonPure;
 	BOOL bForceGPU_REF;
 
-	if (strstr(lpCmdLine, "-gpu_sw") != nullptr) bForceGPU_SW = TRUE;
+	if (strstr(lpCmdLine, "-gpu_sw") != NULL) bForceGPU_SW = TRUE;
 	else bForceGPU_SW = FALSE;
-	if (strstr(lpCmdLine, "-gpu_nopure") != nullptr) bForceGPU_NonPure = TRUE;
+	if (strstr(lpCmdLine, "-gpu_nopure") != NULL) bForceGPU_NonPure = TRUE;
 	else bForceGPU_NonPure = FALSE;
-	if (strstr(lpCmdLine, "-gpu_ref") != nullptr) bForceGPU_REF = TRUE;
+	if (strstr(lpCmdLine, "-gpu_ref") != NULL) bForceGPU_REF = TRUE;
 	else bForceGPU_REF = FALSE;
 
 	pRender->SetupGPU(bForceGPU_SW, bForceGPU_NonPure, bForceGPU_REF);
@@ -167,6 +167,7 @@ extern void GetMonitorPosition(int& x, int& y);
 
 PROTECT_API void CRenderDevice::Create()
 {
+	PROF_EVENT("CRenderDevice::Create");
 	//SECUROM_MARKER_SECURITY_ON(4)
 
 	if (b_is_Ready) return; // prevent double call

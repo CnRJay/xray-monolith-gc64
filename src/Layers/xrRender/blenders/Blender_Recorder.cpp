@@ -47,9 +47,9 @@ void CBlender_Compile::_cpp_Compile(ShaderElement* _SH)
 	//	optimization?
 
 	// Analyze possibility to detail this shader
-	detail_texture = nullptr;
-	detail_scaler = nullptr;
-	LPCSTR base = nullptr;
+	detail_texture = NULL;
+	detail_scaler = NULL;
+	LPCSTR base = NULL;
 	if (bDetail && BT->canBeDetailed())
 	{
 		// 
@@ -252,9 +252,6 @@ void CBlender_Compile::PassSET_ablend_aref(BOOL bATest, u32 aRef)
 void CBlender_Compile::PassSET_Blend(BOOL bABlend, u32 abSRC, u32 abDST, BOOL bATest, u32 aRef)
 {
 	PassSET_ablend_mode(bABlend, abSRC, abDST);
-#ifdef DEBUG
-	if (strstr(Core.Params,"-noaref"))	{bATest=FALSE; aRef=0; }
-#endif
 	PassSET_ablend_aref(bATest, aRef);
 }
 

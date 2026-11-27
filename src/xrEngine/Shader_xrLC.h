@@ -112,7 +112,7 @@ public:
 	{
 		for (Shader_xrLCIt it = library.begin(); it != library.end(); it++)
 			if (0 == stricmp(name, it->Name)) return &(*it);
-		return nullptr;
+		return NULL;
 	}
 
 	Shader_xrLC* Get(int id)

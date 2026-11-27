@@ -10,6 +10,9 @@
 #include "../xrEngine/render.h"
 #include "anticheat_dumpable_object.h"
 
+#include "../xrParticles/psystem.h"
+#include "ParticlesObject.h"
+
 class CCartridge;
 class CParticlesObject;
 class IRender_Sector;
@@ -263,7 +266,7 @@ protected:
 	//для выстрела 1м и 2м видом стрельбы
 	shared_str m_sFlameParticles;
 	//объект партиклов огня
-	CParticlesObject* m_pFlameParticles;
+	intrusive_ptr<CParticlesObject> m_pFlameParticles;
 
 	//имя пратиклов для дыма
 	shared_str m_sSmokeParticlesCurrent;

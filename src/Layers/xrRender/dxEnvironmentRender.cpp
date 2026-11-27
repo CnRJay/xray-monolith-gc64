@@ -100,7 +100,16 @@ void dxEnvDescriptorRender::Copy(IEnvDescriptorRender& _in)
 
 void dxEnvDescriptorMixerRender::Copy(IEnvDescriptorMixerRender& _in)
 {
-	*this = *(dxEnvDescriptorMixerRender*)&_in;
+	dxEnvDescriptorMixerRender* other = (dxEnvDescriptorMixerRender*)&_in;
+
+	clouds_r_textures.assign(other->clouds_r_textures.begin(), other->clouds_r_textures.end());
+	clouds_r_textures.dwReference++;
+
+	sky_r_textures.assign(other->sky_r_textures.begin(), other->sky_r_textures.end());
+	sky_r_textures.dwReference++;
+
+	sky_r_textures_env.assign(other->sky_r_textures_env.begin(), other->sky_r_textures_env.end());
+	sky_r_textures_env.dwReference++;
 }
 
 void dxEnvironmentRender::Copy(IEnvironmentRender& _in)
@@ -177,6 +186,8 @@ void dxEnvDescriptorRender::OnDeviceCreate(CEnvDescriptor& owner)
 	if (owner.sky_texture_env_name.size())
 	{
 		sky_texture_env.create(owner.sky_texture_env_name.c_str());
+		// The combine pass copies this cube with surface_get and never applies it
+		sky_texture_env->bNoEvict = true;
 		if (g_pGamePersistent->Environment().m_paused)
 		{
 			mixRen.sky_r_textures_env.clear();
@@ -212,6 +223,7 @@ dxEnvironmentRender::dxEnvironmentRender()
 
 void dxEnvironmentRender::OnFrame(CEnvironment& env)
 {
+	PROF_EVENT("EnvironmentRender::OnFrame", PROF_CAT(Rendering));
 	dxEnvDescriptorMixerRender& mixRen = *(dxEnvDescriptorMixerRender*)&*env.CurrentEnv->m_pDescriptorMixer;
 
 	if (::Render->get_generation() == IRender_interface::GENERATION_R2)
@@ -272,6 +284,7 @@ void dxEnvironmentRender::OnUnload()
 
 void dxEnvironmentRender::RenderSky(CEnvironment& env, bool OnlyMV)
 {
+	PROF_EVENT("EnvironmentRender::RenderSky", PROF_CAT(Rendering));
 	// clouds_sh.create		("clouds","null");
 	//. this is the bug-fix for the case when the sky is broken
 	//. for some unknown reason the geoms happen to be invalid sometimes
@@ -358,6 +371,7 @@ void dxEnvironmentRender::RenderSky(CEnvironment& env, bool OnlyMV)
 
 void dxEnvironmentRender::RenderClouds(CEnvironment& env)
 {
+	PROF_EVENT("EnvironmentRender::RenderClouds", PROF_CAT(Rendering));
 	::Render->rmFar();
 
 	Fmatrix mXFORM, mScale;
@@ -408,8 +422,8 @@ void dxEnvironmentRender::OnDeviceCreate()
 
 void dxEnvironmentRender::OnDeviceDestroy()
 {
-	tsky0->surface_set(nullptr);
-	tsky1->surface_set(nullptr);
+	tsky0->surface_set(NULL);
+	tsky1->surface_set(NULL);
 
 	sh_2sky.destroy();
 	sh_2geom.destroy();

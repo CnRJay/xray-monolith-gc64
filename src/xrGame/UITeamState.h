@@ -83,6 +83,8 @@ public:
 
 	virtual void Update();
 	virtual void Draw();
+
+	virtual CUIWindow* ui_cast_window() { return this; }
 };
 
 #endif

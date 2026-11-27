@@ -5,7 +5,7 @@
 #include "xrServer.h"
 #include "game_sv_base.h"
 #include "game_cl_mp.h"
-#include <fastdelegate/fastdelegate.h>
+#include "../xrCore/xr_delegate.h"
 
 extern BOOL g_sv_mp_save_proxy_screenshots;
 extern BOOL g_sv_mp_save_proxy_configs;
@@ -140,7 +140,7 @@ void clientdata_proxy::save_proxy_screenshot()
 	string_path screenshot_fn;
 	string_path str_digest;
 
-	LPCSTR dest_file_name = nullptr;
+	LPCSTR dest_file_name = NULL;
 	STRCONCAT(dest_file_name,
 	          clgame->make_file_name(m_cheater_name.c_str(), screenshot_fn),
 	          "_",
@@ -168,7 +168,7 @@ void clientdata_proxy::save_proxy_config()
 		return;
 
 	string_path config_fn;
-	LPCSTR fn_suffix = nullptr;
+	LPCSTR fn_suffix = NULL;
 	string_path dest_file_name;
 
 	STRCONCAT(fn_suffix,

@@ -4,7 +4,7 @@
 
 #include "..\..\Include\xrRender\UIShader.h"
 
-extern xr_unordered_map<std::string, ref_shader> g_UIShadersCache;
+extern xr_unordered_flat_map<xr_string, ref_shader> g_UIShadersCache;
 
 class dxUIShader : public IUIShader
 {

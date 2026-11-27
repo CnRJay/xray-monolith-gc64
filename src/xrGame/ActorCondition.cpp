@@ -56,7 +56,7 @@ CActorCondition::CActorCondition(CActor* object) :
 	VERIFY(object);
 	m_object = object;
 	m_condition_flags.zero();
-	m_death_effector = nullptr;
+	m_death_effector = NULL;
 
 	m_zone_max_power[ALife::infl_rad] = 1.0f;
 	m_zone_max_power[ALife::infl_fire] = 1.0f;
@@ -305,7 +305,7 @@ void CActorCondition::UpdateCondition()
 	if (IsGameTypeSingle())
 		UpdateTutorialThresholds();
 
-	if (GetHealth() < 0.05f && m_death_effector == nullptr && IsGameTypeSingle())
+	if (GetHealth() < 0.05f && m_death_effector == NULL && IsGameTypeSingle())
 	{
 		if (pSettings->section_exist("actor_death_effector"))
 			m_death_effector = xr_new<CActorDeathEffector>(this, "actor_death_effector");
@@ -380,15 +380,13 @@ void CActorCondition::AffectDamage_InjuriousMaterialAndMonstersInfluence()
 	// Add Radiation and Psy Level from Monsters
 	CPda* const pda = m_object->GetPDA();
 
-	if (pda)
+	if (m_object && m_object->g_Alive())
 	{
 		typedef xr_vector<CObject*> monsters;
 
-		for (monsters::const_iterator it = pda->feel_touch.begin();
-		     it != pda->feel_touch.end();
-		     ++it)
+		for (const auto Object : m_object->feel_touch)
 		{
-			CBaseMonster* const monster = smart_cast<CBaseMonster*>(*it);
+			CBaseMonster* const monster = smart_cast<CBaseMonster*>(Object);
 			if (!monster || !monster->g_Alive()) continue;
 
 			psy_influence += monster->get_psy_influence();
@@ -461,6 +459,12 @@ void CActorCondition::SetZoneDanger(float danger, ALife::EInfluenceType type)
 	clamp(m_zone_danger[type], 0.0f, 1.0f);
 }
 
+float CActorCondition::GetZoneDanger(ALife::EInfluenceType type) const
+{
+	VERIFY(type != ALife::infl_max_count);
+	return m_zone_danger[type];
+}
+
 float CActorCondition::GetZoneDanger() const
 {
 	float sum = 0.0f;
@@ -512,7 +516,7 @@ void CActorCondition::UpdateSatiety()
 
 CWound* CActorCondition::ConditionHit(SHit* pHDS)
 {
-	if (GodMode()) return nullptr;
+	if (GodMode()) return NULL;
 	return inherited::ConditionHit(pHDS);
 }
 

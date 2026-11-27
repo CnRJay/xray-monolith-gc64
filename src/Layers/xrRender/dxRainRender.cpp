@@ -21,8 +21,9 @@ const int max_particles = 1000;
 const int particles_cache = 400;
 const float particles_time = .3f;
 
-int current_items;
-
+xr_atomic_u32 current_items;
+extern float r_rain_exp;
+extern float r_rain_k;
 dxRainRender::dxRainRender()
 {
 	current_items = 0;
@@ -57,126 +58,11 @@ void dxRainRender::Copy(IRainRender& _in)
 
 #include "../../xrEngine/iGame_persistent.h"
 
-void dxRainRender::Update(CEffect_Rain& owner)
-{
-	float factor = g_pGamePersistent->Environment().CurrentEnv->rain_density;
-	if (factor < EPS_L) return;
-
-	float _drop_speed = 1.0f;
-	int rain_max_particles = max_desired_items;
-	float rain_radius = source_radius;
-
-	// SSS Rain shader is available
-#if defined(USE_DX11)
-	if (RImplementation.o.ssfx_rain)
-	{
-		_drop_speed = ps_ssfx_rain_1.z;
-		rain_max_particles = ps_ssfx_rain_drops_setup.x;
-		rain_radius = ps_ssfx_rain_drops_setup.y;
-	}
-#endif
-
-	u32 desired_items = iFloor(0.01f * (1.f + factor * 99.0f) * float(rain_max_particles));
-
-	// Get to the desired items
-	if (current_items < desired_items)
-		current_items += desired_items - current_items;
-
-	// born new if needed
-	float b_radius_wrap_sqr = _sqr((rain_radius * 1.5f));
-	if (owner.items.size() < current_items)
-	{
-		while (owner.items.size() < current_items)
-		{
-			CEffect_Rain::Item one;
-			owner.Born(one, rain_radius, _drop_speed);
-			owner.items.push_back(one);
-		}
-	}
-
-	// build source plane
-	Fplane src_plane;
-	Fvector norm = {0.f, -1.f, 0.f};
-	Fvector upper;
-	upper.set(Device.vCameraPosition.x, Device.vCameraPosition.y + source_offset, Device.vCameraPosition.z);
-	src_plane.build(upper, norm);
-
-	// perform update
-	const Fvector& vEye = Device.vCameraPosition;
-	if (!Device.m_SecondViewport.IsSVPFrame()) {
-		for (u32 I = 0; I < current_items; I++)
-		{
-			// physics and time control
-			CEffect_Rain::Item& one = owner.items[I];
-
-			if (one.dwTime_Hit < Device.dwTimeGlobal)
-			{
-				owner.Hit(one.Phit);
-				if (current_items > desired_items) current_items--; // Hit something
-			}
-			if (one.dwTime_Life < Device.dwTimeGlobal)
-			{
-				owner.Born(one, rain_radius, _drop_speed);
-				if (current_items > desired_items) current_items--; // Out of life ( invalidated, never hit something, etc. )
-			}
-
-			float dt = Device.fTimeDelta;
-			one.P.mad(one.D, one.fSpeed * dt);
-
-			Device.Statistic->TEST1.Begin();
-			Fvector wdir;
-			wdir.set(one.P.x - vEye.x, 0, one.P.z - vEye.z);
-			float wlen = wdir.square_magnitude();
-			if (wlen > b_radius_wrap_sqr)
-			{
-				wlen = _sqrt(wlen);
-				if ((one.P.y - vEye.y) < sink_offset)
-				{
-					// need born
-					one.invalidate();
-				}
-				else
-				{
-					Fvector inv_dir, src_p;
-					inv_dir.invert(one.D);
-					wdir.div(wlen);
-					one.P.mad(one.P, wdir, -(wlen + rain_radius));
-					if (src_plane.intersectRayPoint(one.P, inv_dir, src_p))
-					{
-						float dist_sqr = one.P.distance_to_sqr(src_p);
-						float height = max_distance;
-						if (owner.RayPick(src_p, one.D, height, collide::rqtBoth))
-						{
-							if (_sqr(height) <= dist_sqr)
-							{
-								one.invalidate(); // need born
-							}
-							else
-							{
-								owner.RenewItem(one, height - _sqrt(dist_sqr), TRUE); // fly to point
-							}
-						}
-						else
-						{
-							owner.RenewItem(one, max_distance - _sqrt(dist_sqr), FALSE); // fly ...
-						}
-					}
-					else
-					{
-						// need born
-						one.invalidate();
-					}
-				}
-			}
-			Device.Statistic->TEST1.End();
-		}
-	}
-}
-
 void dxRainRender::Render(CEffect_Rain& owner)
 {
 	float factor = g_pGamePersistent->Environment().CurrentEnv->rain_density;
 	if (factor < EPS_L) return;
+    factor = _powf(factor, r_rain_exp);
 
 #if defined(USE_DX11)
 	PIX_EVENT(SSFX_RAIN_RENDER);
@@ -184,10 +70,12 @@ void dxRainRender::Render(CEffect_Rain& owner)
 
 	float _drop_len = drop_length;
 	float _drop_width = drop_width;
+	float _drop_speed = 1.0f;
 	ref_shader& _splash_SH = DM_Drop->shader;
 	static shared_str s_shader_setup = "ssfx_rain_setup";
 
 	int rain_max_particles = max_desired_items;
+	float rain_radius = source_radius;
 
 	// SSS Rain shader is available
 #if defined(USE_DX11)
@@ -195,30 +83,39 @@ void dxRainRender::Render(CEffect_Rain& owner)
 	{
 		_drop_len = ps_ssfx_rain_1.x;
 		_drop_width = ps_ssfx_rain_1.y;
+		_drop_speed = ps_ssfx_rain_1.z;
 		_splash_SH = SH_Splash;
 		rain_max_particles = ps_ssfx_rain_drops_setup.x;
+		rain_radius = ps_ssfx_rain_drops_setup.y;
 	}
 #endif
 
-	u32 desired_items = iFloor(0.01f * (1.f + factor * 99.0f) * float(rain_max_particles));
+	u32 desired_items = iFloor(0.01f * (1.f + factor * r_rain_k) * float(rain_max_particles));
+	u32 render_items = _min(desired_items, (u32)owner.items.size());
+	if (!render_items)
+		return;
+
+	// Get to the desired items
+	u32 local_current = current_items.load(std::memory_order_relaxed);
+	if (local_current < desired_items)
+	{
+		u32 delta = desired_items - local_current;
+		current_items.fetch_add(delta, std::memory_order_relaxed);
+	}	
 
 	// visual
 	float factor_visual = factor / 2.f + .5f;
 	Fvector3 f_rain_color = g_pGamePersistent->Environment().CurrentEnv->rain_color;
 	u32 u_rain_color = color_rgba_f(f_rain_color.x, f_rain_color.y, f_rain_color.z, factor_visual);
 
-	const Fvector& vEye = Device.vCameraPosition;
-
-	// Generate geometry
+	// perform update
 	u32 vOffset;
-	FVF::LIT* verts = (FVF::LIT*)RCache.Vertex.Lock(desired_items * 4, hGeom_Rain->vb_stride, vOffset);
+	FVF::LIT* verts = (FVF::LIT *)RCache.Vertex.Lock(render_items * 4, hGeom_Rain->vb_stride, vOffset);
 	FVF::LIT* start = verts;
-	u32 items_to_render = _min((u32)owner.items.size(), (u32)current_items);
-	for (u32 I = 0; I < items_to_render; I++)
+	const Fvector& vEye = Device.vCameraPosition;
+	u32 rendered_items = 0;
+	for (CEffect_Rain::Item& one : owner.items)
 	{
-		// physics and time control
-		CEffect_Rain::Item& one = owner.items[I];
-
 		// Build line
 		Fvector& pos_head = one.P;
 		Fvector pos_trail;
@@ -258,6 +155,9 @@ void dxRainRender::Render(CEffect_Rain& owner)
 		P.mad(pos_head, lineTop, w);
 		verts->set(P, u_rain_color, UV[s][3].x, UV[s][3].y);
 		verts++;
+
+		if (++rendered_items >= render_items)
+			break;
 	}
 	u32 vCount = (u32)(verts - start);
 	RCache.Vertex.Unlock(vCount, hGeom_Rain->vb_stride);
@@ -302,12 +202,15 @@ void dxRainRender::Render(CEffect_Rain& owner)
 
 			// Update
 			// P can be zero sometimes and it crashes
-			P->time -= dt;
-			if (P->time < 0)
+			if (!Device.m_SecondViewport.IsSVPFrame())
 			{
-				owner.p_free(P);
-				P = next;
-				continue;
+				P->time -= dt;
+				if (P->time < 0)
+				{
+					owner.p_free(P);
+					P = next;
+					continue;
+				}
 			}
 
 			// Render

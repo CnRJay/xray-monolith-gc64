@@ -2,7 +2,6 @@
 
 #include "WeaponMagazined.h"
 #include "actor.h"
-#include "ParticlesObject.h"
 #include "Scope.h"
 #include "Silencer.h"
 #include "GrenadeLauncher.h"
@@ -32,7 +31,7 @@ ENGINE_API extern float psHUD_FOV_def;
 
 BOOL g_auto_reload = FALSE;
 
-CUIXml* pWpnScopeXml = nullptr;
+CUIXml* pWpnScopeXml = NULL;
 
 void createWpnScopeXML()
 {
@@ -53,8 +52,8 @@ CWeaponMagazined::CWeaponMagazined(ESoundTypes eSoundType) : CWeapon()
 	m_eSoundReloadEmpty = ESoundTypes(SOUND_TYPE_WEAPON_RECHARGING | eSoundType);
 
 	m_sounds_enabled = true;
-	m_sSndShotCurrent = nullptr;
-	m_sSilencerFlameParticles = m_sSilencerSmokeParticles = nullptr;
+	m_sSndShotCurrent = NULL;
+	m_sSilencerFlameParticles = m_sSilencerSmokeParticles = NULL;
 
 	m_bFireSingleShot = false;
 	m_iShotNum = 0;
@@ -71,7 +70,7 @@ CWeaponMagazined::~CWeaponMagazined()
 	}
 
 	// sounds
-	Device.remove_from_seq_parallel(fastdelegate::FastDelegate0<>(this, &CWeaponMagazined::UpdateSoundsPositions));
+	Device.remove_from_seq_parallel(xr_make_delegate(this, &CWeaponMagazined::UpdateSoundsPositions));
 }
 
 void CWeaponMagazined::net_Destroy()
@@ -151,7 +150,8 @@ void CWeaponMagazined::Load(LPCSTR section)
 	m_sSndShotCurrent = IsSilencerAttached() ? "sndSilencerShot" : "sndShot";
 
 	//звуки и партиклы глушителя, еслит такой есть
-	if (m_eSilencerStatus == ALife::eAddonAttachable || m_eSilencerStatus == ALife::eAddonPermanent)
+	if (m_eSilencerStatus == ALife::eAddonAttachable || m_eSilencerStatus == ALife::eAddonPermanent ||
+		!m_bUseEngineAttachments)
 	{
 		if (pSettings->line_exist(section, "silencer_flame_particles"))
 			m_sSilencerFlameParticles = pSettings->r_string(section, "silencer_flame_particles");
@@ -205,6 +205,8 @@ void CWeaponMagazined::Load(LPCSTR section)
 	LoadScopeKoeffs();
 
 	empty_click_layer = READ_IF_EXISTS(pSettings, r_string, *hud_sect, "empty_click_anm", nullptr);
+
+	m_bUseStrictReloadMark = READ_IF_EXISTS(pSettings, r_bool, section, "use_strict_reload_mark", false);
 
 	if (empty_click_layer)
 	{
@@ -491,7 +493,7 @@ void CWeaponMagazined::ReloadMagazine()
 
 	if (!m_bLockType)
 	{
-		m_pCurrentAmmo = nullptr;
+		m_pCurrentAmmo = NULL;
 	}
 
 	if (!m_pInventory) return;
@@ -658,6 +660,7 @@ void CWeaponMagazined::on_b_hud_detach()
 extern ENGINE_API BOOL g_bootComplete;
 void CWeaponMagazined::UpdateCL()
 {
+	PROF_EVENT(PROF_CAT(GameLogic));
 	inherited::UpdateCL();
 	float dt = Device.fTimeDelta;
 
@@ -691,7 +694,7 @@ void CWeaponMagazined::UpdateCL()
 BOOL mt_UpdateWeaponSounds = TRUE;
 void CWeaponMagazined::UpdateSoundsPositionsImpl()
 {
-	PROF_EVENT();
+	PROF_EVENT(PROF_CAT(Audio));
 	auto& P = get_LastFP();
 	m_sounds.UpdateAllSoundsPositions(P);
 }
@@ -711,7 +714,7 @@ void CWeaponMagazined::UpdateSounds()
 	{
 		// Force update of fire dependencies and then put into second thread, fixes flickering limbs
 		get_LastFP();
-		Device.seqParallel.push_back(fastdelegate::FastDelegate0<>(this, &CWeaponMagazined::UpdateSoundsPositions));
+		Device.seqParallel.push_back(xr_make_delegate(this, &CWeaponMagazined::UpdateSoundsPositions));
 	}
 	else
 	{
@@ -741,7 +744,7 @@ void CWeaponMagazined::state_Fire(float dt)
 		d.set(get_LastFD());
 
 		if (!H_Parent()) return;
-		if (smart_cast<CMPPlayersBag*>(H_Parent()) != nullptr)
+		if (smart_cast<CMPPlayersBag*>(H_Parent()) != NULL)
 		{
 			Msg("! WARNING: state_Fire of object [%d][%s] while parent is CMPPlayerBag...", ID(), cNameSect().c_str());
 			return;
@@ -915,12 +918,13 @@ void CWeaponMagazined::OnShot()
 	//дым из ствола
 	ForceUpdateFireParticles();
 
-	StartSmokeParticles(get_LastFP(), vel);
+	// A script fitted suppressor smokes from its own tip
+	StartSmokeParticles(IsSilencerBoneHidden() && SilencerAttachable() && IsSilencerAttached() ? get_LastFPSilencer() : get_LastFP(), vel);
 
 #ifdef EXTENDED_WEAPON_CALLBACKS
 	CGameObject* object = smart_cast<CGameObject*>(H_Parent());
 	if (object)
-		object->callback(GameObject::eOnWeaponFired)(object->lua_game_object(), this->lua_game_object(), iAmmoElapsed);
+		object->callback(GameObject::eOnWeaponFired)(object->lua_game_object(), this->lua_game_object(), iAmmoElapsed, 0, *m_ammoTypes[m_ammoType], 0);
 #endif
 
 	// Эффект сдвига (отдача)
@@ -1254,7 +1258,7 @@ bool CWeaponMagazined::TryPlayAnimBore()
 void CWeaponMagazined::PlayAnimIdleSprint()
 {
 	iAmmoElapsed == 0 && HudAnimationExist("anm_idle_sprint_empty")
-		? PlayHUDMotion("anm_idle_sprint_empty", TRUE, nullptr, GetState())
+		? PlayHUDMotion("anm_idle_sprint_empty", TRUE, NULL, GetState())
 		: inherited::PlayAnimIdleSprint();
 }
 
@@ -1263,7 +1267,7 @@ void CWeaponMagazined::PlayAnimIdleMoving()
 	bool bAccelerated = isActorAccelerated(Actor()->MovingState(), IsZoomed());
 
 	iAmmoElapsed == 0 && HudAnimationExist("anm_idle_moving_empty")
-		? PlayHUDMotion("anm_idle_moving_empty", TRUE, nullptr, GetState(), bAccelerated ? 1.f : .75f)
+		? PlayHUDMotion("anm_idle_moving_empty", TRUE, NULL, GetState(), bAccelerated ? 1.f : .75f)
 		: inherited::PlayAnimIdleMoving();
 }
 
@@ -1272,8 +1276,8 @@ bool CWeaponMagazined::PlayAnimCrouchIdleMoving()
 	if (iAmmoElapsed == 0)
 	{
 		HudAnimationExist("anm_idle_moving_crouch_empty")
-			? PlayHUDMotion("anm_idle_moving_crouch_empty", TRUE, nullptr, GetState())
-			: HudAnimationExist("anm_idle_moving_empty") ? PlayHUDMotion("anm_idle_moving_empty", TRUE, nullptr, GetState(), .7f) : inherited::PlayAnimCrouchIdleMoving();
+			? PlayHUDMotion("anm_idle_moving_crouch_empty", TRUE, NULL, GetState())
+			: HudAnimationExist("anm_idle_moving_empty") ? PlayHUDMotion("anm_idle_moving_empty", TRUE, NULL, GetState(), .7f) : inherited::PlayAnimCrouchIdleMoving();
 
 		return true;
 	}
@@ -1436,14 +1440,14 @@ bool CWeaponMagazined::DetachScope(const char* item_section_name, bool b_spawn_i
 		if (m_modular_attachments) {
 			if (!xr_strcmp(*it, item_section_name))
 			{
-				m_cur_scope = 0;
+				m_cur_scope = NULL;
 				detached = true;
 			}
 		} else {
 			LPCSTR iter_scope_name = pSettings->r_string((*it), "scope_name");
 			if (!xr_strcmp(iter_scope_name, item_section_name))
 			{
-				m_cur_scope = 0;
+				m_cur_scope = NULL;
 				detached = true;
 			}
 		}
@@ -1512,12 +1516,15 @@ bool CWeaponMagazined::Detach(const char* item_section_name, bool b_spawn_item)
 extern int scope_2dtexactive; //crookr
 void CWeaponMagazined::InitAddons()
 {
+	if (!m_bUseEngineAttachments)
+		return;
+
 	if (IsScopeAttached())
 	{
 		shared_str scope_tex_name;
 		if (m_eScopeStatus == ALife::eAddonAttachable)
 		{
-			scope_tex_name = READ_IF_EXISTS(pSettings, r_string, GetScopeName(), "scope_texture", nullptr);
+			scope_tex_name = READ_IF_EXISTS(pSettings, r_string, GetScopeName(), "scope_texture", NULL);
 			m_zoom_params.m_fScopeZoomFactor = pSettings->r_float(GetScopeName(), "scope_zoom_factor");
 			m_zoom_params.m_sUseZoomPostprocess = READ_IF_EXISTS(pSettings, r_string, GetScopeName(), "scope_nightvision", 0);
 			m_zoom_params.m_bUseDynamicZoom = READ_IF_EXISTS(pSettings, r_bool, GetScopeName(), "scope_dynamic_zoom", FALSE);
@@ -1530,7 +1537,7 @@ void CWeaponMagazined::InitAddons()
 				scope_2dtexactive = 0;//crookr
 			}
 
-			if (!g_dedicated_server && scope_tex_name != nullptr)
+			if (!g_dedicated_server && scope_tex_name != NULL)
 			{
 				m_UIScope = xr_new<CUIWindow>();
 				createWpnScopeXML();
@@ -1709,8 +1716,8 @@ void CWeaponMagazined::PlayAnimReload()
 void CWeaponMagazined::PlayAnimAim()
 {
 	iAmmoElapsed == 0 && HudAnimationExist("anm_idle_aim_empty")
-		? PlayHUDMotion("anm_idle_aim_empty", TRUE, nullptr, GetState())
-		: PlayHUDMotion("anm_idle_aim", TRUE, nullptr, GetState());
+		? PlayHUDMotion("anm_idle_aim_empty", TRUE, NULL, GetState())
+		: PlayHUDMotion("anm_idle_aim", TRUE, NULL, GetState());
 }
 
 void CWeaponMagazined::PlayAnimIdle()
@@ -1728,8 +1735,8 @@ void CWeaponMagazined::PlayAnimIdle()
 	if (TryPlayAnimIdle()) return;
 
 	iAmmoElapsed == 0 && HudAnimationExist("anm_idle_empty")
-		? PlayHUDMotion("anm_idle_empty", TRUE, nullptr, GetState())
-		: PlayHUDMotion("anm_idle", TRUE, nullptr, GetState());
+		? PlayHUDMotion("anm_idle_empty", TRUE, NULL, GetState())
+		: PlayHUDMotion("anm_idle", TRUE, NULL, GetState());
 }
 
 void CWeaponMagazined::PlayAnimShoot()
@@ -1751,15 +1758,15 @@ void CWeaponMagazined::PlayAnimShoot()
 	}
 }
 
-void CWeaponMagazined::OnMotionMark(u32 state, const motion_marks& M)
+void CWeaponMagazined::OnMotionMark(u32 state, const motion_marks& M, float mark_start, float mark_end)
 {
-	inherited::OnMotionMark(state, M);
+	inherited::OnMotionMark(state, M, mark_start, mark_end);
 
     // Edited by Verdatim 18.4.2026
     shared_str reloadMarkName = READ_IF_EXISTS(pSettings, r_string, cNameSect(), "motion_mark_reload", "");
 	if (state == eReload && (reloadMarkName.size() == 0 || reloadMarkName == M.name))
 	{
-		if (bClearJamOnly)
+		if (bClearJamOnly && (!m_bUseStrictReloadMark || xr_strcmp(M.name.c_str(), "clear_jam") == 0))
 		{
 			bMisfire = false;
 			bClearJamOnly = false;
@@ -1783,7 +1790,7 @@ void CWeaponMagazined::OnMotionMark(u32 state, const motion_marks& M)
 		}
 		else
 		{
-			if (m_needReload)
+			if (m_needReload && (!m_bUseStrictReloadMark || xr_strcmp(M.name.c_str(), "reload") == 0))
 				ReloadMagazine();
 
             // Verdatim, fix for lmg with non-(lmg_reload) motion marks causing belts to disappear
@@ -2086,7 +2093,8 @@ bool CWeaponMagazined::install_upgrade_impl(LPCSTR section, bool test)
 	}
 	result |= result2;
 
-	if (m_eSilencerStatus == ALife::eAddonAttachable || m_eSilencerStatus == ALife::eAddonPermanent)
+	if (m_eSilencerStatus == ALife::eAddonAttachable || m_eSilencerStatus == ALife::eAddonPermanent ||
+		!m_bUseEngineAttachments)
 	{
 		result |= process_if_exists_set(section, "silencer_flame_particles", &CInifile::r_string,
 		                                m_sSilencerFlameParticles, test);

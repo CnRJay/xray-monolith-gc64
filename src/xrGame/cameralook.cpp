@@ -199,7 +199,7 @@ void CCameraLook2::Update(Fvector& point, Fvector&)
 	{
 		if (!pInput->iGetAsyncKeyState(cam_dik))
 		{
-			m_locked_enemy = nullptr;
+			m_locked_enemy = NULL;
 			//.			Msg				("enemy is NILL");
 		}
 	}

@@ -59,7 +59,7 @@ using namespace Opcode;
  *	Constructor.
  */
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-AABBTreeNode::AABBTreeNode() : mP(nullptr), mN(nullptr), mNbPrimitives(0), mNodePrimitives(nullptr)
+AABBTreeNode::AABBTreeNode() : mP(null), mN(null), mNbPrimitives(0), mNodePrimitives(null)
 {
 }
 
@@ -84,7 +84,7 @@ void AABBTreeNode::destroy(AABBTreeBuilder* _tree)
 		mN->destroy(_tree);
 		_tree->node_destroy(mN);
 	}
-	mNodePrimitives = nullptr; // This was just a shortcut to the global list => no release
+	mNodePrimitives = null; // This was just a shortcut to the global list => no release
 	mNbPrimitives = 0;
 }
 
@@ -334,7 +334,7 @@ void AABBTreeNode::_BuildHierarchy(AABBTreeBuilder* builder)
  *	Constructor.
  */
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-AABBTree::AABBTree() : mIndices(nullptr), mTotalNbNodes(0)
+AABBTree::AABBTree() : mIndices(null), mTotalNbNodes(0)
 {
 }
 

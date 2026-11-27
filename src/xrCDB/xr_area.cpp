@@ -1,17 +1,11 @@
 #include "stdafx.h"
-//#include "igame_level.h"
 
 #include "xr_area.h"
 #include "../xrengine/xr_object.h"
 #include "../xrengine/xrLevel.h"
 #include "../xrengine/xr_collide_form.h"
-//#include "../xrsound/sound.h"
-//#include "x_ray.h"
-//#include "GameFont.h"
-
 
 using namespace collide;
-
 
 //----------------------------------------------------------------------
 // Class	: CObjectSpace
@@ -19,7 +13,7 @@ using namespace collide;
 //----------------------------------------------------------------------
 CObjectSpace::CObjectSpace()
 #ifdef DEBUG
-	: m_pRender(0)
+	,m_pRender(0)
 #endif
 {
 #ifdef DEBUG
@@ -35,8 +29,8 @@ CObjectSpace::CObjectSpace()
 CObjectSpace::~CObjectSpace()
 {
 	//moved to ~IGameLevel
-	//	Sound->set_geometry_occ		(nullptr);
-	//	Sound->set_handler			(nullptr);
+	//	Sound->set_geometry_occ		(NULL);
+	//	Sound->set_handler			(NULL);
 	//
 #ifdef DEBUG
 	//sh_debug.destroy			();
@@ -47,8 +41,7 @@ CObjectSpace::~CObjectSpace()
 //----------------------------------------------------------------------
 
 //----------------------------------------------------------------------
-int CObjectSpace::GetNearest(xr_vector<ISpatial*>& q_spatial, xr_vector<CObject*>& q_nearest, const Fvector& point,
-                             float range, CObject* ignore_object)
+int CObjectSpace::GetNearest(xr_vector<ISpatialShared>& q_spatial, xr_vector<CObject*>& q_nearest, const Fvector& point, float range, CObject* ignore_object)
 {
 	q_spatial.clear_not_free();
 	// Query objects
@@ -60,39 +53,30 @@ int CObjectSpace::GetNearest(xr_vector<ISpatial*>& q_spatial, xr_vector<CObject*
 	g_SpatialSpace->q_box(q_spatial, 0, STYPE_COLLIDEABLE, point, B);
 
 	// Iterate
-	xr_vector<ISpatial*>::iterator it = q_spatial.begin();
-	xr_vector<ISpatial*>::iterator end = q_spatial.end();
+	auto it = q_spatial.begin();
+	auto end = q_spatial.end();
 	for (; it != end; it++)
 	{
 		CObject* O = (*it)->dcast_CObject();
-		if (0 == O) continue;
-		if (O == ignore_object) continue;
-		Fsphere mS = {O->spatial.sphere.P, O->spatial.sphere.R};
-		if (Q.intersect(mS)) q_nearest.push_back(O);
+		if (0 == O)
+			continue;
+
+		if (O == ignore_object)
+			continue;
+
+		Fsphere mS = { O->SpatialComponent->spatial.sphere.P, O->SpatialComponent->spatial.sphere.R };
+		if (Q.intersect(mS))
+			q_nearest.push_back(O);
 	}
 
-	return q_nearest.size();
-}
-
-//----------------------------------------------------------------------
-int CObjectSpace::GetNearest(xr_vector<CObject*>& q_nearest, const Fvector& point, float range, CObject* ignore_object)
-{
-	return (
-		GetNearest(
-			CObjectSpaceThreadData::r_spatial,
-			q_nearest,
-			point,
-			range,
-			ignore_object
-		)
-	);
+	return (int)q_nearest.size();
 }
 
 //----------------------------------------------------------------------
 int CObjectSpace::GetNearest(xr_vector<CObject*>& q_nearest, ICollisionForm* obj, float range)
 {
 	CObject* O = obj->Owner();
-	return GetNearest(q_nearest, O->spatial.sphere.P, range + O->spatial.sphere.R, O);
+	return GetNearest(q_nearest, O->SpatialComponent->spatial.sphere.P, range + O->SpatialComponent->spatial.sphere.R, O);
 }
 
 //----------------------------------------------------------------------
@@ -114,26 +98,48 @@ void CObjectSpace::Load(LPCSTR path, LPCSTR fname, CDB::build_callback build_cal
 }
 
 void CObjectSpace::Load(IReader* F, CDB::build_callback build_callback)
-
-
 {
 	hdrCFORM H;
 	F->r(&H, sizeof(hdrCFORM));
-	Fvector* verts = (Fvector*)F->pointer();
-	CDB::TRI* tris = (CDB::TRI*)(verts + H.vertcount);
-	Create(verts, tris, H, build_callback);
-	FS.r_close(F);
-}
-
-void CObjectSpace::Create(Fvector* verts, CDB::TRI* tris, const hdrCFORM& H, CDB::build_callback build_callback)
-{
-	R_ASSERT(CFORM_CURRENT_VERSION==H.version);
-	Static.build(verts, H.vertcount, tris, H.facecount, build_callback);
+	R_ASSERT(CFORM_CURRENT_VERSION == H.version);
 	m_BoundingVolume.set(H.aabb);
+
 	g_SpatialSpace->initialize(m_BoundingVolume);
 	g_SpatialSpacePhysic->initialize(m_BoundingVolume);
-	//Sound->set_geometry_occ				( &Static );
-	//Sound->set_handler					( _sound_event );
+	g_SpatialSpaceLights->initialize(m_BoundingVolume);
+
+	// Copy the geometry out of the reader on this thread, so GetStaticVerts() and
+	// GetStaticTris() return usable arrays before Load returns. The reader can then
+	// be closed here instead of from the task.
+	Fvector* verts = (Fvector*)F->pointer();
+	CDB::TRI* tris = (CDB::TRI*)(verts + H.vertcount);
+	Static.build_arrays(verts, H.vertcount, tris, H.facecount, build_callback);
+	FS.r_close(F);
+
+	// Only the OPCODE tree build goes to the background. It is the expensive half,
+	// so the overlap with the rest of the level load is kept. The four syncronize()
+	// calls in the CDB query paths already cover the tree.
+	const DWORD this_thread_id = GetCurrentThreadId();
+	Static.async_cform_load.run([this, this_thread_id]()
+	{
+		if (this_thread_id != GetCurrentThreadId()) { PROF_THREAD("X-Ray PPL Thread") }
+		PROF_EVENT("Async cform tree build", PROF_CAT(Scene));
+		Static.build_tree();
+	});
+}
+
+void CObjectSpace::Create(Fvector* verts, CDB::TRI* tris, const hdrCFORM& H, CDB::build_callback build_callback, bool init_bounds)
+{
+	Static.build(verts, H.vertcount, tris, H.facecount, build_callback);
+
+	if (init_bounds)
+	{
+		m_BoundingVolume.set(H.aabb);
+
+		g_SpatialSpace->initialize(m_BoundingVolume);
+		g_SpatialSpacePhysic->initialize(m_BoundingVolume);
+		g_SpatialSpaceLights->initialize(m_BoundingVolume);
+	}
 }
 
 //----------------------------------------------------------------------

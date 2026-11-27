@@ -60,10 +60,10 @@ CUIInventoryUpgradeWnd::CUIInventoryUpgradeWnd()
 	//(*m_WeaponIconsShader)->create("hud\\default", "ui\\ui_actor_weapons");
 	//m_OutfitIconsShader = xr_new<ui_shader>();
 	//(*m_OutfitIconsShader)->create("hud\\default", "ui\\ui_actor_armor");
-	m_inv_item = nullptr;
-	m_cur_upgrade_id = nullptr;
-	m_current_scheme = nullptr;
-	m_btn_repair = nullptr;
+	m_inv_item = NULL;
+	m_cur_upgrade_id = NULL;
+	m_current_scheme = NULL;
+	m_btn_repair = NULL;
 }
 
 CUIInventoryUpgradeWnd::~CUIInventoryUpgradeWnd()
@@ -242,7 +242,7 @@ bool CUIInventoryUpgradeWnd::install_item(CInventoryItem& inv_item, bool can_upg
 #ifdef DEBUG
 		Msg( "Inventory item <%s> cannot upgrade - Mechanic say.", inv_item.m_section_id.c_str() );
 #endif // DEBUG
-		m_current_scheme = nullptr;
+		m_current_scheme = NULL;
 		return false;
 	}
 
@@ -252,7 +252,7 @@ bool CUIInventoryUpgradeWnd::install_item(CInventoryItem& inv_item, bool can_upg
 #ifdef DEBUG
 		Msg( "Inventory item <%s> does not contain upgrade scheme.", inv_item.m_section_id.c_str() );
 #endif // DEBUG
-		m_current_scheme = nullptr;
+		m_current_scheme = NULL;
 		return false;
 	}
 
@@ -299,7 +299,7 @@ UIUpgrade* CUIInventoryUpgradeWnd::FindUIUpgrade(Upgrade_type const* upgr)
 {
 	if (!m_current_scheme)
 	{
-		return nullptr;
+		return NULL;
 	}
 	UI_Upgrades_type::iterator ib = m_current_scheme->cells.begin();
 	UI_Upgrades_type::iterator ie = m_current_scheme->cells.end();
@@ -311,7 +311,7 @@ UIUpgrade* CUIInventoryUpgradeWnd::FindUIUpgrade(Upgrade_type const* upgr)
 			return (*ib);
 		}
 	}
-	return nullptr;
+	return NULL;
 }
 
 bool CUIInventoryUpgradeWnd::DBClickOnUIUpgrade(Upgrade_type const* upgr)
@@ -386,12 +386,12 @@ void CUIInventoryUpgradeWnd::set_info_cur_upgrade(Upgrade_type* upgrade)
 	{
 		if (Device.dwTimeGlobal < uiu->FocusReceiveTime())
 		{
-			upgrade = nullptr; // visible = false
+			upgrade = NULL; // visible = false
 		}
 	}
 	else
 	{
-		upgrade = nullptr;
+		upgrade = NULL;
 	}
 
 	CUIActorMenu* parent_wnd = smart_cast<CUIActorMenu*>(m_pParentWnd);

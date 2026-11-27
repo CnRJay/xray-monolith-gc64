@@ -110,7 +110,7 @@ COMotion* CObjectAnimator::Play(bool loop, LPCSTR name)
 		else
 		{
 			Debug.fatal(DEBUG_INFO, "OBJ ANIM::Cycle '%s' not found.", name);
-			return nullptr;
+			return NULL;
 		}
 	}
 	else
@@ -125,7 +125,7 @@ COMotion* CObjectAnimator::Play(bool loop, LPCSTR name)
 		else
 		{
 			Debug.fatal(DEBUG_INFO, "OBJ ANIM::Cycle '%s' not found.", name);
-			return nullptr;
+			return NULL;
 		}
 	}
 }

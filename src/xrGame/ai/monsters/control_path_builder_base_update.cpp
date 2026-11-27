@@ -6,7 +6,7 @@
 
 void CControlPathBuilderBase::update_frame()
 {
-	START_PROFILE("Base Monster/Path Builder Base/Frame Update")
+	START_PROFILE("Base Monster/Path Builder Base/Frame Update", PROF_CAT(Navigation))
 		;
 
 		// обновить состояние билдера
@@ -24,6 +24,10 @@ void CControlPathBuilderBase::update_frame()
 void CControlPathBuilderBase::update_target_point()
 {
 	m_reset_actuality = false;
+
+	// re-assert the per-object dest override each tick through the normal entry
+	if (m_dest_override_active)
+		set_target_point(m_dest_override_point, m_dest_override_node);
 
 	if (!m_enable) return;
 	if (m_path_type != MovementManager::ePathTypeLevelPath) return;

@@ -56,7 +56,7 @@ public:
 	shared_str					dbg_texture_def	;
 	virtual void				setID(u32 id) { dbg_id = id; }
 	virtual u32 _BCL			getID() { return dbg_id; }
-	virtual shared_str	_BCL	getDebugName() { return dbg_name; }
+	virtual shared_str getDebugName() { return dbg_name; }
 	virtual LPCSTR _BCL			getDebugShader() { return *dbg_shader; }
 	virtual LPCSTR _BCL			getDebugTexture() { return *dbg_texture; }
 	virtual LPCSTR _BCL			getDebugShaderDef() { return *dbg_shader_def; }

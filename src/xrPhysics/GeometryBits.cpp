@@ -5,7 +5,7 @@
 #include "phworld.h"
 #include "geometry.h"
 
-enum geom_category
+static enum geom_category
 {
 	gct_static = 1 << 0,
 	gct_dynamic = 1 << 1

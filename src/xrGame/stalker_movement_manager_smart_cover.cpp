@@ -25,7 +25,6 @@
 #include "CharacterPhysicsSupport.h"
 #include "inventory.h"
 #include "weapon.h"
-#include "profiler.h"
 
 namespace smart_cover
 {
@@ -70,7 +69,6 @@ void stalker_movement_manager_smart_cover::reinit()
 
 void stalker_movement_manager_smart_cover::update(u32 time_delta)
 {
-	PROF_EVENT("AI:MoveMgr");
 	if (object().getDestroy())
 		return;
 

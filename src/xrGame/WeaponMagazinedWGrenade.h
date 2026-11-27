@@ -71,6 +71,8 @@ public:
 	virtual void PlayAnimFireModeSwitch();
 	virtual bool TryPlayAnimBore();
 
+	virtual CWeaponMagazinedWGrenade* cast_weapon_magazined_w_grenade() { return this; }
+
 	//Script exports
 	void SetAmmoElapsed2(int ammo_count);
 	void AmmoTypeForEach2(const ::luabind::functor<bool>& funct);

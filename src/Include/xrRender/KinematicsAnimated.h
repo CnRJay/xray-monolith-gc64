@@ -50,6 +50,7 @@ public:
 	virtual u32 LL_PartBlendsCount(u32 bone_part_id) =0;
 	virtual CBlend* LL_PartBlend(u32 bone_part_id, u32 n) =0;
 	virtual void LL_IterateBlends(IterateBlendsCallback& callback) =0;
+	virtual bool LL_IsBlendInPool(const CBlend* blend) const = 0;
 
 	virtual u16 LL_MotionsSlotCount() = 0;
 	virtual const shared_motions& LL_MotionsSlot(u16 idx) = 0;
@@ -99,12 +100,13 @@ public:
 	virtual CBlend* PlayCycle(MotionID M, BOOL bMixIn = TRUE, PlayCallback Callback = 0, LPVOID CallbackParam = 0,
 	                          u8 channel = 0) = 0;
 	virtual CBlend* PlayCycle(u16 partition, MotionID M, BOOL bMixIn = TRUE, PlayCallback Callback = 0,
-	                          LPVOID CallbackParam = 0, u8 channel = 0, float speed = 0) = 0;
+	                          LPVOID CallbackParam = 0, u8 channel = 0, float speed = 1.f) = 0;
 	// fx'es
 	virtual MotionID ID_FX(LPCSTR N) = 0;
 	virtual MotionID ID_FX_Safe(LPCSTR N) = 0;
 	virtual CBlend* PlayFX(LPCSTR N, float power_scale) = 0;
 	virtual CBlend* PlayFX(MotionID M, float power_scale) = 0;
+	virtual CBlend* PlayFX_Safe (LPCSTR N, float power_scale) = 0;
 
 	virtual const CPartition& partitions() const = 0;
 

@@ -45,7 +45,7 @@ CALifeStorageManager::~CALifeStorageManager()
 
 void CALifeStorageManager::save(LPCSTR save_name_no_check, bool update_name)
 {
-	PROF_EVENT();
+	PROF_EVENT(PROF_CAT(IO));
 	LPCSTR game_saves_path = FS.get_path("$game_saves$")->m_Path;
 
 	string_path save_name;
@@ -125,7 +125,6 @@ void CALifeStorageManager::save(LPCSTR save_name_no_check, bool update_name)
 
 void CALifeStorageManager::load(void* buffer, const u32& buffer_size, LPCSTR file_name)
 {
-	PROF_EVENT("CALifeStorageManager::load_buffer");
 	//Alundaio: So we can get the fname to make our own custom save states
 #ifdef ENGINE_LUA_ALIFE_STORAGE_MANAGER_CALLBACKS
 	::luabind::functor<void> funct;
@@ -140,6 +139,7 @@ void CALifeStorageManager::load(void* buffer, const u32& buffer_size, LPCSTR fil
 	spawns().load(source, file_name);
 	graph().on_load();
 	objects().load(source);
+	spawns().remap_legacy(objects().objects());
 
 	VERIFY(can_register_objects());
 	can_register_objects(false);
@@ -169,7 +169,7 @@ void CALifeStorageManager::load(void* buffer, const u32& buffer_size, LPCSTR fil
 
 bool CALifeStorageManager::load(LPCSTR save_name_no_check)
 {
-	PROF_EVENT("CALifeStorageManager::load_save");
+	PROF_EVENT("CALifeStorageManager::load", PROF_CAT(IO));
 	LPCSTR game_saves_path = FS.get_path("$game_saves$")->m_Path;
 
 	string_path save_name;
@@ -235,7 +235,7 @@ bool CALifeStorageManager::load(LPCSTR save_name_no_check)
 
 void CALifeStorageManager::save(NET_Packet& net_packet)
 {
-	PROF_EVENT();
+	PROF_EVENT(PROF_CAT(IO));
 	prepare_objects_for_save();
 
 	shared_str game_name;
@@ -245,7 +245,7 @@ void CALifeStorageManager::save(NET_Packet& net_packet)
 
 void CALifeStorageManager::prepare_objects_for_save()
 {
-	PROF_EVENT();
+	PROF_EVENT(PROF_CAT(IO));
 	Level().ClientSend();
 	Level().ClientSave();
 }

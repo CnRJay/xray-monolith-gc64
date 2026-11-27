@@ -4,7 +4,7 @@
 
 CUIDialogWnd::CUIDialogWnd()
 {
-	m_pParentHolder = nullptr;
+	m_pParentHolder = NULL;
 	m_bWorkInPause = false;
 	m_bShowMe = false;
 	m_bAllowMovement = false;
@@ -14,6 +14,10 @@ CUIDialogWnd::CUIDialogWnd()
 
 CUIDialogWnd::~CUIDialogWnd()
 {
+    if (m_pParentHolder)
+    {
+        m_pParentHolder->SetMainInputReceiver(this, true);
+    }
 }
 
 void CUIDialogWnd::Show(bool status)

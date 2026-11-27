@@ -7,19 +7,17 @@
 #include "BastArtifact.h"
 #include "../xrphysics/PhysicsShell.h"
 #include "../xrphysics/extendedgeom.h"
-#include "ParticlesObject.h"
-
 
 CBastArtefact::CBastArtefact(void)
 {
-	m_pHitedEntity = nullptr;
+	m_pHitedEntity = NULL;
 	m_fImpulseThreshold = 10.f;
 
 	m_fRadius = 10.f;
 	m_fStrikeImpulse = 15.f;
 
 	m_bStrike = false;
-	m_AttakingEntity = nullptr;
+	m_AttakingEntity = NULL;
 
 	m_fEnergy = 0.f;
 	m_fEnergyMax = m_fStrikeImpulse * 100.f;
@@ -34,8 +32,8 @@ CBastArtefact::~CBastArtefact(void)
 void CBastArtefact::ObjectContactCallback(bool& /**do_colide/**/, bool bo1, dContact& c, SGameMtl* /*material_1*/,
                                           SGameMtl* /*material_2*/)
 {
-	dxGeomUserData* l_pUD1 = nullptr;
-	dxGeomUserData* l_pUD2 = nullptr;
+	dxGeomUserData* l_pUD1 = NULL;
+	dxGeomUserData* l_pUD2 = NULL;
 	l_pUD1 = PHRetrieveGeomUserData(c.geom.g1);
 	l_pUD2 = PHRetrieveGeomUserData(c.geom.g2);
 
@@ -47,7 +45,7 @@ void CBastArtefact::ObjectContactCallback(bool& /**do_colide/**/, bool bo1, dCon
 	if (!pBastArtefact) return;
 	if (!pBastArtefact->IsAttacking()) return;
 
-	CEntityAlive* pEntityAlive = nullptr;
+	CEntityAlive* pEntityAlive = NULL;
 	pEntityAlive = l_pUD1 ? smart_cast<CEntityAlive*>(l_pUD1->ph_ref_object) : NULL;
 	if (!pEntityAlive) pEntityAlive = l_pUD2 ? smart_cast<CEntityAlive*>(l_pUD2->ph_ref_object) : NULL;
 
@@ -59,7 +57,7 @@ void CBastArtefact::BastCollision(CEntityAlive* pEntityAlive)
 	//попали во что-то живое
 	if (pEntityAlive && pEntityAlive->g_Alive())
 	{
-		m_AttakingEntity = nullptr;
+		m_AttakingEntity = NULL;
 		m_pHitedEntity = pEntityAlive;
 
 
@@ -86,8 +84,8 @@ BOOL CBastArtefact::net_Spawn(CSE_Abstract* DC)
 	if (!result) return FALSE;
 
 	m_bStrike = false;
-	m_AttakingEntity = nullptr;
-	m_pHitedEntity = nullptr;
+	m_AttakingEntity = NULL;
+	m_pHitedEntity = NULL;
 	m_AliveList.clear();
 
 	return TRUE;
@@ -98,8 +96,8 @@ void CBastArtefact::net_Destroy()
 	inherited::net_Destroy();
 
 	m_bStrike = false;
-	m_AttakingEntity = nullptr;
-	m_pHitedEntity = nullptr;
+	m_AttakingEntity = NULL;
+	m_pHitedEntity = NULL;
 	m_AliveList.clear();
 }
 
@@ -140,9 +138,9 @@ void CBastArtefact::UpdateCLChild()
 		if (m_bStrike)
 		{
 			//выбрать жертву, если она еще не выбрана
-			if (!m_AliveList.empty() && m_AttakingEntity == nullptr)
+			if (!m_AliveList.empty() && m_AttakingEntity == NULL)
 			{
-				CEntityAlive* pEntityToHit = nullptr;
+				CEntityAlive* pEntityToHit = NULL;
 				if (m_AliveList.size() > 1)
 				{
 					do
@@ -179,7 +177,7 @@ void CBastArtefact::UpdateCLChild()
 			}
 			else
 			{
-				m_AttakingEntity = nullptr;
+				m_AttakingEntity = NULL;
 				m_bStrike = false;
 			}
 		}
@@ -187,8 +185,7 @@ void CBastArtefact::UpdateCLChild()
 
 		if (m_fEnergy > 0 && ::Random.randF(0.f, 1.0f) < (m_fEnergy / (m_fStrikeImpulse * 100.f)))
 		{
-			CParticlesObject* pStaticPG;
-			pStaticPG = CParticlesObject::Create(*m_sParticleName,TRUE);
+			intrusive_ptr<CParticlesObject> pStaticPG = Particles::Details::Create(*m_sParticleName,TRUE);
 			Fmatrix pos;
 			pos.set(XFORM());
 			Fvector vel;
@@ -199,7 +196,7 @@ void CBastArtefact::UpdateCLChild()
 			pStaticPG->Play(false);
 		}
 	}
-	else if (H_Parent()) XFORM().set(H_Parent()->XFORM());
+	else if (H_Parent() && IsHidden()) XFORM().set(H_Parent()->XFORM());
 }
 
 
@@ -214,7 +211,7 @@ void CBastArtefact::Hit(SHit* pHDS)
 	if (HDS.impulse > m_fImpulseThreshold && !m_AliveList.empty())
 	{
 		m_bStrike = true;
-		m_AttakingEntity = m_pHitedEntity = nullptr;
+		m_AttakingEntity = m_pHitedEntity = NULL;
 
 		m_fEnergy += m_fStrikeImpulse * HDS.impulse;
 
@@ -275,5 +272,5 @@ void CBastArtefact::setup_physic_shell()
 	inherited::setup_physic_shell();
 	m_pPhysicsShell->set_PhysicsRefObject(this);
 	m_pPhysicsShell->set_ObjectContactCallback(ObjectContactCallback);
-	m_pPhysicsShell->set_ContactCallback(nullptr);
+	m_pPhysicsShell->set_ContactCallback(NULL);
 }
