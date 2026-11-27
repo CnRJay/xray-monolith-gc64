@@ -260,6 +260,13 @@ public:
 	ref_shader s_svp_nearblur; // pip near-field defocus on the scope image (svpscope 2)
 	ref_shader s_svp_distort_stamp; // pip neutral distort-mask stamp over the composited lens
 	ref_shader s_svp_taa_stamp; // pip raw taa skip mask over the composited lens
+	// Pre-created texture alias handles (initialized on Main Thread in EnsureScopeShaders)
+	ref_texture t_svp_nearblur_src;
+	ref_texture t_svp_nearblur_pos;
+	ref_texture t_svp_secondvp;
+	ref_texture t_svp_generic2;
+	ref_texture t_svp_heat;
+	ref_texture t_svp_tonemap;
 	bool m_scope_shaders_ready = false;
 	// taa history seeds from the current frame on the next resolve, true at creation and on scope edges
 	bool m_taa_seed_history = true;

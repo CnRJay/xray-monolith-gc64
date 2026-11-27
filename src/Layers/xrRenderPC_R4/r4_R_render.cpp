@@ -246,6 +246,12 @@ void CRender::ExtractFrame()
 	}
 
 	ViewBase.CreateFromMatrix(Device.mFullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
+
+	// Overlap sun cascade traversal/extraction (uses separate GMCascade instances, no HOM dependency)
+	// with Secondary Task 1.1's HOM.MT_RENDER() rasterization to eliminate the Main Thread HOM lock stall.
+	if (bSUN)
+		extract_sun_cascades();
+
 	HOM.MT_RENDER();
 
 	phase = PHASE_NORMAL;
@@ -338,6 +344,9 @@ void CRender::ExtractFrame()
 
 	if (svp)
 		EnsureTargetSVP();
+	else if (Device.true_pip_on && TargetMain && !TargetMain->m_scope_shaders_ready
+		&& (!GMBase.RGraph.mapScopeHUDSorted.empty() || !GMBase.RGraph.mapReflexHUDSorted.empty() || scope_debug))
+		TargetMain->EnsureScopeShaders();
 	TargetMain->svp_objective_hud_prepare(svp);
 
 	// Capture scene lights and pre-cull sun cascades + shadowed lights on Main Thread + TBB.
@@ -379,9 +388,6 @@ void CRender::ExtractFrame()
 		const u32 lp_shadowed = (u32)(LP_normal.v_shadowed.size() + LP_pending.v_shadowed.size());
 		svp_stats::note_main_lights(lp_total, lp_shadowed);
 	}
-
-	if (bSUN)
-		extract_sun_cascades();
 
 	extract_lights_for_rt();
 
@@ -941,8 +947,9 @@ void CRender::renderGBuffer(bool clearGraph, bool preExtracted)
 			if (scope_svp_enabled >= 2 && vp.eyepiece.radius > EPS
 				&& vp.svp_front_use_m > EPS)
 			{
-				RCache.set_xform_view(Device.matrices[1].mView);
-				RCache.set_xform_project(Device.matrices[1].mProject);
+				const auto& svp_mat = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.matrices[1] : Device.matrices[1];
+				RCache.set_xform_view(svp_mat.mView);
+				RCache.set_xform_project(svp_mat.mProject);
 				extern bool g_svp_hud_frozen_pass;
 				extern bool g_svp_hud_history_write;
 				extern bool svp_objective_hud_current();
@@ -1084,7 +1091,7 @@ void CRender::share_main_smaps()
 		if (r.second == TargetMain->rt_smap_depth ||
 			(TargetMain->rt_smap_depth_minmax && r.second == TargetMain->rt_smap_depth_minmax))
 			r.first->surface_set(r.second->pSurface);
-	RCache.Invalidate();
+	RCache.Invalidate(false);
 }
 
 void CRender::renderSceneLighting(BOOL bSUN, bool svp, bool preExtracted)
@@ -1130,8 +1137,9 @@ void CRender::renderSceneLighting(BOOL bSUN, bool svp, bool preExtracted)
 		// the shared list is main frustum wide, reject static items outside the scope cone
 		if (ps_r__svp_cull)
 		{
+			const auto& svp_mat = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.matrices[1] : Device.matrices[1];
 			Fmatrix svp_full;
-			svp_full.mul(Device.matrices[1].mProject, Device.matrices[1].mView);
+			svp_full.mul(svp_mat.mProject, svp_mat.mView);
 			CDSGraphManager::svp_cull_begin(svp_full, true);
 		}
 		GMBase.r_dsgraph_render_emissive(false);
