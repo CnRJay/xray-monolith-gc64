@@ -61,6 +61,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Disabled unused renderers in single-renderer configurations in `src/engine-vs2026.sln`.
 
 ### Fixed
+- **Optick `prof_capture` / GPU Timeline Decoupled Render Thread Synchronization**:
+  - Added `FlushRenderThread()` before `PROF_START_CAPTURE()`, `PROF_STOP_CAPTURE()`, and inside `dx10GpuTimeline::prof_state_changed()`, fixing an `nvwgf2umx.dll` D3D11 immediate-context crash when `prof_capture` finished while the dedicated Render Thread was actively submitting Frame N-1.
+  - Updated `dx10GpuTimeline` to re-latch the active submission thread on `frame_start()` and read `Device.m_rt_view.dwFrame` on the Render Thread so GPU timeline capture stays intact across console/menu ↔ decoupled gameplay transitions.
 - **True PIP Scope Raise Crash & Render Thread Resource Safety**:
   - Fixed a crash when raising weapons with a PIP scope under `r__mt_decouple 1` caused by `TargetMain->EnsureScopeShaders()` (on hipfire lens capture) and `TargetSVP->EnsureScopeShaders()` (in `svp_nearblur_pass`) invoking `CResourceManager::_CreateShader` / Lua shader compilation on the Render Thread concurrently with Main Thread Frame N+1 Lua execution.
   - Pre-initialized scope shaders on both `TargetMain` and `TargetSVP` during `ExtractFrame()` / `EnsureTargetSVP()`, added a `CRenderThread::IsOnRenderThread()` guard inside `EnsureScopeShaders()`, and pre-created all SVP alias `ref_texture` handles (`$user$svp_nearblur_src`, `$user$svp_nearblur_pos`, `r2_RT_secondVP`, `r2_RT_generic2`, `r2_RT_heat`, `$user$svp_tonemap`) on the Main Thread to eliminate per-frame Render Thread `CResourceManager::_CreateTexture` calls.
