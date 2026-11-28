@@ -9,6 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Versioned `user.ltx` Config Migration (`engine_cfg_ver`)**:
+  - Added automatic one-time `user.ltx` config migration (`engine_cfg_ver`, currently `v1`) right after `user.ltx` loads in `execUserScript()` so users upgrading from vanilla Anomaly, GAMMA, or older builds automatically receive updated engine defaults once while preserving any manual tweaks afterward.
 - **Native DX11 Compute 3D Froxel Volumetric Fog & Lighting (`r4_volumetric_froxels`)**:
   - Replaced legacy `.peak` volumetric lights and low-resolution sliced/screen-space volumetrics with a native Frostbite/UE5-style DX11 Compute 3D Froxel volumetric pipeline (`r4_volumetric_froxels.h/.cpp` + 7 dedicated HLSL 5.0 compute/apply shaders in `gamedata/shaders/r3/`).
   - Evaluates multi-cascade hardware-PCF sun shadow visibility (`froxel_sun_shadow.cs`) across cascades 0–2, live shadow-atlas spotlight cones (`froxel_spot_shadow.cs`), up to 64 dynamic point/spot lights via GPU `StructuredBuffer`, weather-driven height fog with animated 3D wind noise (`froxel_inject.cs`), dual-lobe Henyey-Greenstein phase + temporal reprojection (`froxel_light.cs`), and energy-conserving analytical Beer-Lambert transmittance integration (`froxel_integrate.cs`).
@@ -118,5 +120,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 | `r4_volumetric_density` | `0.0–4.0` | `1.0` | Global atmospheric scattering & volumetric fog density multiplier |
 | `r4_volumetric_anisotropy` | `-0.5–0.92` | `0.65` | Henyey-Greenstein phase anisotropy controlling forward-scattering sun/spot beams |
 | `r4_volumetric_temporal` | `0.0–0.96` | `0.90` | Temporal reprojection history blend factor (`0` disables temporal filtering) |
-| `lua_parallel_gc_trigger_mb` | `8–512` | `64` | LuaJIT GC64 heap growth (MB) before starting a parallel GC cycle |
-| `lua_parallel_gc_budget_us` | `100–5000` | `500` | Per-frame time budget (µs) for incremental parallel LuaJIT GC slices |
+| `lua_parallel_gc_trigger_mb` | `8–512` | `16` | LuaJIT GC64 heap growth (MB) before starting a parallel GC cycle |
+| `lua_parallel_gc_budget_us` | `100–5000` | `1500` | Per-frame time budget (µs) for incremental parallel LuaJIT GC slices |
+| `engine_cfg_ver` | `0–10000` | `1` | Stored `user.ltx` config schema version for automatic one-time default migrations |
