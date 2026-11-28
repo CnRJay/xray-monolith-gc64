@@ -36,9 +36,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **GitHub Actions CI & Tag-Gated Releases (DX11 Only)**:
   - Streamlined `.github/workflows/msbuild.yml` to build only `DX11|x64` on `all-in-one-vs2022-wpo`, `feat/**`, and PRs (removed legacy DX8/DX9/DX10 builds, unused `-AVX` variants, duplicate non-MT matrix, and auto-releases on every commit).
   - Gated GitHub Releases strictly on version tags (`v*`) or manual `workflow_dispatch` with a `release_tag` input.
-  - Packaged release archives in drag-and-drop Anomaly root layout (`bin/AnomalyDX11.exe` + unpacked `gamedata/`) with automated `CHANGELOG.md` release notes extraction and a separate PDB archive.
+  - Packaged release archives in drag-and-drop Anomaly root layout (`bin/AnomalyDX11.exe` + unpacked `gamedata/`) with automated `CHANGELOG.md` release notes extraction, a separate Optick-enabled `ProfiledDX11` release archive (keeping profiling disabled in the main player release), and separate PDB archives.
 
 ### Performance
+- **Game Boot, Save Load & Level Load Overhaul**:
+  - Overhauled `CLocatorAPI` VFS startup scanning (`LocatorAPI.cpp`): deduplicated already-scanned recursive `fsgame.ltx` subtrees, replaced serial CRT `_findfirst`/`_findnext` + per-directory `stat(".xrignore")` with TBB-parallel Win32 `FindFirstFileExA(..., FindExInfoBasic, FIND_FIRST_EX_LARGE_FETCH)` and inline `.xrignore` detection, added TBB-parallel `.db`/`.xdb` archive header & TOC LZ decompression while preserving exact deterministic lexicographical mod override order, and early-exited `Register()` parent-folder walks on the first already-registered ancestor.
+  - Added a TBB-parallel `.script` RAM pre-read cache in `CScriptStorage::reinit()` (consuming and freeing each buffer as scripts compile, cleared on `net_start6`) and paused LuaJIT GC (`LUA_GCSTOP`) across `net_Start` → `net_start6` to prevent mid-load GC pauses.
+  - Eliminated the second `level.geom` disk pass in `TREE-IB` reorder by capturing tree vertex positions directly from RAM during `LoadBuffers()` and parallelized `meshoptimizer` cache/overdraw reordering across disjoint ranges via TBB.
+  - Parallelized `CHOM::terrain_load()` (multi-million CFORM face scan) and `CModelPool::Prefetch()` `.ogf` disk reads via TBB.
 - **LuaJIT GC64 Hysteresis & Time-Budgeted Parallel GC (Frame-Pacing Stutter Elimination)**:
   - Replaced the legacy 25×/frame `LUA_GCSTEP` loop in `seqLuaGC` (which forced ~2 full GC cycles/sec and caused 15–19 ms `GCSatomic` stutters in both `secondary_tasks.wait` and `CActor::shedule_Update`) with GC64-aware heap-growth hysteresis (`lua_parallel_gc_trigger_mb`, default `64` MB) and time-budgeted incremental slices (`LUA_GCTIMEOUT` via `lua_parallel_gc_budget_us`, default `500` µs) that keep Main Thread auto-GC paused between cycles.
   - Updated LuaJIT `case GCSatomic` to yield the incremental step immediately after `atomic()` instead of piling string sweeps onto the same frame.
