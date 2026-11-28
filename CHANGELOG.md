@@ -39,6 +39,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Packaged release archives in drag-and-drop Anomaly root layout (`bin/AnomalyDX11.exe` + unpacked `gamedata/`) with automated `CHANGELOG.md` release notes extraction and a separate PDB archive.
 
 ### Performance
+- **LuaJIT GC64 Hysteresis & Time-Budgeted Parallel GC (Frame-Pacing Stutter Elimination)**:
+  - Replaced the legacy 25×/frame `LUA_GCSTEP` loop in `seqLuaGC` (which forced ~2 full GC cycles/sec and caused 15–19 ms `GCSatomic` stutters in both `secondary_tasks.wait` and `CActor::shedule_Update`) with GC64-aware heap-growth hysteresis (`lua_parallel_gc_trigger_mb`, default `64` MB) and time-budgeted incremental slices (`LUA_GCTIMEOUT` via `lua_parallel_gc_budget_us`, default `500` µs) that keep Main Thread auto-GC paused between cycles.
+  - Updated LuaJIT `case GCSatomic` to yield the incremental step immediately after `atomic()` instead of piling string sweeps onto the same frame.
+  - Updated `CSheduler::ProcessStep()` to enforce its QPC time budget on every scheduled item instead of every 8th item to prevent heavy AI updates from overshooting `Sheduler Deferred`.
+  - Removed per-draw `PROF_EVENT` instrumentation from `R_constants::flush_cache()` (~6,500 calls/f), `CBackend::set_Element()`, and `CBackend::set_States()`, and force-inlined `flush_cb_stage`.
 - **Runtime AVX2 Bone Palette Upload & Optick CPU Hotspot Wins**:
   - Added runtime CPUID-dispatched AVX2 bulk 4×4→3×4 matrix transpose (`BonePaletteSIMD.h/.cpp`, `BonePaletteSIMD_AVX2.cpp` with per-file `/arch:AVX2` and SSE2 fallback) for `CSkeletonX::_Render` `SEND_MATRICES` (both current `sbones_array` and `sbones_array_prev` motion-vector palettes), replacing ~108,900 scalar `RCache.set_ca` calls/frame with single direct CB writes.
   - Inlined `R_constants::GetCBuffer` into `dx10R_Backend_Runtime.h` with a switch dispatch and removed its per-call `PROF_EVENT` macro (~69,000 calls/frame on Render Thread).
@@ -105,3 +110,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 | `r4_volumetric_density` | `0.0–4.0` | `1.0` | Global atmospheric scattering & volumetric fog density multiplier |
 | `r4_volumetric_anisotropy` | `-0.5–0.92` | `0.65` | Henyey-Greenstein phase anisotropy controlling forward-scattering sun/spot beams |
 | `r4_volumetric_temporal` | `0.0–0.96` | `0.90` | Temporal reprojection history blend factor (`0` disables temporal filtering) |
+| `lua_parallel_gc_trigger_mb` | `8–512` | `64` | LuaJIT GC64 heap growth (MB) before starting a parallel GC cycle |
+| `lua_parallel_gc_budget_us` | `100–5000` | `500` | Per-frame time budget (µs) for incremental parallel LuaJIT GC slices |
