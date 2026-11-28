@@ -2,7 +2,7 @@
 
 # X-Ray Monolith: Next Gen
 
-### Multithreaded DirectX 11 X-Ray Engine for S.T.A.L.K.E.R. Anomaly 1.5.3
+### Multithreaded DirectX 11 Engine for S.T.A.L.K.E.R. Anomaly 1.5.3
 
 <p>
   <a href="./License.txt">
@@ -16,14 +16,14 @@
   </a>
   <img src="https://img.shields.io/badge/Renderer-DirectX%2011%20(x64)-0078D4?style=flat-square" alt="DirectX 11 x64" />
   <img src="https://img.shields.io/badge/Scripting-LuaJIT%202.1%20GC64-2C2D72?style=flat-square" alt="LuaJIT 2.1 GC64" />
-  <img src="https://img.shields.io/badge/SIMD-AVX2%20%2F%20AVX--512%20(Runtime)-0071C5?style=flat-square" alt="AVX2 / AVX-512" />
+  <img src="https://img.shields.io/badge/CPU-AVX2%20%2F%20AVX--512%20Auto-0071C5?style=flat-square" alt="AVX2 / AVX-512" />
 </p>
 
 <p>
   <a href="#overview">Overview</a> |
   <a href="#key-features">Features</a> |
   <a href="#performance-benchmarks-rough-reference">Benchmarks</a> |
-  <a href="#console-variables">CVars</a> |
+  <a href="#console-variables">Settings</a> |
   <a href="#installation">Installation</a> |
   <a href="#building-from-source">Building</a> |
   <a href="#troubleshooting--faq">FAQ</a> |
@@ -36,95 +36,84 @@
 
 ## Overview
 
-**X-Ray Monolith: Next Gen** is a **DirectX 11 (x64)** fork of the **X-Ray Monolith Engine** aimed at heavily modded S.T.A.L.K.E.R. Anomaly 1.5.3 setups such as **G.A.M.M.A.**
+**X-Ray Monolith: Next Gen** is a custom **DirectX 11 (64-bit)** engine build for S.T.A.L.K.E.R. Anomaly 1.5.3, built with large modpacks like **G.A.M.M.A.** in mind.
 
-Built on top of upstream X-Ray Monolith, this fork addresses the engine's main CPU, memory, and rendering limits: single-threaded DX11 submission, the legacy 2 GB LuaJIT memory cap, GC frame-time spikes, slow VFS startup under Mod Organizer 2, and older volumetric and occlusion paths.
+It focuses on the biggest pain points in modded Anomaly: low CPU-bound framerates, stutters during combat and exploration, out-of-memory script crashes in long saves, and slow startup times under Mod Organizer 2. For full technical patch notes, see [CHANGELOG.md](./CHANGELOG.md).
 
 > [!TIP]
-> **G.A.M.M.A. Users**: This build is plug-and-play. Required mod dependencies (including **3DSS** for True PIP scopes) are already included in G.A.M.M.A. Extract the release archive into your Anomaly root directory, delete `appdata/shaders_cache`, and launch.
+> **G.A.M.M.A. Users**: This build is plug-and-play. Everything it needs (including **3DSS** for PIP scopes) is already in G.A.M.M.A. Extract the release zip into your Anomaly folder, delete `appdata/shaders_cache`, and play.
 
 ---
 
 ## Key Features
 
-### Multithreading, Frame Pacing & Loading
-| System | Description |
-| :--- | :--- |
-| **2-Stage Decoupled Render Thread** | Overlaps **Game Thread Frame N+1** (`FrameMove`, AI scheduler, physics, LuaGC, parallel bone updates) with **Render Thread Frame N** DX11 submission and `Present()` via `r__mt_decouple`, backed by double-buffered view/environment snapshots, per-frame bone arenas, and 4-bucket UI command buffers. |
-| **LuaJIT 2.1 GC64 + GC Stutter Fixes** | Uses 64-bit GC pointers across `luajit`, `luabind`, and `xrGame` (statically linked into `AnomalyDX11.exe`, no separate `lua51.dll` needed), removing the legacy 2 GB Lua memory ceiling. Adds heap-growth hysteresis (`lua_parallel_gc_trigger_mb`), QPC-accurate `LUA_GCTIMEOUT` budgeting (`lua_parallel_gc_budget_us`), 2-pass incremental `grayagain` remarking, and finalized `GCudata` relocation off `mainthread->nextgc` to reduce stop-the-world GC pauses. |
-| **TBB Parallel Scene & Level Loading** | Parallelizes sun cascade and shadowed dynamic light culling (`r4_parallel_cull`), grass/detail visibility (`r__mt_details`), skeleton bone updates (`mt_ParallelBones`), async particle simulation (using condition-variable waits instead of spin-waiting), `HOM` terrain loading, `TREE-IB` `meshoptimizer` reordering, and model prefetch reads. |
-| **Parallel VFS & Archive Startup** | Deduplicates redundant `fsgame.ltx` subtree scans, replaces serial CRT `_findfirst` + per-directory `stat(".xrignore")` with TBB-parallel Win32 `FindFirstFileExA(..., FIND_FIRST_EX_LARGE_FETCH)` capped for MO2 USVFS, and decompresses `.db`/`.xdb` archive TOCs in parallel (with thread-local `LzHuf`) while keeping exact lexicographical mod override order. |
-| **Combat Audio & Deferred Scheduler** | Switches sound occlusion raycasts to early-out `CDB::OPT_ONLYFIRST` with 20 Hz per-emitter caching to avoid gunfire raycast bottlenecks, and caps deferred AI scheduler frame budgets (`6.0 ms` max with per-item QPC checks) so large firefights spread evenly across frames. |
-| **Runtime AVX2 / AVX-512 SIMD** | Automatic CPUID dispatch (compatible with any SSE2+ x64 CPU) for **Intel Masked Software Occlusion Culling** (AVX2/AVX-512) and bulk **skinning bone-palette matrix transposes** (AVX2 with SSE fallback). |
-| **Intel TBB Allocator & Config Migration** | Reduces heap fragmentation and allocation stalls with TBB's scalable allocator, and applies one-time `user.ltx` default updates (`engine_cfg_ver`) on upgrade without overwriting user changes afterward. |
+### Performance, Stability & Loading
+- **Higher FPS and Stronger Lows**: Separates game logic and DirectX 11 rendering onto dedicated threads (`r__mt_decouple`) so your CPU can prepare the next frame while the GPU draws the current one.
+- **No More 2 GB Script Memory Crashes**: Upgraded to 64-bit LuaJIT 2.1 (`GC64`), removing the old ~2 GB script memory ceiling that causes out-of-memory crashes in massive modpacks. Built directly into `AnomalyDX11.exe` with no extra `lua51.dll` needed.
+- **Far Fewer Stutters**: Reworked how script garbage collection runs in the background so it spreads work evenly across frames instead of freezing the game every few seconds.
+- **Much Faster Game Startup & Loading**: Overhauled how the engine scans mod files, archives, terrain, and models across multiple CPU cores. Cuts startup times dramatically, especially when launching through Mod Organizer 2.
+- **Smoother Gunfights**: Optimized sound occlusion and capped per-frame AI scheduler spikes so large firefights with multiple squads stay responsive instead of tanking FPS.
+- **Modern CPU Acceleration**: Automatically detects and uses **AVX2** and **AVX-512** on supported CPUs for faster visibility culling and character animation processing, while remaining fully compatible with older 64-bit CPUs.
+- **Smarter Multithreading**: Runs shadow culling, grass visibility, particles, and character bones across multiple CPU cores, and uses Intel's TBB memory allocator to reduce allocation hitches.
+- **Automatic Default Updates**: Safely applies recommended engine setting updates once when you upgrade (`engine_cfg_ver`) without overwriting any custom console tweaks you make afterward.
 
-### DirectX 11 Rendering & Graphics
-- **Native DX11 Compute 3D Froxel Volumetric Fog & Lighting (`r4_volumetric_froxels`)**:
-  - Replaces legacy `.peak` and low-resolution screen-space volumetrics with a 3D froxel compute pipeline (7 dedicated HLSL 5.0 compute and apply shaders).
-  - Evaluates multi-cascade hardware-PCF sun shadows, live shadow-atlas spotlight cones, up to 64 dynamic point/spot lights, weather-driven height fog with animated 3D wind noise, dual-lobe Henyey-Greenstein phase scattering, temporal reprojection, and analytical Beer-Lambert transmittance integration.
-- **Physical Objective-Camera True PIP**:
-  - Integrates `TheLostInPlace`'s physical objective-camera True PIP system: physical aperture and eyebox model, off-axis deferred lighting reconstruction, continuous barrel/handguard rendering, TAA/DLSS lens exclusion, hybrid reflex/magnifier support, typed Lua optic API, and in-game ImGui optic workbench.
-- **DX11 Pipeline Optimizations**:
-  - **Constant Buffer Dirty-Check (`r4_cbuffer_skip_unchanged`)**: Skips redundant `Map(WRITE_DISCARD)` uploads on unchanged buffers.
-  - **Zero-Copy Post-Process Ping-Pong (`r4_post_pingpong`)**: Ping-pongs `rt_Generic_0` and `rt_Generic` across post-process passes instead of full-screen `CopyResource` copies.
-  - **Far Sun Cascade Caching (`r4_sun_cascade_cache`)**: Caches the distant sun shadow cascade across frames with automatic invalidation on camera or sun movement.
-  - **Geometry & Culling**: 32-byte GPU grass instancing with slot-range skipping, non-sun light volume scissoring, null-PS sun shadow passes, DX11 state/submission memos, and `meshoptimizer` tree index reordering.
+### Graphics & Scopes
+- **3D Volumetric Fog & Lighting**: Replaces the older volumetric system with a new GPU-accelerated 3D volumetric fog pipeline (`r4_volumetric_froxels`) supporting sun god rays, shadowed spotlights, dynamic lights (like campfires and flashlights), and weather-driven fog.
+- **True Picture-in-Picture (PIP) Scopes**: Includes physical objective-camera dual-render scopes (from `TheLostInPlace`) with realistic eye relief, continuous barrel/handguard rendering, hybrid optics support, and an in-game optic workbench.
+- **DX11 Rendering Optimizations**: Faster grass instancing, smarter shadow caching for distant sun shadows, reduced unnecessary GPU texture copies, and optimized tree geometry rendering.
 
-### Modding, Diagnostics & Ecosystem
-- **DLTX & DXML**: Full support for expanded LTX overrides (`@[newsection]`, `>add`, `<remove`) and runtime XML UI edits.
-- **Mod Compatibility**: Works with **3D Shader Scopes (3DSS)**, **Screen Space Shaders (SSS)**, **Beef's NVG**, **Atmospherics**, and **Mod Organizer 2**.
-- **Built-In Profiling & Debugging**: Integrated **Optick** CPU + DX11 GPU timeline capture (`prof_capture <frames>` in `ProfiledDX11`), live per-viewport SVP/CPU/GPU stats overlay (`r__svp_stats`), LuaPanda debugging, and ImGui tools.
-- **Engine Fixes**: Animation smoothing, collision fixes, and removal of the legacy 1000-save limit.
+### Mod Compatibility & Tools
+- **Modpack Friendly**: Includes full **DLTX** and **DXML** support and works with **3DSS**, **Screen Space Shaders (SSS)**, **Beef's NVG**, **Atmospherics**, and **Mod Organizer 2**.
+- **Quality of Life Fixes**: Animation smoothing, collision fixes, and removal of the old 1,000-save limit.
+- **Optional Profiling & Stats**: Built-in live PIP/render stats overlay (`r__svp_stats`) and a separate Optick-enabled release build (`ProfiledDX11`) for anyone who wants to capture CPU/GPU frame traces.
 
 ---
 
 ## Performance Benchmarks (Rough Reference)
 
 > [!NOTE]
-> **Disclaimer**: The figures below are rough, approximate reference measurements taken on a single heavily modded **G.A.M.M.A.** install (Ryzen 9 9950X3D, 1440p DX11, Rookie Village / Cordon AI combat, 3,000-frame Optick captures using `ProfiledDX11`). Real-world results will vary significantly depending on your CPU, GPU, resolution, graphics settings, and modlist. Standard non-profiled `DX11` release builds have slightly lower CPU overhead than `ProfiledDX11`.
+> **Disclaimer**: These numbers are rough, non-exact reference figures from a single heavily modded **G.A.M.M.A.** setup (Ryzen 9 9950X3D, 1440p DX11, Rookie Village / Cordon combat, 3,000-frame Optick captures on `ProfiledDX11`). Real results **will vary per hardware, resolution, settings, and modlist**. The standard `DX11` release build (without profiling) has slightly lower CPU overhead than `ProfiledDX11`.
 
-### In-Game Frame Pacing & CPU Scaling (3,000-Frame Captures)
+### In-Game Performance (3,000-Frame Test Runs)
 | Metric | Earlier Baseline | Current Build (`ProfiledDX11`) | Approximate Change |
 | :--- | :---: | :---: | :---: |
-| **Average FPS / Frame Time** | ~97 FPS (~10.3 ms) | **~136-154 FPS (~6.5-7.3 ms)** | **~+35-40% FPS** |
-| **Median (`p50`) FPS** | ~105 FPS (~9.5 ms) | **~145 FPS (~6.9 ms)** | **~+38% FPS** |
-| **5% Lows (`p95`)** | ~56 FPS (~17.7 ms) | **~99 FPS (~10.1 ms)** | **~+40 FPS** |
-| **1% Lows (`p99`)** | ~23 FPS (~43.0 ms) | **~68 FPS (~14.8 ms)** | **~3x higher 1% lows** |
-| **Stutters > 50 ms** | ~28 per 3,000 frames | **0** | **Removed in test runs** |
-| **Render Thread CPU (`CRender_Render`)** | ~5.8 ms/f | **~3.4 ms/f** | **~40% lower RT CPU** |
-| **Combat Audio (`CSoundRender_Core`)** | ~3.6 ms/f (~14.5 ms max) | **~0.05 ms/f** | **~70x faster under gunfire** |
+| **Average FPS** | ~97 FPS | **~136-154 FPS** | **~+35-40% FPS** |
+| **Median FPS** | ~105 FPS | **~145 FPS** | **~+38% FPS** |
+| **5% Lows** | ~56 FPS | **~99 FPS** | **~+40 FPS** |
+| **1% Lows** | ~23 FPS | **~68 FPS** | **~3x smoother lows** |
+| **Heavy Stutters (> 50 ms)** | ~28 per 3,000 frames | **0** | **Eliminated in test runs** |
+| **Combat Audio Overhead** | ~3.6 ms (up to ~14.5 ms) | **~0.05 ms** | **~70x faster in gunfights** |
 
-### Boot & Level Loading (G.A.M.M.A. via MO2 USVFS, ~149k Files / 74 Archives)
-| Load Phase | Before | After | Approximate Change |
+### Startup & Level Loading (G.A.M.M.A. via Mod Organizer 2, ~149k Files)
+| Load Stage | Before | After | Approximate Change |
 | :--- | :---: | :---: | :---: |
-| **VFS Startup (`Init FileSystem`)** | ~17.5 s | **~5.2-6.3 s** | **~3x faster (~11-12 s saved)** |
-| **Tree Index Reorder (`TREE-IB`)** | ~73 ms | **~28-35 ms** | **~2.3x faster** |
-| **Terrain Occluder Build (`HOM` / `MOC-TERR`)** | ~119 ms | **~9 ms** | **~13x faster** |
+| **Initial File/Mod Scan (`Init FileSystem`)** | ~17.5 s | **~5.2-6.3 s** | **~3x faster (~11-12 s saved)** |
+| **Tree Geometry Prep (`TREE-IB`)** | ~73 ms | **~28-35 ms** | **~2.3x faster** |
+| **Terrain Occlusion Build (`HOM`)** | ~119 ms | **~9 ms** | **~13x faster** |
 
 ---
 
 ## Console Variables
 
-Major engine features can be toggled or tuned live in the console (`~`) or `user.ltx`:
+Everything works out of the box with sensible defaults. If you want to tweak or test settings, open the in-game console (`~`) or edit `user.ltx`:
 
-| CVar | Range | Default | Description |
+| Command | Range | Default | What It Controls |
 | :--- | :---: | :---: | :--- |
-| `r__mt_decouple` | `0-1` | `1` | Overlap Game Thread Frame N+1 with dedicated Render Thread Frame N submission |
-| `r4_parallel_cull` | `0-1` | `1` | Parallelize sun cascade, dynamic light, and main/SVP static scene culling |
-| `r__mt_details` | `0-1` | `1` | Parallelize grass/detail visibility culling across TBB workers |
-| `r4_volumetric_froxels` | `0-1` | `1` | Enable Native DX11 Compute 3D Froxel Volumetric Fog & Lighting (`0` = legacy fallback) |
-| `r4_volumetric_quality` | `0-2` | `1` | Froxel 3D grid resolution (`0`: `128x72x48`, `1`: `160x90x64`, `2`: `240x135x96`) |
-| `r4_volumetric_range` | `30-250` | `120.0` | Maximum volumetric fog & lighting distance (meters) |
-| `r4_volumetric_density` | `0.0-4.0` | `1.0` | Global atmospheric scattering & volumetric fog density multiplier |
-| `r4_volumetric_anisotropy` | `-0.5-0.92` | `0.65` | Henyey-Greenstein phase anisotropy for forward-scattering beams |
-| `r4_volumetric_temporal` | `0.0-0.96` | `0.90` | Temporal reprojection history blend factor (`0` = off) |
-| `r4_cbuffer_skip_unchanged` | `0-1` | `1` | Skip `Map(WRITE_DISCARD)` on unchanged DX11 constant buffers |
-| `r4_post_pingpong` | `0-1` | `1` | Ping-pong post-process render targets instead of full-screen copies |
-| `r4_sun_cascade_cache` | `0-8` | `1` | Cache far sun shadow cascade (`1` = 4-frame cadence, `0` = off) |
-| `lua_parallel_gc_trigger_mb` | `8-512` | `16` | LuaJIT GC64 heap growth (MB) before starting an incremental parallel GC cycle |
-| `lua_parallel_gc_budget_us` | `100-5000` | `1500` | Per-frame time budget (us) for incremental parallel LuaJIT GC slices |
-| `engine_cfg_ver` | `0-10000` | `1` | Stored `user.ltx` config schema version for automatic one-time default migrations |
-| `r__svp_stats` | `0-2` | `0` | Live per-viewport True PIP CPU/GPU/draw-call/VRAM performance overlay |
+| `r__mt_decouple` | `0-1` | `1` | Dedicated render thread (big FPS and smoothness boost) |
+| `r4_volumetric_froxels` | `0-1` | `1` | 3D volumetric fog & lighting (`0` = fallback) |
+| `r4_volumetric_quality` | `0-2` | `1` | Volumetric fog quality (`0` = low, `1` = medium, `2` = high) |
+| `r4_volumetric_range` | `30-250` | `120.0` | Volumetric fog render distance in meters |
+| `r4_volumetric_density` | `0.0-4.0` | `1.0` | Overall fog and light-beam density |
+| `r4_volumetric_anisotropy` | `-0.5-0.92` | `0.65` | Strength of forward-scattering god rays and light shafts |
+| `r4_volumetric_temporal` | `0.0-0.96` | `0.90` | Temporal smoothing for volumetric fog (`0` = off) |
+| `r4_sun_cascade_cache` | `0-8` | `1` | Caches distant sun shadows across frames for better FPS (`0` = off) |
+| `r4_parallel_cull` | `0-1` | `1` | Multithreaded shadow and scene culling |
+| `r__mt_details` | `0-1` | `1` | Multithreaded grass visibility |
+| `r4_post_pingpong` | `0-1` | `1` | Faster post-processing without extra texture copies |
+| `r4_cbuffer_skip_unchanged` | `0-1` | `1` | Skips redundant shader constant uploads |
+| `lua_parallel_gc_trigger_mb` | `8-512` | `16` | Script memory growth (MB) before running a background cleanup cycle |
+| `lua_parallel_gc_budget_us` | `100-5000` | `1500` | Max time per frame (microseconds) spent on background script cleanup |
+| `r__svp_stats` | `0-2` | `0` | On-screen PIP scope & render performance stats overlay |
 
 ---
 
@@ -144,15 +133,15 @@ Major engine features can be toggled or tuned live in the console (`~`) or `user
 
 1. **Backup**: Back up your existing `bin/` and `gamedata/` folders inside your Anomaly root directory.
 2. **Download**: Grab the latest DX11 release `.zip` from the [Releases page](https://github.com/CnRJay/xray-monolith-gc64/releases):
-   - **`STALKER-Anomaly-DX11_<tag>.zip`**: Recommended for normal play (clean release build with profiling disabled).
-   - **`STALKER-Anomaly-ProfiledDX11_<tag>.zip`**: Optional build with Optick CPU + DX11 GPU profiling enabled (`prof_capture`) for benchmarking and diagnostics.
-3. **Extract (Drag & Drop)**: Extract the archive directly into your `ANOMALY` root folder so `bin/AnomalyDX11.exe` and `gamedata/` overwrite cleanly.
-   - *LuaJIT 2.1 GC64 is statically linked into `AnomalyDX11.exe`; no separate `lua51.dll` replacement is required.*
-4. **Clear Shader Cache (Required)**: Delete the `appdata/shaders_cache` folder inside your Anomaly directory (and MO2 overwrite if applicable).
+   - **`STALKER-Anomaly-DX11_<tag>.zip`**: Recommended for normal play (clean release build with profiling turned off for best FPS).
+   - **`STALKER-Anomaly-ProfiledDX11_<tag>.zip`**: Optional build with Optick CPU/GPU profiling enabled (`prof_capture`) for benchmarking and bug reports.
+3. **Extract (Drag & Drop)**: Extract the zip directly into your `ANOMALY` root folder so `bin/AnomalyDX11.exe` and `gamedata/` overwrite cleanly.
+   - *LuaJIT 2.1 GC64 is built directly into `AnomalyDX11.exe`, so no separate `lua51.dll` replacement is needed.*
+4. **Clear Shader Cache (Required)**: Delete the `appdata/shaders_cache` folder inside your Anomaly directory (and your MO2 overwrite folder if present).
 5. **Launch**: Start the game using **Anomaly (DX11)** (`bin/AnomalyDX11.exe`).
 
 > [!IMPORTANT]
-> Always delete `appdata/shaders_cache` after updating the engine. Stale compiled shaders can cause black screens, broken scopes, or crashes on save load.
+> Always delete `appdata/shaders_cache` after updating the engine. Old cached shaders can cause black screens, broken scopes, or crashes when loading a save.
 
 ---
 
@@ -166,8 +155,8 @@ Major engine features can be toggled or tuned live in the console (`~`) or `user
 1. Open `src/engine-vs2026.sln` (or `src/engine.sln`).
 2. Select Platform: **`x64`**.
 3. Select Configuration:
-   - **`DX11`**: Optimized release build (`AnomalyDX11.exe`)
-   - **`VerifiedDX11`**: Release build with `VERIFY` checks & PDB symbols (`VerifiedDX11.exe`)
+   - **`DX11`**: Standard release build (`AnomalyDX11.exe`)
+   - **`VerifiedDX11`**: Release build with extra `VERIFY` safety checks and PDB symbols (`VerifiedDX11.exe`)
    - **`ProfiledDX11`**: Release build with **Optick** CPU + DX11 GPU profiling enabled (`AnomalyDX11.exe`)
 4. Build the solution (`Ctrl+Shift+B`).
 
@@ -177,7 +166,7 @@ Major engine features can be toggled or tuned live in the console (`~`) or `user
   "src\engine-vs2026.sln" /p:Configuration=DX11 /p:Platform=x64 /m /nologo /v:minimal
 ```
 
-Built executables and PDBs are written to `_build/_game/bin_dbg/`.
+Built executables and PDBs are output to `_build/_game/bin_dbg/`.
 
 ---
 
@@ -186,44 +175,44 @@ Built executables and PDBs are written to `_build/_game/bin_dbg/`.
 <details>
 <summary><b>My RAM usage is high (6-12 GB+). Is this a memory leak?</b></summary>
 
-**No.** This is expected. The Intel TBB allocator keeps pooled arenas to avoid allocation stalls, and LuaJIT 2.1 GC64 uses 64-bit tagged values so heavy modpacks can grow past the old 2 GB limit instead of crashing with Out-Of-Memory errors.
+**No.** This is normal. The TBB memory allocator keeps pooled memory ready to avoid stutters, and 64-bit LuaJIT lets large modpacks use more than the old 2 GB cap instead of crashing with Out-Of-Memory errors.
 </details>
 
 <details>
 <summary><b>The screen is black when loading a save, but the HUD is visible.</b></summary>
 
-Delete `appdata/shaders_cache` and relaunch. Stale shader bytecode from an earlier engine version is the most common cause of black screens.
+Delete `appdata/shaders_cache` and relaunch. Old compiled shaders from a previous engine build are the most common cause of black screens.
 </details>
 
 <details>
-<summary><b>How do I test or isolate a rendering issue?</b></summary>
+<summary><b>How do I test or isolate a graphics issue?</b></summary>
 
-Each major subsystem can be toggled live from the console (`~`) without restarting:
-- `r__mt_decouple 0`: Disable the decoupled Render Thread
-- `r4_volumetric_froxels 0`: Disable Compute 3D Froxel Volumetrics
-- `r4_post_pingpong 0`: Disable zero-copy post-process ping-pong
-- `r4_sun_cascade_cache 0`: Disable far sun cascade caching
+You can turn major features off live in the console (`~`) without restarting:
+- `r__mt_decouple 0`: Turn off the decoupled render thread
+- `r4_volumetric_froxels 0`: Turn off 3D volumetric fog
+- `r4_post_pingpong 0`: Turn off post-process target ping-ponging
+- `r4_sun_cascade_cache 0`: Turn off distant sun shadow caching
 </details>
 
 <details>
-<summary><b>How do I capture a CPU + GPU performance profile?</b></summary>
+<summary><b>How do I record a performance profile for a bug report?</b></summary>
 
-Run a `ProfiledDX11` build, open the in-game console (`~`), and run `prof_capture 600`. The trace is saved to `appdata/logs/optick.opt` and can be opened directly in Optick.
+Use the `ProfiledDX11` build, open the console (`~`), and run `prof_capture 600`. The trace saves to `appdata/logs/optick.opt` and can be opened in Optick.
 </details>
 
 ---
 
 ## Contributing
 
-Contributions focused on performance, stability, and DX11/DX12 graphics are welcome.
+Pull requests focused on performance, stability, and DX11/DX12 rendering improvements are welcome. See [CHANGELOG.md](./CHANGELOG.md) for detailed technical changes.
 
 ### Guidelines
-1. **Fork & Branch**: Create a descriptive feature or fix branch (`git checkout -b feat/my-improvement`).
+1. **Fork & Branch**: Create a descriptive branch (`git checkout -b feat/my-improvement`).
 2. **Thread Safety**:
-   - Never execute Lua callbacks, `CResourceManager::_CreateShader`, or `CResourceManager::_CreateTexture` on the Render Thread or inside TBB worker loops.
+   - Never run Lua callbacks, `CResourceManager::_CreateShader`, or `CResourceManager::_CreateTexture` on the Render Thread or inside TBB worker loops.
    - Never mutate global physics, sound, or environment state from worker threads without snapshotting or synchronization.
    - Guard DX11-only additions in shared `src/Layers/xrRender/` files with `#if RENDER == R_R4` or `#if defined(USE_DX11)`.
-3. **Verify**: Ensure `DX11|x64` and `VerifiedDX11|x64` compile cleanly and test in-game before opening a PR.
+3. **Verify**: Make sure `DX11|x64` and `VerifiedDX11|x64` compile cleanly and test in-game before opening a PR.
 
 ---
 
