@@ -10,9 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [1.0.0-wip] - 2026-11-27
+## [1.0.0-beta] - 2026-11-27
 
-> **Work-in-Progress Pre-Release**: This is an early testing build for community feedback and bug reports ahead of the final `1.0.0` release. Use `STALKER-Anomaly-DX11_v1.0.0-wip.zip` for normal play (profiling disabled), or `STALKER-Anomaly-ProfiledDX11_v1.0.0-wip.zip` if you want to capture Optick profiles (`prof_capture`). One executable works on all 64-bit CPUs (AVX2 and AVX-512 are detected automatically at runtime). Always delete `appdata/shaders_cache` after extracting.
+> **Beta Pre-Release**: Public beta testing build ahead of the final `1.0.0` release. Use `STALKER-Anomaly-DX11_v1.0.0-beta.zip` for normal play (profiling disabled), or `STALKER-Anomaly-ProfiledDX11_v1.0.0-beta.zip` if you want to capture Optick profiles (`prof_capture`) for bug reports. One executable works on all 64-bit CPUs (AVX2 and AVX-512 are detected automatically at runtime). Always delete `appdata/shaders_cache` after extracting.
 
 ### Added
 - **Versioned `user.ltx` Config Migration (`engine_cfg_ver`)**:
