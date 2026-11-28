@@ -1359,16 +1359,19 @@ int CLevel::LuaGC()
     }
 
     const int done = lua_gc(L, LUA_GCTIMEOUT, _max(psLua_ParallelGC_BudgetUS, 100));
-    static unsigned int s_last_atomic_seq = 0;
-    double astats[10];
-    const unsigned int aseq = luaJIT_gc_last_atomic_ms(astats);
-    if (aseq != s_last_atomic_seq)
+    if (psLua_ParallelGC_debug)
     {
-        s_last_atomic_seq = aseq;
-        if (astats[0] > 5.0)
+        static unsigned int s_last_atomic_seq = 0;
+        double astats[10];
+        const unsigned int aseq = luaJIT_gc_last_atomic_ms(astats);
+        if (aseq != s_last_atomic_seq)
         {
-            Msg("~ [LuaGC] atomic=%.2fms (gray=%.2f sep_walk=%.2f mark_mm=%.2f prop_mm=%.2f clearweak=%.2f | ud=%.0f moved=%.0f) heap=%zuKB",
-                astats[0], astats[3], astats[4], astats[5], astats[6], astats[7], astats[8], astats[9], cur_kb);
+            s_last_atomic_seq = aseq;
+            if (astats[0] > 5.0)
+            {
+                Msg("~ [LuaGC] atomic=%.2fms (gray=%.2f sep_walk=%.2f mark_mm=%.2f prop_mm=%.2f clearweak=%.2f | ud=%.0f moved=%.0f) heap=%zuKB",
+                    astats[0], astats[3], astats[4], astats[5], astats[6], astats[7], astats[8], astats[9], cur_kb);
+            }
         }
     }
     if (done > 0)
