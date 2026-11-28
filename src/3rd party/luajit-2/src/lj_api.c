@@ -31,11 +31,23 @@
 #endif
 
 #if LJ_TARGET_WINDOWS
-static inline uint64_t get_high_resolution_time(void)
+static inline uint64_t get_qpc_ticks(void)
 {
   LARGE_INTEGER cnt;
   QueryPerformanceCounter(&cnt);
-  return cnt.QuadPart;
+  return (uint64_t)cnt.QuadPart;
+}
+
+static inline uint64_t usec_to_qpc_ticks(uint32_t timeout_usec)
+{
+  static uint64_t freq = 0;
+  if (!freq) {
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    freq = (uint64_t)(f.QuadPart > 0 ? f.QuadPart : 10000000LL);
+  }
+  uint64_t ticks = ((uint64_t)timeout_usec * freq) / 1000000ULL;
+  return ticks > 0 ? ticks : 1;
 }
 #elif LJ_TARGET_POSIX
 static inline uint64_t get_high_resolution_time(void)
@@ -52,18 +64,39 @@ static inline uint64_t get_high_resolution_time(void)
 
 static int gc_step_timeout(lua_State *L, uint32_t timeout_usec)
 {
-#if LJ_TARGET_WINDOWS || LJ_TARGET_POSIX
+#if LJ_TARGET_WINDOWS
   int res = 0;
-  uint64_t timeout = timeout_usec * 1000;
+  global_State *g = G(L);
+  uint64_t time_current = get_qpc_ticks();
+  uint64_t deadline = time_current + usec_to_qpc_ticks(timeout_usec);
+  while (time_current < deadline) {
+    uint8_t prev_state = g->gc.state;
+    if (lj_gc_step(L) > 0) {
+      res = 1;
+      break;
+    }
+    /* Yield immediately after the atomic transition so we never stack extra sweep work on that frame. */
+    if (prev_state <= GCSatomic && g->gc.state >= GCSsweepstring)
+      break;
+    time_current = get_qpc_ticks();
+  }
+  return res;
+#elif LJ_TARGET_POSIX
+  int res = 0;
+  global_State *g = G(L);
+  uint64_t timeout = (uint64_t)timeout_usec * 1000ULL;
 
   uint64_t time_current = get_high_resolution_time();
 
   timeout += time_current;
   while (time_current < timeout) {
+    uint8_t prev_state = g->gc.state;
     if (lj_gc_step(L) > 0) {
       res = 1;
       break;
     }
+    if (prev_state <= GCSatomic && g->gc.state >= GCSsweepstring)
+      break;
 
     time_current = get_high_resolution_time();
   }

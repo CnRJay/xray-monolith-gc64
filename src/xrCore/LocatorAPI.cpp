@@ -13,6 +13,7 @@
 #include <memory>
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
+#include <tbb/task_arena.h>
 #pragma warning(default:4995)
 
 #include "FS_internal.h"
@@ -804,7 +805,14 @@ bool CLocatorAPI::Recurse(const char* path)
 	const bool recurse = !bNoRecurse;
 	const bool needCheck = m_Flags.test(flNeedCheck);
 
-	std::unique_ptr<SScanNode> root = ScanDirectoryTree(path, recurse, needCheck, 0);
+	std::unique_ptr<SScanNode> root;
+	{
+		// Cap directory-scan concurrency to avoid thrashing MO2 USVFS internal locks on 32-thread CPUs.
+		tbb::task_arena usvfsArena(8);
+		usvfsArena.execute([&]() {
+			root = ScanDirectoryTree(path, recurse, needCheck, 0);
+		});
+	}
 	if (!root)
 		return false;
 	if (!root->valid) // .xrignore matched
