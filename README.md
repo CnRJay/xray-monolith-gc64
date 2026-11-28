@@ -22,6 +22,7 @@
 <p>
   <a href="#overview">Overview</a> •
   <a href="#key-features">Features</a> •
+  <a href="#performance-benchmarks-rough-reference">Benchmarks</a> •
   <a href="#console-variables">CVars</a> •
   <a href="#installation">Installation</a> •
   <a href="#building-from-source">Building</a> •
@@ -46,14 +47,16 @@ Built on top of upstream X-Ray Monolith, this fork breaks through the engine's l
 
 ## Key Features
 
-### Multithreading & Engine Architecture
+### Multithreading, Frame Pacing & Loading Architecture
 | System | What It Does |
 | :--- | :--- |
 | **True 2-Stage Decoupled Render Thread** | Overlaps **Game Thread Frame N+1** (`FrameMove`, AI scheduler, physics, LuaGC, parallel bone kinematics) with **Render Thread Frame N** DX11 submission and `Present()` via `r__mt_decouple`, using double-buffered view/environment snapshots, frozen per-frame bone arenas, and 4-bucket UI command buffers. |
-| **LuaJIT 2.1 GC64** | Enables 64-bit GC pointers natively across `luajit`, `luabind`, and `xrGame`, eliminating the legacy ~2 GB Lua memory crash ceiling in massive modpacks. Statically linked directly into `AnomalyDX11.exe` (no mismatched `lua51.dll` headaches). |
-| **TBB Parallel Scene Pipeline** | Parallelizes sun cascade & shadowed dynamic light culling (`r4_parallel_cull`), grass/detail visibility (`r__mt_details`), skeleton bone updates (`mt_ParallelBones`), and async particle simulation with condition-variable waits (zero busy-spinning). |
-| **Intel TBB Allocator** | Replaces legacy allocation bottlenecks to cut heap fragmentation, speed up saves/level transitions, and smooth out micro-stutters. |
+| **LuaJIT 2.1 GC64 + Stutter Elimination** | Enables 64-bit GC pointers natively across `luajit`, `luabind`, and `xrGame` (statically linked — no mismatched `lua51.dll`), eliminating the legacy 2 GB memory ceiling. Adds GC64 heap-growth hysteresis (`lua_parallel_gc_trigger_mb`), fixed Windows QPC-accurate `LUA_GCTIMEOUT` budgeting (`lua_parallel_gc_budget_us`), 2-pass incremental `grayagain` remarking, and finalized `GCudata` relocation off `mainthread->nextgc` to crush stop-the-world GC hitches. |
+| **TBB Parallel Scene & Loading Pipeline** | Parallelizes sun cascade & shadowed dynamic light culling (`r4_parallel_cull`), grass/detail visibility (`r__mt_details`), skeleton bone updates (`mt_ParallelBones`), async particle simulation (condition-variable waits, zero busy-spinning), multi-million-face `HOM` terrain loading, `TREE-IB` `meshoptimizer` reordering, and model prefetching. |
+| **Parallel VFS & Archive Boot Overhaul** | Deduplicates redundant `fsgame.ltx` subtree scans, replaces serial CRT `_findfirst` + per-dir `stat(".xrignore")` with TBB-parallel Win32 `FindFirstFileExA(..., FIND_FIRST_EX_LARGE_FETCH)` capped for MO2 USVFS, and decompresses `.db`/`.xdb` archive TOCs in parallel (with thread-local `LzHuf`) while preserving exact deterministic mod override order. |
+| **Combat Audio & AI Scheduler Smoothness** | Switches sound occlusion raycasts to early-out `CDB::OPT_ONLYFIRST` with 20 Hz per-emitter caching (eliminating gunfire raycast storms) and caps deferred AI scheduler time budgets (`6.0 ms` max with per-item QPC checks) so heavy firefights stay fluid instead of stalling frames. |
 | **Runtime AVX2 / AVX-512 SIMD** | Automatic CPUID dispatch (safe on all SSE2+ x64 CPUs) accelerating **Intel Masked Software Occlusion Culling** (AVX2/AVX-512) and bulk **skinning bone-palette matrix transposes** (AVX2 with SSE fallback). |
+| **Intel TBB Allocator & Auto Config Migration** | Cuts heap fragmentation and micro-stutters via TBB's scalable allocator, and automatically applies one-time `user.ltx` default upgrades (`engine_cfg_ver`) without overwriting user customizations. |
 
 ### Next-Gen DX11 Rendering & Graphics
 - **Native DX11 Compute 3D Froxel Volumetric Fog & Lighting (`r4_volumetric_froxels`)**:
@@ -75,6 +78,31 @@ Built on top of upstream X-Ray Monolith, this fork breaks through the engine's l
 
 ---
 
+## Performance Benchmarks (Rough Reference)
+
+> [!NOTE]
+> **Disclaimer**: All figures below are **rough, non-exact reference numbers** captured on a single heavily modded **G.A.M.M.A.** test install (Ryzen 9 9950X3D, 1440p DX11, Rookie Village / Cordon AI combat, 3,000-frame Optick captures on `ProfiledDX11`). Actual gains **vary significantly** depending on your CPU, GPU, resolution, graphics settings, and modlist. Standard non-profiled `DX11` release builds have slightly lower CPU overhead than the `ProfiledDX11` captures below.
+
+### In-Game Frame Pacing & CPU Scaling (3,000-Frame Captures)
+| Metric | Earlier Baseline | Current Build (`ProfiledDX11`) | Rough Delta |
+| :--- | :---: | :---: | :---: |
+| **Average FPS / Frame Time** | ~97 FPS (`~10.3 ms`) | **~136–154 FPS (`~6.5–7.3 ms`)** | **~+35–40% FPS** |
+| **Median (`p50`) FPS** | ~105 FPS (`~9.5 ms`) | **~145 FPS (`~6.9 ms`)** | **~+38% FPS** |
+| **5% Lows (`p95`)** | ~56 FPS (`~17.7 ms`) | **~99 FPS (`~10.1 ms`)** | **~+40 FPS** |
+| **1% Lows (`p99`)** | ~23 FPS (`~43.0 ms`) | **~68 FPS (`~14.8 ms`)** | **~3× smoother lows** |
+| **Severe Stutters (`> 50 ms`)** | ~28 per 3,000 frames | **0** | **Eliminated** |
+| **Render Thread CPU (`CRender_Render`)** | ~5.8 ms/f | **~3.4 ms/f** | **~40% faster RT** |
+| **Combat Audio Update (`CSoundRender_Core`)** | ~3.6 ms/f (`~14.5 ms` max) | **~0.05 ms/f** | **~70× faster in gunfights** |
+
+### Boot & Level Loading (G.A.M.M.A. via MO2 USVFS, ~149k Files / 74 Archives)
+| Load Phase | Before | After | Rough Delta |
+| :--- | :---: | :---: | :---: |
+| **VFS Startup (`Init FileSystem`)** | ~17.5 s | **~5.2–6.3 s** | **~3× faster (~11–12 s saved)** |
+| **Tree Index Reorder (`TREE-IB`)** | ~73 ms | **~28–35 ms** | **~2.3× faster** |
+| **Terrain Occluder Build (`HOM` / `MOC-TERR`)** | ~119 ms | **~9 ms** | **~13× faster** |
+
+---
+
 ## Console Variables
 
 All major engine systems can be toggled or tuned live via the in-game console (`~`) or `user.ltx`:
@@ -93,6 +121,9 @@ All major engine systems can be toggled or tuned live via the in-game console (`
 | `r4_cbuffer_skip_unchanged` | `0–1` | `1` | Skip `Map(WRITE_DISCARD)` on unchanged DX11 constant buffers |
 | `r4_post_pingpong` | `0–1` | `1` | Ping-pong post-process render targets instead of full-screen copies |
 | `r4_sun_cascade_cache` | `0–8` | `1` | Cache far sun shadow cascade (`1` = 4-frame cadence, `0` = off) |
+| `lua_parallel_gc_trigger_mb` | `8–512` | `16` | LuaJIT GC64 heap growth (MB) before starting an incremental parallel GC cycle |
+| `lua_parallel_gc_budget_us` | `100–5000` | `1500` | Per-frame time budget (µs) for incremental parallel LuaJIT GC slices |
+| `engine_cfg_ver` | `0–10000` | `1` | Stored `user.ltx` config schema version for automatic one-time default migrations |
 | `r__svp_stats` | `0–2` | `0` | Live per-viewport True PIP CPU/GPU/draw-call/VRAM performance overlay |
 
 ---
@@ -112,7 +143,9 @@ All major engine systems can be toggled or tuned live via the in-game console (`
 ## Installation
 
 1. **Backup**: Back up your existing `bin/` and `gamedata/` folders inside your Anomaly root directory.
-2. **Download**: Grab the latest DX11 release `.zip` from the [Releases page](https://github.com/CnRJay/xray-monolith-gc64/releases).
+2. **Download**: Grab the latest DX11 release `.zip` from the [Releases page](https://github.com/CnRJay/xray-monolith-gc64/releases):
+   - **`STALKER-Anomaly-DX11_<tag>.zip`** — Recommended for all players (clean release build with profiling disabled for maximum performance).
+   - **`STALKER-Anomaly-ProfiledDX11_<tag>.zip`** — Optional build with Optick CPU + DX11 GPU profiling enabled (`prof_capture`) for benchmarking and diagnostics.
 3. **Extract (Drag & Drop)**: Extract the archive directly into your `ANOMALY` root folder so `bin/AnomalyDX11.exe` and `gamedata/` overwrite cleanly.
    - *LuaJIT 2.1 GC64 is statically linked into `AnomalyDX11.exe` — no separate `lua51.dll` replacement is required.*
 4. **Clear Shader Cache (CRITICAL)**: Delete the `appdata/shaders_cache` folder inside your Anomaly directory (and MO2 overwrite if applicable).

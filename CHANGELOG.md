@@ -41,6 +41,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Packaged release archives in drag-and-drop Anomaly root layout (`bin/AnomalyDX11.exe` + unpacked `gamedata/`) with automated `CHANGELOG.md` release notes extraction, a separate Optick-enabled `ProfiledDX11` release archive (keeping profiling disabled in the main player release), and separate PDB archives.
 
 ### Performance
+> **Note (Rough Reference Metrics)**: On a heavily modded G.A.M.M.A. test install (Ryzen 9 9950X3D, 1440p DX11, 3,000-frame `ProfiledDX11` captures), these optimizations roughly moved average framerate from ~97 FPS (`~10.3 ms`) to ~136–154 FPS (`~6.5–7.3 ms`), 1% lows (`p99`) from ~23 FPS (`~43 ms`) to ~68 FPS (`~14.8 ms`), eliminated `> 50 ms` stutter spikes (28 → 0), cut combat audio update from `~3.6 ms/f` (`14.5 ms` max) to `~0.05 ms/f`, and reduced MO2 USVFS `Init FileSystem` boot time from `~17.5 s` to `~5.2–6.3 s`. Results are approximate and will vary per CPU, GPU, resolution, and modlist.
+
 - **Game Boot, Save Load & Level Load Overhaul**:
   - Overhauled `CLocatorAPI` VFS startup scanning (`LocatorAPI.cpp`): deduplicated already-scanned recursive `fsgame.ltx` subtrees, replaced serial CRT `_findfirst`/`_findnext` + per-directory `stat(".xrignore")` with TBB-parallel Win32 `FindFirstFileExA(..., FindExInfoBasic, FIND_FIRST_EX_LARGE_FETCH)` and inline `.xrignore` detection, added TBB-parallel `.db`/`.xdb` archive header & TOC LZ decompression while preserving exact deterministic lexicographical mod override order, and early-exited `Register()` parent-folder walks on the first already-registered ancestor.
   - Paused LuaJIT GC (`LUA_GCSTOP`) across `net_Start` → `net_start6` to prevent mid-load GC pauses, and capped USVFS-facing parallel directory/model I/O concurrency to avoid MO2 USVFS hook lock contention on high-core CPUs.
@@ -76,6 +78,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Disabled unused renderers in single-renderer configurations in `src/engine-vs2026.sln`.
 
 ### Fixed
+- **Thread-Safe `LzHuf` Decompression (`xrCore`)**:
+  - Converted mutable `LzHuf.cpp` codec state (`LZfs`, Huffman/LZSS tables, and sliding-window buffer) to `static thread_local` and reset output pointers in `Init_Input()`, fixing heap corruption when multiple `.db`/`.xdb` archive TOCs decompress concurrently across TBB worker threads.
 - **Optick `prof_capture` / GPU Timeline Decoupled Render Thread Synchronization**:
   - Added `FlushRenderThread()` before `PROF_START_CAPTURE()`, `PROF_STOP_CAPTURE()`, and inside `dx10GpuTimeline::prof_state_changed()`, fixing an `nvwgf2umx.dll` D3D11 immediate-context crash when `prof_capture` finished while the dedicated Render Thread was actively submitting Frame N-1.
   - Updated `dx10GpuTimeline` to re-latch the active submission thread on `frame_start()` and read `Device.m_rt_view.dwFrame` on the Render Thread so GPU timeline capture stays intact across console/menu ↔ decoupled gameplay transitions.
