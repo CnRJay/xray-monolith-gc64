@@ -1,0 +1,58 @@
+#include "froxel_common.hlsli"
+
+Texture3D<float4> g_Integrated : register(t0);
+#ifdef USE_MSAA
+Texture2DMS<float4> g_Position : register(t1);
+#else
+Texture2D<float4> g_Position : register(t1);
+#endif
+Texture2D<float4> g_Tonemap : register(t2);
+
+SamplerState g_SmpLinear : register(s0);
+
+struct PSIn
+{
+    float4 pos : SV_Position;
+    float2 uv  : TEXCOORD0;
+};
+
+float4 main(PSIn i) : SV_Target
+{
+    int2 pix = int2(i.pos.xy);
+#ifdef USE_MSAA
+    float viewZ = g_Position.Load(pix, 0).z;
+#else
+    float viewZ = g_Position.Load(int3(pix, 0)).z;
+#endif
+
+    // Sky pixels have viewZ <= 0.001 in X-Ray G-buffer; evaluate volumetric scattering out to max range
+    bool isSky = (viewZ <= 0.001f);
+    float evalDepth = isSky ? vCameraDir.w : min(viewZ, vCameraDir.w);
+
+    float sliceNorm = LinearDepthToSlice(evalDepth);
+
+    // Subtle spatial dither breaks up any 8-bit banding in smooth fog gradients
+    float dither = (FroxelIGN(uint3(uint2(pix), 0), vWindAndJitter.w) - 0.5f) * vInvGridParams.z * 0.5f;
+    float3 uvw = float3(i.uv, saturate(sliceNorm + dither));
+
+    float4 vol = g_Integrated.SampleLevel(g_SmpLinear, uvw, 0.0f);
+    if (any(isnan(vol)) || any(isinf(vol)))
+        vol = float4(0.0f, 0.0f, 0.0f, 1.0f);
+
+    // Expose volumetric in-scattering with eye adaptation to match combine_1 output scale
+    float rawTm = g_Tonemap.Load(int3(0, 0, 0)).x;
+    float tmScale = (isnan(rawTm) || isinf(rawTm)) ? 1.0f : clamp(rawTm, 0.25f, 3.0f);
+    vol.rgb *= tmScale;
+
+    // Soft sky blend preserves skybox luminance while keeping volumetric sunbeams visible against the sky
+    if (isSky)
+    {
+        float skyScale = vSunCascadeUVClip.w;
+        vol.rgb *= skyScale;
+        vol.a = lerp(1.0f, vol.a, skyScale);
+    }
+
+    // Hardware blend state is (Src = ONE, Dest = SRC_ALPHA):
+    // OutRGB = vol.rgb + SceneRGB * vol.a
+    return float4(clamp(vol.rgb, 0.0f, 32.0f), saturate(vol.a));
+}

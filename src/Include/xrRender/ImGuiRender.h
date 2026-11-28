@@ -11,6 +11,9 @@ public:
 
     virtual void Frame() = 0;
     virtual void Render(ImDrawData* data) = 0;
+    virtual void CaptureDrawData(ImDrawData* /*data*/) {}
+    virtual void RenderCaptured() {}
+    virtual void ClearCaptured() {}
 
     virtual void OnDeviceCreate(ImGuiContext* context) = 0;
     virtual void OnDeviceDestroy() = 0;

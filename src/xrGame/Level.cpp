@@ -1278,8 +1278,15 @@ void CLevel::OnFrame()
 
 int psLUA_GCSTEP = 300;
 int psLua_ParallelGCStep = 75;
+int psLua_ParallelGC_TriggerMB = 16;
+int psLua_ParallelGC_BudgetUS = 1500;
 extern BOOL psLua_ParallelGC;
 extern BOOL psLua_ParallelGC_debug;
+
+extern "C" unsigned int luaJIT_gc_last_atomic_ms(double out[10]);
+
+static bool s_lua_gc_cycle_active = false;
+static size_t s_lua_gc_baseline_kb = 0;
 
 void CLevel::script_gc()
 {
@@ -1301,7 +1308,14 @@ void CLevel::script_gc()
 	if (!(psLua_ParallelGC && Device.LuaGC))
 	{
 		PROF_EVENT("CLevel::script_gc", PROF_CAT(Script));
-		lua_gc(ai().script_engine().lua(), LUA_GCSTEP, psLUA_GCSTEP);
+		lua_State* L = ai().script_engine().lua();
+		if (s_lua_gc_baseline_kb != 0)
+		{
+			lua_gc(L, LUA_GCRESTART, -1);
+			s_lua_gc_baseline_kb = 0;
+			s_lua_gc_cycle_active = false;
+		}
+		lua_gc(L, LUA_GCSTEP, psLUA_GCSTEP);
 	}
 	
 }
@@ -1311,16 +1325,62 @@ bool CLevel::Load(u32 dwNum)
 {
     PROF_EVENT("CLevel::Load", PROF_CAT(Scene));
     inherited::Load(dwNum);
+    s_lua_gc_cycle_active = false;
+    s_lua_gc_baseline_kb = 0;
     Msg("Device.LuaGC bind");
     Device.LuaGC.bind(&CLevel::LuaGC);
     Device.LuaGCDebug.bind(&CLevel::LuaGCDebug);
     return true;
 }
 
-// demonized: called from Device, via Device.LuaGC pointer
+// GC64-aware hysteresis + time-budgeted incremental GC so we don't trigger full GCSatomic
+// cycles every ~0.5s or ambush Main Thread FrameMove/CActor::shedule_Update with sync GC stalls.
 int CLevel::LuaGC()
 {
-    return lua_gc(ai().script_engine().lua(), LUA_GCSTEP, psLua_ParallelGCStep);
+    lua_State* L = ai().script_engine().lua();
+    if (!L)
+        return 1;
+
+    const size_t cur_kb = static_cast<size_t>(lua_gc(L, LUA_GCCOUNT, 0));
+    const size_t trigger_kb = static_cast<size_t>(_max(psLua_ParallelGC_TriggerMB, 8)) * 1024u;
+
+    if (!s_lua_gc_cycle_active)
+    {
+        if (s_lua_gc_baseline_kb == 0 || cur_kb < s_lua_gc_baseline_kb)
+            s_lua_gc_baseline_kb = cur_kb;
+
+        // Keep auto-GC paused on Main Thread until heap growth exceeds the GC64 hysteresis window.
+        lua_gc(L, LUA_GCSTOP, 0);
+
+        if (cur_kb < s_lua_gc_baseline_kb + trigger_kb)
+            return 1;
+
+        s_lua_gc_cycle_active = true;
+    }
+
+    const int done = lua_gc(L, LUA_GCTIMEOUT, _max(psLua_ParallelGC_BudgetUS, 100));
+    if (psLua_ParallelGC_debug)
+    {
+        static unsigned int s_last_atomic_seq = 0;
+        double astats[10];
+        const unsigned int aseq = luaJIT_gc_last_atomic_ms(astats);
+        if (aseq != s_last_atomic_seq)
+        {
+            s_last_atomic_seq = aseq;
+            if (astats[0] > 5.0)
+            {
+                Msg("~ [LuaGC] atomic=%.2fms (gray=%.2f sep_walk=%.2f mark_mm=%.2f prop_mm=%.2f clearweak=%.2f | ud=%.0f moved=%.0f) heap=%zuKB",
+                    astats[0], astats[3], astats[4], astats[5], astats[6], astats[7], astats[8], astats[9], cur_kb);
+            }
+        }
+    }
+    if (done > 0)
+    {
+        s_lua_gc_cycle_active = false;
+        s_lua_gc_baseline_kb = static_cast<size_t>(lua_gc(L, LUA_GCCOUNT, 0));
+        lua_gc(L, LUA_GCSTOP, 0);
+    }
+    return done;
 }
 void CLevel::LuaGCDebug()
 {
@@ -1352,6 +1412,12 @@ void CLevel::OnRender()
 		CUIPdaWnd* pda = &CurrentGameUI()->GetPdaMenu();
 		if (psActorFlags.test(AF_3D_PDA) && pda->IsShown())
 		{
+			const bool decoupled_rec = Device.m_decoupled_ui_recording;
+			if (decoupled_rec)
+			{
+				UIRender->EndRecord();
+				UIRender->BeginRecord(0);
+			}
 			RENDER_SCOPE(ui_pda_3d);
 			ps_r4_hdr10_pda = 1; // !!! HACK !!!
 
@@ -1393,7 +1459,16 @@ void CLevel::OnRender()
 				if (is_top)
 					cursor->OnRender();
 			}
-			Render->RenderToTarget(Render->rtPDA);
+			if (decoupled_rec)
+			{
+				UIRender->EndRecord();
+				Device.m_decoupled_pda_pending = true;
+				UIRender->BeginRecord(1, false);
+			}
+			else
+			{
+				Render->RenderToTarget(Render->rtPDA);
+			}
 
 			ps_r4_hdr10_pda = 0;
 		}
@@ -1405,7 +1480,8 @@ void CLevel::OnRender()
 		}
 	}
 
-	inherited::OnRender();
+	if (!Device.m_decoupled_ui_recording)
+		inherited::OnRender();
 	if (!game)
 		return;
 	Game().OnRender();
@@ -1414,10 +1490,10 @@ void CLevel::OnRender()
 		BulletManager().Render();
 	}
 
-	if (!Device.true_pip_on && Device.m_SecondViewport.IsSVPFrame())
+	if (!Device.m_decoupled_ui_recording && !Device.true_pip_on && Device.m_SecondViewport.IsSVPFrame())
 		Render->RenderToTarget(Render->rtSVP);
 
-	if (use_reshade)
+	if (!Device.m_decoupled_ui_recording && use_reshade)
 	{
 		RENDER_SCOPE(reshade);
 		render_reshade_effects();

@@ -31,9 +31,9 @@ bool CRender::is_raining()
 {
 	float fRainFactor = 0;
 	if (ps_ssfx_gloss_method == 0)
-		fRainFactor = g_pGamePersistent->Environment().CurrentEnv->rain_density;
+		fRainFactor = Device.m_rt_env.valid ? Device.m_rt_env.rain_density : g_pGamePersistent->Environment().CurrentEnv->rain_density;
 	else
-		fRainFactor = g_pGamePersistent->Environment().wetness_factor;
+		fRainFactor = Device.m_rt_env.valid ? Device.m_rt_env.wetness_factor : g_pGamePersistent->Environment().wetness_factor;
 
 	if (fRainFactor < EPS_L) return false;
 	return true;
@@ -247,8 +247,8 @@ void CRender::render_rain()
 
 	// Restore XForms
 	RCache.set_xform_world(Fidentity);
-	RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
+	RCache.set_xform_view(Device.m_rt_view.mView);
+	RCache.set_xform_project(Device.m_rt_view.mProject);
 
 	// Accumulate
 	auto old_surf = Target->rt_smap_depth->pTexture->surface_get();

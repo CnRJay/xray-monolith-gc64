@@ -82,13 +82,18 @@ public:
 		: enabled(fov != 0.f), near_depth(adjust_depth)
 	{
 		if (!enabled) return;
+		const bool on_rt = CRenderThread::IsOnRenderThread();
 		saved_project = RCache.get_xform_project();
-		saved_full = Device.mFullTransform;
+		saved_full = on_rt ? Device.m_rt_view.mFullTransform : Device.mFullTransform;
+		const float aspect = on_rt ? Device.m_rt_view.fASPECT : Device.fASPECT;
+		const float far_p = Device.m_rt_env.valid ? Device.m_rt_env.far_plane : g_pGamePersistent->Environment().CurrentEnv->far_plane;
 		Fmatrix project;
-		project.build_projection(deg2rad(fov), Device.fASPECT, R_VIEWPORT_NEAR,
-			g_pGamePersistent->Environment().CurrentEnv->far_plane);
+		project.build_projection(deg2rad(fov), aspect, R_VIEWPORT_NEAR, far_p);
 		if (near_depth) RImplementation.rmNear();
-		Device.mFullTransform.mul(project, Device.mView);
+		if (on_rt)
+			Device.m_rt_view.mFullTransform.mul(project, Device.m_rt_view.mView);
+		else
+			Device.mFullTransform.mul(project, Device.mView);
 		RCache.set_xform_project(project);
 	}
 
@@ -96,7 +101,10 @@ public:
 	{
 		if (!enabled) return;
 		if (near_depth) RImplementation.rmNormal();
-		Device.mFullTransform = saved_full;
+		if (CRenderThread::IsOnRenderThread())
+			Device.m_rt_view.mFullTransform = saved_full;
+		else
+			Device.mFullTransform = saved_full;
 		RCache.set_xform_project(saved_project);
 	}
 };

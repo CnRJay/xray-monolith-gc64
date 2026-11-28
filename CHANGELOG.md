@@ -9,6 +9,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Versioned `user.ltx` Config Migration (`engine_cfg_ver`)**:
+  - Added automatic one-time `user.ltx` config migration (`engine_cfg_ver`, currently `v1`) right after `user.ltx` loads in `execUserScript()` so users upgrading from vanilla Anomaly, GAMMA, or older builds automatically receive updated engine defaults once while preserving any manual tweaks afterward.
+- **Native DX11 Compute 3D Froxel Volumetric Fog & Lighting (`r4_volumetric_froxels`)**:
+  - Replaced legacy `.peak` volumetric lights and low-resolution sliced/screen-space volumetrics with a native Frostbite/UE5-style DX11 Compute 3D Froxel volumetric pipeline (`r4_volumetric_froxels.h/.cpp` + 7 dedicated HLSL 5.0 compute/apply shaders in `gamedata/shaders/r3/`).
+  - Evaluates multi-cascade hardware-PCF sun shadow visibility (`froxel_sun_shadow.cs`) across cascades 0–2, live shadow-atlas spotlight cones (`froxel_spot_shadow.cs`), up to 64 dynamic point/spot lights via GPU `StructuredBuffer`, weather-driven height fog with animated 3D wind noise (`froxel_inject.cs`), dual-lobe Henyey-Greenstein phase + temporal reprojection (`froxel_light.cs`), and energy-conserving analytical Beer-Lambert transmittance integration (`froxel_integrate.cs`).
+  - Composites into the lit scene via a single hardware-trilinear 3D lookup with eye-adaptation exposure matching (`froxel_apply.vs/.ps`) and Beer-Lambert hardware blending, avoiding conflicts with mod-overridden `combine_1.ps` / `combine_volumetric.ps` shaders.
+- **True 2-Stage Decoupled Render Thread (`r__mt_decouple`)**:
+  - Added a dedicated persistent Render Thread (`CRenderThread`) that overlaps Game Thread Frame N+1 (`FrameMove`, `xrSheduler`, `seqFrameMT`, `LuaGC`, `CalculateBonesThread`) with Render Thread Frame N DX11 submission and `Present()`, controlled via `r__mt_decouple` (`0–1`, default `1`).
+  - Split DX11 rendering into `CRender::ExtractFrame()` (Safe Sync Window on Main Thread + TBB for `g_SpatialSpace`, `CObject::renderable_Render`, sun cascade/light culling, HUD/SVP optics, and bone matrix snapshotting) and `CRender::RenderSubmit()` (pure DX11 submission on Render Thread).
+  - Added `SRenderViewSnapshot` and `SRenderEnvSnapshot` double-buffered frame snapshots (`Device.m_rt_view` / `Device.m_rt_env`), `SFrameBoneArena` frozen skeleton bone matrices, deferred `model_Delete` queueing while the Render Thread is busy, 4-bucket `CUICommandBuffer` 2D/3D UI recording (`dxUIRender` + `dxFontRender`), and `ImDrawData` deep-copy capture (`dxImGuiRender`) to eliminate data races across gameplay, UI, Lua, and rendering.
 - **Physical Objective-Camera True PIP (`TheLostInPlace/xray-monolith-pip` Integration)**:
   - Integrated the physical objective-camera True PIP architecture (physical aperture/eyebox model, off-axis deferred lighting reconstruction, continuous barrel/handguard rendering, TAA/DLSS lens exclusion, hybrid reflex/magnifier support, typed Lua optic API, and in-game ImGui optic workbench).
   - Added the live per-viewport render performance stats overlay (`r__svp_stats`) and dedicated `pip.log` diagnostics.
@@ -21,14 +31,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `r4_sun_cascade_cache` (`0–8`, default `1`): caches the far sun shadow cascade (cascade 2) in a dedicated `rt_smap_depth_far` target across frames, automatically invalidating on camera movement, sun movement, level loads, and device resets.
 
 ### Changed
+- **Removed Legacy `.peak` Volumetric System**:
+  - Removed LVutner's `.peak` volumetric code (`ps_pfx_volumetric_mode` / `pfx_volumetric_mode`, `CRenderTarget::accum_volumetric_lv`, `s_combine->E[5]` `pfx_volumetric_light`, and its MCM/XML options) across R2/R3/R4 in favor of the native Compute 3D Froxel volumetric pipeline.
 - **Upstream Multithreading Baseline**:
   - Merged all commits from `upstream/all-in-one-vs2022-wpo-mt` (`707ca7680`), adopting upstream's `CDSGraphManager`, Optick GPU/CPU profiler scopes, UI 3D icon atlas, and MT fixes.
 - **GitHub Actions CI & Tag-Gated Releases (DX11 Only)**:
   - Streamlined `.github/workflows/msbuild.yml` to build only `DX11|x64` on `all-in-one-vs2022-wpo`, `feat/**`, and PRs (removed legacy DX8/DX9/DX10 builds, unused `-AVX` variants, duplicate non-MT matrix, and auto-releases on every commit).
   - Gated GitHub Releases strictly on version tags (`v*`) or manual `workflow_dispatch` with a `release_tag` input.
-  - Packaged release archives in drag-and-drop Anomaly root layout (`bin/AnomalyDX11.exe` + unpacked `gamedata/`) with automated `CHANGELOG.md` release notes extraction and a separate PDB archive.
+  - Packaged release archives in drag-and-drop Anomaly root layout (`bin/AnomalyDX11.exe` + unpacked `gamedata/`) with automated `CHANGELOG.md` release notes extraction, a separate Optick-enabled `ProfiledDX11` release archive (keeping profiling disabled in the main player release), and separate PDB archives.
 
 ### Performance
+- **Game Boot, Save Load & Level Load Overhaul**:
+  - Overhauled `CLocatorAPI` VFS startup scanning (`LocatorAPI.cpp`): deduplicated already-scanned recursive `fsgame.ltx` subtrees, replaced serial CRT `_findfirst`/`_findnext` + per-directory `stat(".xrignore")` with TBB-parallel Win32 `FindFirstFileExA(..., FindExInfoBasic, FIND_FIRST_EX_LARGE_FETCH)` and inline `.xrignore` detection, added TBB-parallel `.db`/`.xdb` archive header & TOC LZ decompression while preserving exact deterministic lexicographical mod override order, and early-exited `Register()` parent-folder walks on the first already-registered ancestor.
+  - Paused LuaJIT GC (`LUA_GCSTOP`) across `net_Start` → `net_start6` to prevent mid-load GC pauses, and capped USVFS-facing parallel directory/model I/O concurrency to avoid MO2 USVFS hook lock contention on high-core CPUs.
+  - Eliminated the second `level.geom` disk pass in `TREE-IB` reorder by capturing tree vertex positions directly from RAM during `LoadBuffers()` and parallelized `meshoptimizer` cache/overdraw reordering across disjoint ranges via TBB.
+  - Parallelized `CHOM::terrain_load()` (multi-million CFORM face scan) and `CModelPool::Prefetch()` `.ogf` disk reads via TBB.
+- **LuaJIT GC64 Hysteresis & Time-Budgeted Parallel GC (Frame-Pacing Stutter Elimination)**:
+  - Fixed a 100× Windows timing bug in LuaJIT's `LUA_GCTIMEOUT` (`gc_step_timeout` in `lj_api.c`) that compared raw `QueryPerformanceCounter` ticks against `timeout_usec * 1000` without scaling by `QueryPerformanceFrequency` (causing `500 µs` budgets to run for `50.0 ms`), made `gc_step_timeout` yield immediately after `GCSatomic` transitions, added 2-pass incremental `grayagain` draining before `GCSatomic`, and relocated finalized/no-`__gc` `GCudata` off `mainthread->nextgc` onto `g->gc.root` (`lj_gc.c`) so `lj_gc_separateudata` never re-walks finalized userdata.
+  - Replaced the legacy 25×/frame `LUA_GCSTEP` loop in `seqLuaGC` (which forced ~2 full GC cycles/sec and caused 15–19 ms `GCSatomic` stutters in both `secondary_tasks.wait` and `CActor::shedule_Update`) with GC64-aware heap-growth hysteresis (`lua_parallel_gc_trigger_mb`, default `16` MB) and time-budgeted incremental slices (`LUA_GCTIMEOUT` via `lua_parallel_gc_budget_us`, default `1500` µs) that keep Main Thread auto-GC paused between cycles.
+  - Updated LuaJIT `case GCSatomic` to yield the incremental step immediately after `atomic()` instead of piling string sweeps onto the same frame.
+- **Combat Audio Occlusion & Deferred Scheduler Cap**:
+  - Switched `CSoundRender_Core::get_occlusion()` from `CDB::OPT_ONLYNEAREST` to `CDB::OPT_ONLYFIRST` (early-out on first blocking triangle) and cached per-emitter sound occlusion at 20 Hz (`CSoundRender_Emitter::update_culling()`), eliminating up to `14.5 ms` single-thread audio raycast stalls during heavy AI gunfights.
+  - Capped `CSheduler` deferred AI time budget (`psShedulerTarget`) at `6.0 ms` (down from `66.0 ms`) with exact fractional QPC limits and per-item QPC checks so intense multi-squad combat spreads smoothly across frames instead of stalling `secondary_tasks.wait()`.
+  - Removed per-draw `PROF_EVENT` instrumentation from `R_constants::flush_cache()` (~6,500 calls/f), `CBackend::set_Element()`, and `CBackend::set_States()`, and force-inlined `flush_cb_stage`.
+- **Runtime AVX2 Bone Palette Upload & Optick CPU Hotspot Wins**:
+  - Added runtime CPUID-dispatched AVX2 bulk 4×4→3×4 matrix transpose (`BonePaletteSIMD.h/.cpp`, `BonePaletteSIMD_AVX2.cpp` with per-file `/arch:AVX2` and SSE2 fallback) for `CSkeletonX::_Render` `SEND_MATRICES` (both current `sbones_array` and `sbones_array_prev` motion-vector palettes), replacing ~108,900 scalar `RCache.set_ca` calls/frame with single direct CB writes.
+  - Inlined `R_constants::GetCBuffer` into `dx10R_Backend_Runtime.h` with a switch dispatch and removed its per-call `PROF_EVENT` macro (~69,000 calls/frame on Render Thread).
+  - Cached per-viewport interactive grass bender arrays once per frame in `FTreeVisual::Render` and uploaded via `RCache.set_c_bytes` instead of rebuilding and dirtying constant buffers on every tree draw (~3,860 draws/frame).
+  - Overlapped `CRender::extract_sun_cascades()` (disjoint `GMCascade` instances, no HOM dependency) ahead of `HOM.MT_RENDER()` inside `CRender::ExtractFrame()` so sun shadow culling runs concurrently with `Secondary Task 1.1` HOM rasterization instead of blocking Main Thread on `m_mt_render_guard`.
 - **Intel Masked Software Occlusion Culling (Runtime AVX2 / AVX-512)**:
   - Integrated Intel Masked Occlusion Culling (`moc.vcxproj`) with runtime CPUID dispatch for AVX2 and AVX-512 alongside the legacy HOM occluder.
 - **DX11 GPU & Geometry Optimizations**:
@@ -46,6 +76,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Disabled unused renderers in single-renderer configurations in `src/engine-vs2026.sln`.
 
 ### Fixed
+- **Optick `prof_capture` / GPU Timeline Decoupled Render Thread Synchronization**:
+  - Added `FlushRenderThread()` before `PROF_START_CAPTURE()`, `PROF_STOP_CAPTURE()`, and inside `dx10GpuTimeline::prof_state_changed()`, fixing an `nvwgf2umx.dll` D3D11 immediate-context crash when `prof_capture` finished while the dedicated Render Thread was actively submitting Frame N-1.
+  - Updated `dx10GpuTimeline` to re-latch the active submission thread on `frame_start()` and read `Device.m_rt_view.dwFrame` on the Render Thread so GPU timeline capture stays intact across console/menu ↔ decoupled gameplay transitions.
+- **True PIP Scope Raise Crash & Render Thread Resource Safety**:
+  - Fixed a crash when raising weapons with a PIP scope under `r__mt_decouple 1` caused by `TargetMain->EnsureScopeShaders()` (on hipfire lens capture) and `TargetSVP->EnsureScopeShaders()` (in `svp_nearblur_pass`) invoking `CResourceManager::_CreateShader` / Lua shader compilation on the Render Thread concurrently with Main Thread Frame N+1 Lua execution.
+  - Pre-initialized scope shaders on both `TargetMain` and `TargetSVP` during `ExtractFrame()` / `EnsureTargetSVP()`, added a `CRenderThread::IsOnRenderThread()` guard inside `EnsureScopeShaders()`, and pre-created all SVP alias `ref_texture` handles (`$user$svp_nearblur_src`, `$user$svp_nearblur_pos`, `r2_RT_secondVP`, `r2_RT_generic2`, `r2_RT_heat`, `$user$svp_tonemap`) on the Main Thread to eliminate per-frame Render Thread `CResourceManager::_CreateTexture` calls.
+  - Switched `RCache.Invalidate()` to `RCache.Invalidate(false)` in `phase_3DSSReticle()`, `phase_scope_debug()`, and `share_main_smaps()` so `r4_post_pingpong 1` texture overrides stay intact while aiming through PIP scopes, and switched SVP Render Thread reads of `Device.dwFrame` / `Device.matrices[1]` / `Device.matrices_previous[1]` to `Device.m_rt_view`.
+- **3DSS / True PIP Scope Lens Capture & TAA Motion Vectors**:
+  - Removed a stale pre-`tlip-pip` `bCaptureScopeLens` early-return block in `CDSGraphManager::r_dsgraph_insert_dynamic()` that discarded all `iScopeLense > 0` visuals before `tlip-pip`'s lens/reflex capture could run (which caused scopes to render as empty hollow tubes).
+  - Removed duplicate `Device.matrices_previous[0..1] = Device.matrices[0..1]` overwrites in `CRenderDevice::on_idle()` that were zeroing out previous-frame camera view/projection matrices (`m_v_prev`/`m_p_prev`) and breaking SSS TAA camera motion vectors.
+- **Froxel Volumetrics & Post-Process Ping-Pong Interaction**:
+  - Preserved `RCache.textureOverrides` across `CVolumetricFroxels::ApplyToScene()` (`RCache.Invalidate(false)`) so `r4_post_pingpong 1` no longer alternates to the wrong swapped render target (eliminating the half-rate black-frame flickering when `r4_volumetric_froxels 1`).
+  - Enabled `D3DCOMPILE_IEEE_STRICTNESS` for froxel shaders so `isnan`/`isinf` guards are preserved by the HLSL optimizer, and unbound the scene RTV after `ApplyToScene()`.
+- **Tree Wind Motion Vector Frame Latch (`FTreeVisual`)**:
+  - Fixed `FTreeVisual_setup::calculate()` storing `dwFrame` while `FTreeVisual::Render()` compared against `dwViewport`, which caused `prev_wave`/`prev_wind` to overwrite with current-frame wind on every tree after the first and degrade TAA motion vectors on swaying foliage.
+- **Froxel Volumetrics Matrix Inversion & NaN Protection**:
+  - Replaced 4x3 affine `Fmatrix::invert()` on the perspective `viewProj` matrix in `CVolumetricFroxels::BeginFrame()` with full 4x4 `D3DXMatrixInverse`, cleared newly allocated 3D UAV textures on creation, and added `isnan`/`isinf` sanitization across `froxel_light.cs`, `froxel_integrate.cs`, and `froxel_apply.ps` to eliminate full-screen black-frame flickering.
+- **Decoupled Render Thread Environment & Skeleton Synchronization**:
+  - Snapshotted `dxEnvDescriptorMixerRender` sky/envmap/cloud texture lists and `$user$sky0`/`$user$sky1` bindings during `ExtractFrame()` so `CEnvironment::OnFrame()` in Frame N+1 cannot mutate texture lists concurrently while the Render Thread executes `RenderSky`, `RenderClouds`, or `phase_combine`.
+  - Synchronized `SFrameBoneArena::SnapshotBonesForRT()`, `CKinematics::CopyBonesFrom()` / `LL_SetBoneVisible()`, and `CActor::renderable_Render()` shadow-pass legs updates against parallel TBB sun-cascade extraction and concurrent Render Thread reads, fixing first-person legs deformation and bone palette corruption.
+- **Decoupled Render Thread OCCQ Deferral**:
+  - Deferred GPU light occlusion queries (`light::vis_prepare()` / `draw_occq_volume()`) out of `CRender::ExtractFrame()` (where `phase_occq()` and PART-0 depth are not yet bound) onto the Render Thread right after PART-0 depth fill, fixing a null vertex shader crash in `CBackend::ApplyVertexLayout` under `r__mt_decouple 1`.
 - **Multithreading & Renderer Thread-Safety Fixes**:
   - Gave `CalculateBonesThread` its own `vCameraPosition_bones` / `mFullTransform_bones` camera snapshot so same-frame SVP `SetActive` viewport flips cannot race with bone visibility queries.
   - Replaced global `::Random.randI` inside `CHOM::visible(vis_data&)` with a deterministic hash delay so parallel grass and static culling workers never contend on the global RNG state.
@@ -61,3 +113,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 | `r4_sun_cascade_cache` | `0–8` | `1` | Cache far sun shadow cascade (`1` = 4-frame cadence; `0` = off) |
 | `r__mt_details` | `0–1` | `1` | Parallelize grass/detail visibility culling across TBB workers |
 | `r4_parallel_cull` | `0–1` | `1` | Parallelize sun cascade, dynamic light, and main/SVP static culling |
+| `r__mt_decouple` | `0–1` | `1` | Overlap Game Thread Frame N+1 with dedicated Render Thread Frame N submission |
+| `r4_volumetric_froxels` | `0–1` | `1` | Enable Native DX11 Compute 3D Froxel Volumetric Fog & Lighting (`0` = legacy fallback) |
+| `r4_volumetric_quality` | `0–2` | `1` | Froxel 3D grid resolution (`0` = `128×72×48`, `1` = `160×90×64`, `2` = `240×135×96`) |
+| `r4_volumetric_range` | `30–250` | `120.0` | Maximum froxel volumetric fog & lighting distance (meters) |
+| `r4_volumetric_density` | `0.0–4.0` | `1.0` | Global atmospheric scattering & volumetric fog density multiplier |
+| `r4_volumetric_anisotropy` | `-0.5–0.92` | `0.65` | Henyey-Greenstein phase anisotropy controlling forward-scattering sun/spot beams |
+| `r4_volumetric_temporal` | `0.0–0.96` | `0.90` | Temporal reprojection history blend factor (`0` disables temporal filtering) |
+| `lua_parallel_gc_trigger_mb` | `8–512` | `16` | LuaJIT GC64 heap growth (MB) before starting a parallel GC cycle |
+| `lua_parallel_gc_budget_us` | `100–5000` | `1500` | Per-frame time budget (µs) for incremental parallel LuaJIT GC slices |
+| `engine_cfg_ver` | `0–10000` | `1` | Stored `user.ltx` config schema version for automatic one-time default migrations |

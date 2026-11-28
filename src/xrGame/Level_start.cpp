@@ -13,6 +13,10 @@
 #include "string_table.h"
 #include "UIGameCustom.h"
 #include "ui/UICDkey.h"
+#include "ai_space.h"
+#include "../xrServerEntities/script_engine.h"
+
+extern BOOL psLua_ParallelGC;
 
 int g_cl_save_demo = 0;
 extern XRCORE_API bool g_allow_heap_min;
@@ -34,6 +38,11 @@ bool CLevel::net_Start(const char* op_server, const char* op_client)
 	net_start_result_total = TRUE;
 
 	pApp->LoadBegin();
+
+	// Pause LuaJIT GC during save/level load so compiling thousands of scripts and loading ALife objects
+	// never triggers mid-load GCSatomic pauses.
+	if (g_ai_space && g_ai_space->m_script_engine && g_ai_space->m_script_engine->lua())
+		lua_gc(g_ai_space->m_script_engine->lua(), LUA_GCSTOP, 0);
 
 	string64 player_name;
 	GetPlayerName_FromRegistry(player_name, sizeof(player_name));
@@ -261,6 +270,13 @@ bool CLevel::net_start6()
 	BulletManager().Load();
 
 	pApp->LoadEnd();
+
+	if (g_ai_space && g_ai_space->m_script_engine)
+	{
+		g_ai_space->m_script_engine->clear_script_preload_cache();
+		if (!psLua_ParallelGC && g_ai_space->m_script_engine->lua())
+			lua_gc(g_ai_space->m_script_engine->lua(), LUA_GCRESTART, -1);
+	}
 
 	if (net_start_result_total)
 	{

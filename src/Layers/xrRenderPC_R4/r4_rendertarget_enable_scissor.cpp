@@ -19,7 +19,7 @@ BOOL CRenderTarget::enable_scissor(light* L) // true if intersects near plane
 	// Near plane intersection
 	BOOL near_intersect = FALSE;
 	{
-		Fmatrix& M = Device.mFullTransform;
+		Fmatrix& M = Device.m_rt_view.mFullTransform;
 		Fvector4 plane;
 		plane.x = -(M._14 + M._13);
 		plane.y = -(M._24 + M._23);
@@ -50,11 +50,11 @@ BOOL CRenderTarget::enable_scissor(light* L) // true if intersects near plane
 	CSector*	S	= (CSector*)L->spatial.sector;
 	_scissor	bb	= S->r_scissor_merged;
 	Irect		R;
-	R.x1		= clampr	(iFloor	(bb.min.x*Device.dwWidth),	int(0),int(Device.dwWidth));
-	R.x2		= clampr	(iCeil	(bb.max.x*Device.dwWidth),	int(0),int(Device.dwWidth));
-	R.y1		= clampr	(iFloor	(bb.min.y*Device.dwHeight),	int(0),int(Device.dwHeight));
-	R.y2		= clampr	(iCeil	(bb.max.y*Device.dwHeight),	int(0),int(Device.dwHeight));
-	if	( (Device.dwWidth==u32(R.right - R.left)) && (Device.dwHeight==u32(R.bottom-R.top)) )
+	R.x1		= clampr	(iFloor	(bb.min.x*Device.m_rt_view.dwWidth),	int(0),int(Device.m_rt_view.dwWidth));
+	R.x2		= clampr	(iCeil	(bb.max.x*Device.m_rt_view.dwWidth),	int(0),int(Device.m_rt_view.dwWidth));
+	R.y1		= clampr	(iFloor	(bb.min.y*Device.m_rt_view.dwHeight),	int(0),int(Device.m_rt_view.dwHeight));
+	R.y2		= clampr	(iCeil	(bb.max.y*Device.m_rt_view.dwHeight),	int(0),int(Device.m_rt_view.dwHeight));
+	if	( (Device.m_rt_view.dwWidth==u32(R.right - R.left)) && (Device.m_rt_view.dwHeight==u32(R.bottom-R.top)) )
 	{
 		// full-screen -> do nothing
 	} else {
@@ -77,7 +77,7 @@ BOOL CRenderTarget::enable_scissor(light* L) // true if intersects near plane
 
 		// 3. convert it into world space
 		Fvector3	s_points			[4];
-		Fmatrix&	iVP					= Device.mInvFullTransform;
+		Fmatrix&	iVP					= Device.m_rt_view.mInvFullTransform;
 		iVP.transform	(s_points[0],s_points_pp[0]);
 		iVP.transform	(s_points[1],s_points_pp[1]);
 		iVP.transform	(s_points[2],s_points_pp[2]);
@@ -144,9 +144,9 @@ BOOL CRenderTarget::compute_light_scissor(light* L, BOOL near_intersect, Irect& 
 		return FALSE;
 
 	// live camera, the svp replay reaches here with its own matrices and target size
-	const Fmatrix& FT = Device.mFullTransform;
-	const float fw = float(Device.dwWidth);
-	const float fh = float(Device.dwHeight);
+	const Fmatrix& FT = Device.m_rt_view.mFullTransform;
+	const float fw = float(Device.m_rt_view.dwWidth);
+	const float fh = float(Device.m_rt_view.dwHeight);
 
 	float x0 = flt_max, y0 = flt_max, x1 = -flt_max, y1 = -flt_max;
 	for (u32 c = 0; c < 8; ++c)
@@ -173,13 +173,13 @@ BOOL CRenderTarget::compute_light_scissor(light* L, BOOL near_intersect, Irect& 
 	}
 
 	// round outward so the rect never crops a pixel the unscissored draw would touch
-	R.x1 = clampr(iFloor(clampr(x0, 0.f, fw)), 0, int(Device.dwWidth));
-	R.x2 = clampr(iCeil(clampr(x1, 0.f, fw)), 0, int(Device.dwWidth));
-	R.y1 = clampr(iFloor(clampr(y0, 0.f, fh)), 0, int(Device.dwHeight));
-	R.y2 = clampr(iCeil(clampr(y1, 0.f, fh)), 0, int(Device.dwHeight));
+	R.x1 = clampr(iFloor(clampr(x0, 0.f, fw)), 0, int(Device.m_rt_view.dwWidth));
+	R.x2 = clampr(iCeil(clampr(x1, 0.f, fw)), 0, int(Device.m_rt_view.dwWidth));
+	R.y1 = clampr(iFloor(clampr(y0, 0.f, fh)), 0, int(Device.m_rt_view.dwHeight));
+	R.y2 = clampr(iCeil(clampr(y1, 0.f, fh)), 0, int(Device.m_rt_view.dwHeight));
 
 	// covers the frame anyway, skip the state change
-	if (R.x1 <= 0 && R.y1 <= 0 && R.x2 >= int(Device.dwWidth) && R.y2 >= int(Device.dwHeight))
+	if (R.x1 <= 0 && R.y1 <= 0 && R.x2 >= int(Device.m_rt_view.dwWidth) && R.y2 >= int(Device.m_rt_view.dwHeight))
 		return FALSE;
 	// an empty rect means the projection folded, keep the light rather than drop it
 	if (R.x2 <= R.x1 || R.y2 <= R.y1)

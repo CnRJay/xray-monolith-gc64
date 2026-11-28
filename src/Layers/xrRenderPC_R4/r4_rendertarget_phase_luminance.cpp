@@ -157,7 +157,7 @@ void CRenderTarget::phase_luminance()
 		const float optic_mgrey = optic_config.typed_route ? optic_config.middle_grey : ps_s3ds_middle_grey;
 		const float tm_adapt = (svp_tm && optic_adapt > 0.f) ? optic_adapt : ps_r2_tonemap_adaptation;
 		const float tm_mgrey = (svp_tm && optic_mgrey > 0.f) ? optic_mgrey : ps_r2_tonemap_middlegray;
-		f_luminance_adapt = .9f * f_luminance_adapt + .1f * Device.fTimeDelta * tm_adapt;
+		f_luminance_adapt = .9f * f_luminance_adapt + .1f * Device.m_rt_view.fTimeDelta * tm_adapt;
 		float amount = ps_r2_ls_flags.test(R2FLAG_TONEMAP) ? ps_r2_tonemap_amount : 0;
 		Fvector3 _none, _full, _result;
 		_none.set(1, 0, 1);

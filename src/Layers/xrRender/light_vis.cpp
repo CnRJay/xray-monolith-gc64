@@ -32,14 +32,26 @@ void light::vis_prepare()
 		return;
 	}
 
-	u32 frame = Device.dwFrame;
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const u32 frame = on_rt ? Device.m_rt_view.dwFrame : Device.dwFrame;
+	const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
+
+	// Decoupled ExtractFrame() runs on Main Thread before PART-0 fills the depth buffer;
+	// defer the GPU OCCQ draw until Render Thread executes phase_occq() after PART-0.
+	if (RImplementation.m_rt_defer_occq)
+	{
+		xform_calc();
+		vis.distance = cam_pos.distance_to(SpatialComponent->spatial.sphere.P);
+		return;
+	}
+
 	if (frame < vis.frame2test)
 		return; // Not time to test
 
 	// Don't issue queries from inside the bounding sphere. CULL_CCW culls all
 	// back-facing surfaces from inside, returning 0 fragments and falsely hiding
 	// the light when that stale result is later processed with always=false.
-	vis.distance = Device.vCameraPosition.distance_to(SpatialComponent->spatial.sphere.P);
+	vis.distance = cam_pos.distance_to(SpatialComponent->spatial.sphere.P);
 	if (vis.distance < SpatialComponent->spatial.sphere.R)
 		return;
 
@@ -59,14 +71,16 @@ void light::vis_prepare()
 
 void light::vis_update()
 {
-	auto frame = Device.dwFrame;
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const u32 frame = on_rt ? Device.m_rt_view.dwFrame : Device.dwFrame;
+	const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
 
-	auto light_to_player = Fvector(Device.vCameraPosition).sub(position);
+	auto light_to_player = Fvector(cam_pos).sub(position);
 	auto distance = light_to_player.magnitude();
 	// Use the spatial bounding sphere (not just apex range) so spot/omnipart lights
 	// whose sphere center is offset from position are handled correctly.
 	// 1.5x margin absorbs the 1-2 frame GPU query latency at the sphere boundary.
-	auto inside_dist = Device.vCameraPosition.distance_to(SpatialComponent->spatial.sphere.P) < SpatialComponent->spatial.sphere.R * 1.5f;
+	auto inside_dist = cam_pos.distance_to(SpatialComponent->spatial.sphere.P) < SpatialComponent->spatial.sphere.R * 1.5f;
 	auto inside_fov = acos(clampr(light_to_player.normalize_safe().dotproduct(Fvector(direction).normalize_safe()), -1.f, 1.f)) < deg2rad(120.0f * 0.5f);
 	auto critical_dist = distance < 1.0f;
 

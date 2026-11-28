@@ -9,8 +9,8 @@ void CRenderTarget::phase_nightvision()
 
 	float d_Z = EPS_S;
 	float d_W = 1.0f;
-	float w = float(Device.dwWidth);
-	float h = float(Device.dwHeight);
+	float w = float(Device.m_rt_view.dwWidth);
+	float h = float(Device.m_rt_view.dwHeight);
 
 	Fvector2 p0, p1;
 #if defined(USE_DX10) || defined(USE_DX11)	
@@ -68,8 +68,8 @@ void CRenderTarget::phase_fakescope()
 
 	float d_Z = EPS_S;
 	float d_W = 1.0f;
-	float w = float(Device.dwWidth);
-	float h = float(Device.dwHeight);
+	float w = float(Device.m_rt_view.dwWidth);
+	float h = float(Device.m_rt_view.dwHeight);
 
 	Fvector2 p0, p1;
 #if defined(USE_DX10) || defined(USE_DX11)	
@@ -167,8 +167,8 @@ void CRenderTarget::phase_heatvision()
 
 	float d_Z = EPS_S;
 	float d_W = 1.0f;
-	float w = float(Device.dwWidth);
-	float h = float(Device.dwHeight);
+	float w = float(Device.m_rt_view.dwWidth);
+	float h = float(Device.m_rt_view.dwHeight);
 
 	Fvector2 p0, p1;
 #if defined(USE_DX10) || defined(USE_DX11)	

@@ -172,6 +172,7 @@ public:
 
 // refs
 #include "svp_state.h" // pip the SVP cross-thread data bus
+#include "RenderThread.h"
 class ENGINE_API CRenderDevice : public CRenderDeviceBase
 {
 public:
@@ -521,6 +522,129 @@ public:
 
 	// Multi-threading
 	xr_task_group secondary_tasks;
+	CRenderThread m_render_thread;
+
+	// Frozen environment & shader-constant snapshot published to the Render Thread at each frame sync barrier.
+	struct SRenderEnvSnapshot
+	{
+		bool valid = false;
+		float fog_near = 0.f;
+		float fog_far = 100.f;
+		float fog_density = 0.f;
+		Fvector3 fog_color{ 0.f, 0.f, 0.f };
+		Fvector3 sky_color{ 1.f, 1.f, 1.f };
+		float sky_rotation = 0.f;
+		Fvector4 clouds_color{ 1.f, 1.f, 1.f, 1.f };
+		float weight = 0.f;
+		Fvector3 ambient{ 0.f, 0.f, 0.f };
+		Fvector4 hemi_color{ 0.f, 0.f, 0.f, 0.f };
+		Fvector3 sun_color{ 0.f, 0.f, 0.f };
+		Fvector3 sun_dir{ 0.f, -1.f, 0.f };
+		float far_plane = 350.f;
+		float rain_density = 0.f;
+		Fvector3 rain_color{ 1.f, 1.f, 1.f };
+		float wetness_factor = 0.f;
+		float game_time = 0.f;
+		float wind_direction = 0.f;
+		float wind_velocity = 0.f;
+		float wind_strength_factor = 0.f;
+		float tree_amplitude_intensity = 0.f;
+		float water_intensity = 0.f;
+		Fvector4 wind_anim{ 0.f, 0.f, 0.f, 0.f };
+		float bloom_threshold = 3.5f;
+		float bloom_exposure = 3.0f;
+		float bloom_sky_intensity = 0.6f;
+
+		Fvector4 hud_params{ 0.f, 0.f, 0.f, 0.f };
+		Fvector4 hud_fov_params{ 0.f, 0.f, 0.f, 0.f };
+		Fmatrix script_params{ Fidentity };
+		Fvector4 blender_mode{ 0.f, 0.f, 0.f, 0.f };
+
+		float actor_health = 1.f;
+		float actor_stamina = 1.f;
+		float actor_bleeding = 0.f;
+		int actor_helmet = 0;
+
+		float pda_display_factor = 0.f;
+		float pda_psy_influence = 0.f;
+		float pda_display_brightness = 1.f;
+
+		Fvector4 grass_pos[16]{};
+		Fvector4 grass_dir[16]{};
+		Fvector4 grass_prev_pos[16]{};
+		Fvector4 grass_prev_dir[16]{};
+		float grass_str[16]{};
+		float grass_radius_curr[16]{};
+	};
+	SRenderEnvSnapshot m_rt_env;
+
+	// Frozen camera/viewport/timing state owned by the Render Thread during Frame N
+	// while Main Thread advances Frame N+1 independently.
+	struct SRenderViewSnapshot
+	{
+		u32 dwWidth = 0;
+		u32 dwHeight = 0;
+		float fWidth_2 = 0.f;
+		float fHeight_2 = 0.f;
+		float fFOV = 90.f;
+		float fASPECT = 1.f;
+		u32 dwFrame = 0;
+		u32 dwViewport = 0;
+		float fTimeGlobal = 0.f;
+		float fTimeDelta = 0.f;
+		u32 dwTimeGlobal = 0;
+
+		Fvector vCameraPosition{};
+		Fvector vCameraDirection{};
+		Fvector vCameraTop{};
+		Fvector vCameraRight{};
+		Fvector vCameraPosition_saved{};
+
+		Fmatrix mView{};
+		Fmatrix mProject{};
+		Fmatrix mProjectHud{};
+		Fmatrix mFullTransform{};
+		Fmatrix mFullTransformHud{};
+		Fmatrix mInvView{};
+		Fmatrix mInvProject{};
+		Fmatrix mInvProjectHud{};
+		Fmatrix mInvFullTransform{};
+		Fmatrix mView_saved{};
+		Fmatrix mProject_saved{};
+		Fmatrix mFullTransform_saved{};
+
+		Fmatrix mView_prev{};
+		Fmatrix mProject_prev{};
+		Fmatrix mFullTransform_prev{};
+		Fmatrix mViewHud{};
+		Fmatrix mViewHud_prev{};
+		Fmatrix mProjectHud_prev{};
+		Fmatrix mFullTransformHud_prev{};
+		Fmatrix mViewCam{};
+		Fmatrix mProjectCam{};
+		Fmatrix mFullTransformCam{};
+		Fmatrix mViewCam_prev{};
+		Fmatrix mProjectCam_prev{};
+		Fmatrix mFullTransformCam_prev{};
+		Fmatrix mProjectCamAttached{};
+		Fmatrix mFullTransformCamAttached{};
+		Fmatrix mProject3DIcons{};
+		Fmatrix mFullTransform3DIcons{};
+
+		MatrixData matrices[2]{};
+		MatrixData matrices_previous[2]{};
+		Fvector4 wind_anim_prev{};
+		Fvector4 wind_anim_saved{};
+	};
+	SRenderViewSnapshot m_rt_view;
+
+	void SnapshotRenderFrame();
+	void FlushRenderThread() { m_render_thread.Wait(); }
+	bool IsDecoupledRenderActive() const noexcept { return ps_r__mt_decouple != 0 && m_render_thread.IsRunning(); }
+	bool IsDecoupledRenderBusy() const noexcept { return m_render_thread.IsBusy(); }
+	bool m_decoupled_ui_recording = false;
+	bool m_decoupled_pda_pending = false;
+	std::atomic<bool> m_rt_needs_reset{ false };
 
 	ICF void remove_from_seq_parallel(const xr_delegate<void()>& delegate)
 	{

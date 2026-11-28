@@ -65,36 +65,13 @@ void CDSGraphManager::r_dsgraph_insert_dynamic(dxRender_Visual *pVisual, Fmatrix
 	Fvector Center;
 	xform->transform_tiny(Center, pVisual->vis.sphere.P);
     // Attachments can submit the same visual at several instance transforms in one pass.
-    if (!get_UI3D() && val_pObject && !val_pObject->dcast_CObject())
+    // Under decoupled rendering, always own a snapshot of the dynamic transform so Frame N+1
+    // updates to CObject::XFORM() never race with Render Thread Frame N submission.
+    if (!get_UI3D() && (g_rt_bone_arena.active || (val_pObject && !val_pObject->dcast_CObject())))
     {
         owned_transforms.push_back(*xform);
         xform = &owned_transforms.back();
     }
-#if defined(USE_DX11) // True PIP: 3D Shader Based Scopes & Reflex Sights
-	if (!get_UI3D() && pVisual->shader._get())
-	{
-		auto sh_scope = pVisual->shader->E[0]._get();
-		if (nullptr != sh_scope && sh_scope->flags.iScopeLense > 0)
-		{
-			// Only want a single lens, if rendering the player HUD (bCaptureScopeLens)
-			if (RImplementation.Target->bCaptureScopeLens)
-			{
-				owned_transforms.push_back(*xform);
-				Fmatrix* scope_xform = &owned_transforms.back();
-				if (sh_scope->flags.iScopeLense == 3 && RGraph.mapScopeHUDSorted.empty())
-				{
-					// We must detect the lens surface immediately, ignoring all culling.
-					RGraph.mapScopeHUDSorted.emplace_back(0.f, 0.f, val_pObject, pVisual, scope_xform, sh_scope, get_HUD(), val_fCustomFOV);
-				}
-				else if (sh_scope->flags.iScopeLense == 10)
-				{
-					RGraph.mapReflexHUDSorted.emplace_back(0.f, 0.f, val_pObject, pVisual, scope_xform, sh_scope, get_HUD(), val_fCustomFOV);
-				}
-			}
-			return;
-		}
-	}
-#endif
     if (get_UI3D())
     {
         VERIFY(pVisual->shader._get());
@@ -658,6 +635,8 @@ void CDSGraphManager::add_Dynamic(IRenderVisual* piVisual, Fmatrix* xform)
 				pV->CalculateBones(TRUE);
 			else if (i_mask[CDSGraphManager::fl_normal])
 				pV->CalculateWallmarks();
+			if (g_rt_bone_arena.active)
+				pV->SnapshotBonesForRT();
 			add_leafs_Dynamic(pV->children, xform);
 		}
 	}return;
@@ -727,6 +706,8 @@ void CDSGraphManager::add_Dynamic(dxRender_Visual* pVisual, Fmatrix* xform)
 				pV->CalculateBones(TRUE);
 			else if (i_mask[CDSGraphManager::fl_normal])
 				pV->CalculateWallmarks();
+			if (g_rt_bone_arena.active)
+				pV->SnapshotBonesForRT();
 			add_leafs_Dynamic(pV->children, xform);
 		}
 	}break;

@@ -292,6 +292,13 @@ extern ECORE_API int ps_r4_atlas_width;
 extern ECORE_API int ps_r4_atlas_height;
 extern ECORE_API u32 ps_r4_atlas_msaa;
 
+extern ECORE_API int ps_r4_volumetric_froxels;
+extern ECORE_API int ps_r4_volumetric_quality;
+extern ECORE_API float ps_r4_volumetric_range;
+extern ECORE_API float ps_r4_volumetric_density;
+extern ECORE_API float ps_r4_volumetric_anisotropy;
+extern ECORE_API float ps_r4_volumetric_temporal;
+
 ////
 
 //	x - min (0), y - focus (1.4), z - max (100)
@@ -305,7 +312,6 @@ extern ECORE_API int ps_r3_dyn_wet_surf_sm_res; // 256
 
 extern ECORE_API int opt_static;
 extern ECORE_API int opt_dynamic;
-extern ECORE_API int ps_pfx_volumetric_mode;
 extern ECORE_API int ps_r__portal_traverse_stats;
 // r__gpu_timeline, GPU timestamps around every PIX_EVENT scope for the gpu_timeline window
 extern ECORE_API int ps_r__gpu_timeline;

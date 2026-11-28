@@ -89,6 +89,32 @@ DEFINE_VECTOR(intrusive_ptr<CSkeletonWallmark>, SkeletonWMVec, SkeletonWMVecIt);
 #	define _DBG_SINGLE_USE_MARKER
 #endif
 
+struct SFrameBoneArena
+{
+	xrCriticalSection lock;
+	xr_vector<Fmatrix> matrices;
+	u32 frame_id = 0;
+	bool active = false;
+
+	void begin_frame(u32 frame)
+	{
+		xrCriticalSectionGuard guard(&lock);
+		frame_id = frame;
+		matrices.clear();
+		if (matrices.capacity() < 4096)
+			matrices.reserve(4096);
+		active = true;
+	}
+
+	void end_frame()
+	{
+		xrCriticalSectionGuard guard(&lock);
+		active = false;
+	}
+};
+
+extern SFrameBoneArena g_rt_bone_arena;
+
 class CKinematics : public FHierrarhyVisual, public IKinematics
 {
 	typedef FHierrarhyVisual inherited;
@@ -343,6 +369,28 @@ public:
 	virtual void CalculateBones(BOOL bForceExact = FALSE); // Recalculate skeleton
 	void CalculateBones_Invalidate();
 	bool CopyBonesFrom(IKinematics* from);
+
+	// Per-frame frozen bone palette snapshot for the decoupled Render Thread.
+	u32 m_rt_bone_frame = u32(-1);
+	u32 m_rt_bone_offset = 0;
+	u16 m_rt_bone_count = 0;
+	void SnapshotBonesForRT()
+	{
+		if (!g_rt_bone_arena.active || m_rt_bone_frame == g_rt_bone_arena.frame_id || !bone_instances || !bones_size)
+			return;
+		xrCriticalSectionGuard bone_guard(&UCalc_Mutex);
+		xrCriticalSectionGuard arena_guard(&g_rt_bone_arena.lock);
+		if (!g_rt_bone_arena.active || m_rt_bone_frame == g_rt_bone_arena.frame_id)
+			return;
+		const u16 count = bones_size;
+		const u32 offset = static_cast<u32>(g_rt_bone_arena.matrices.size());
+		g_rt_bone_arena.matrices.resize(static_cast<size_t>(offset) + count);
+		for (u16 i = 0; i < count; ++i)
+			g_rt_bone_arena.matrices[offset + i] = bone_instances[i].mRenderTransform;
+		m_rt_bone_offset = offset;
+		m_rt_bone_count = count;
+		m_rt_bone_frame = g_rt_bone_arena.frame_id;
+	}
 
 	void Callback(UpdateCallback C, void* Param)
 	{

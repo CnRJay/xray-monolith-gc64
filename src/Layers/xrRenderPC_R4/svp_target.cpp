@@ -97,7 +97,10 @@ void CRender::EnsureTargetSVP()
 		const bool gate_ok = ((ps_r__svp_dlss != 0) == TargetSVP->m_svp_dlss_built);
 		const bool size_ok = (TargetSVP->Width == svp_w && TargetSVP->Height == svp_h);
 		if (gate_ok && size_ok)
+		{
+			TargetSVP->EnsureScopeShaders();
 			return;
+		}
 		xr_delete(TargetSVP);
 	}
 	TargetSVP = xr_new<CRenderTarget>("svp", svp_w, svp_h);
@@ -113,6 +116,7 @@ void CRender::EnsureTargetSVP()
 		xr_delete(TargetSVP);
 		return;
 	}
+	TargetSVP->EnsureScopeShaders();
 	Device.m_SecondViewport.dlss_reset_next = true; // pip DLSS history reset, SVP surface (re)created incl. res change
 	extern int ps_r__svp_diag; extern float ps_r__svp_supersample;
 	if (ps_r__svp_diag)

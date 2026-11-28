@@ -3,6 +3,7 @@
 #include "../../xrEngine/environment.h"
 
 #include "../xrRender/dxEnvironmentRender.h"
+#include "r4_volumetric_froxels.h"
 #include "svp_stats.h" // pip combine sub timers for the breakdown panel
 
 #define STENCIL_CULL 0
@@ -67,7 +68,7 @@ void CRenderTarget::DoAsyncScreenshot()
 		HRESULT hr;
 
 		//	HACK: unbind RT. CopyResourcess needs src and targetr to be unbound.
-		//u_setrt				( Device.dwWidth,Device.dwHeight,HW.pBaseRT,NULL,NULL,HW.pBaseZB);
+		//u_setrt				( Device.m_rt_view.dwWidth,Device.m_rt_view.dwHeight,HW.pBaseRT,NULL,NULL,HW.pBaseZB);
 
 		//ID3DTexture2D *pTex = 0;
 		//if (RImplementation.o.dx10_msaa)
@@ -141,11 +142,11 @@ void CRenderTarget::phase_combine()
 		{
 			static Fvector3 saved_position;
 			Position_previous.set(saved_position);
-			saved_position.set(Device.vCameraPosition);
+			saved_position.set(Device.m_rt_view.vCameraPosition);
 
-			Matrix_previous.mul(m_saved_viewproj, Device.mInvView);
-			Matrix_current.set(Device.mProject);
-			m_saved_viewproj.set(Device.mFullTransform);
+			Matrix_previous.mul(m_saved_viewproj, Device.m_rt_view.mInvView);
+			Matrix_current.set(Device.m_rt_view.mProject);
+			m_saved_viewproj.set(Device.m_rt_view.mFullTransform);
 		}
 		float scale = ps_r2_mblur / 2.f;
 		m_blur_scale.set(scale, -scale).div(12.f);
@@ -249,9 +250,9 @@ void CRenderTarget::phase_combine()
 		static Fmatrix m_saved_viewproj;
 
 		// (new-camera) -> (world) -> (old_viewproj)
-		m_previous.mul(m_saved_viewproj, Device.mInvView);
-		m_current.set(Device.mProject);
-		m_saved_viewproj.set(Device.mFullTransform);
+		m_previous.mul(m_saved_viewproj, Device.m_rt_view.mInvView);
+		m_current.set(Device.m_rt_view.mProject);
+		m_saved_viewproj.set(Device.m_rt_view.mFullTransform);
 		float scale = ps_r2_mblur / 2.f;
 		m_blur_scale.set(scale, -scale).div(12.f);
 	}*/
@@ -263,32 +264,37 @@ void CRenderTarget::phase_combine()
 		PIX_EVENT(combine_1);
 		// Compute params
 		CEnvDescriptorMixer& envdesc = *g_pGamePersistent->Environment().CurrentEnv;
+		const auto& RE = Device.m_rt_env;
+		const Fvector3 amb_src = RE.valid ? RE.ambient : envdesc.ambient;
+		const Fvector4 hemi_src = RE.valid ? RE.hemi_color : envdesc.hemi_color;
+		const Fvector3 fog_src = RE.valid ? RE.fog_color : envdesc.fog_color;
+		const float weight_src = RE.valid ? RE.weight : envdesc.weight;
 		const float minamb = 0.001f;
 		Fvector4 ambclr = {
-			_max(envdesc.ambient.x * 2, minamb), _max(envdesc.ambient.y * 2, minamb),
-			_max(envdesc.ambient.z * 2, minamb), 0
+			_max(amb_src.x * 2, minamb), _max(amb_src.y * 2, minamb),
+			_max(amb_src.z * 2, minamb), 0
 		};
 		ambclr.mul(ps_r2_sun_lumscale_amb + g_pGamePersistent->nv_shader_data.lum_factor);
 
-		//.		Fvector4	envclr			= { envdesc.sky_color.x*2+EPS,	envdesc.sky_color.y*2+EPS,	envdesc.sky_color.z*2+EPS,	envdesc.weight					};
 		Fvector4 envclr = {
-			envdesc.hemi_color.x * 2 + EPS, envdesc.hemi_color.y * 2 + EPS, envdesc.hemi_color.z * 2 + EPS,
-			envdesc.weight
+			hemi_src.x * 2 + EPS, hemi_src.y * 2 + EPS, hemi_src.z * 2 + EPS,
+			weight_src
 		};
 
-		Fvector4 fogclr = { envdesc.fog_color.x, envdesc.fog_color.y, envdesc.fog_color.z, 0 };
+		Fvector4 fogclr = { fog_src.x, fog_src.y, fog_src.z, 0 };
 		envclr.x *= 2 * ps_r2_sun_lumscale_hemi;
 		envclr.y *= 2 * ps_r2_sun_lumscale_hemi;
 		envclr.z *= 2 * ps_r2_sun_lumscale_hemi;
 		Fvector4 sunclr, sundir;
 
+		const float cur_fov = Device.m_rt_view.fFOV;
 		float fSSAONoise = 2.0f;
 		fSSAONoise *= tan(deg2rad(67.5f / 2.0f));
-		fSSAONoise /= tan(deg2rad(Device.fFOV / 2.0f));
+		fSSAONoise /= tan(deg2rad(cur_fov / 2.0f));
 
 		float fSSAOKernelSize = 150.0f;
 		fSSAOKernelSize *= tan(deg2rad(67.5f / 2.0f));
-		fSSAOKernelSize /= tan(deg2rad(Device.fFOV / 2.0f));
+		fSSAOKernelSize /= tan(deg2rad(cur_fov / 2.0f));
 
 
 		// sun-params
@@ -298,7 +304,7 @@ void CRenderTarget::phase_combine()
 			float L_spec;
 			L_clr.set(fuckingsun->color.r, fuckingsun->color.g, fuckingsun->color.b);
 			L_spec = u_diffuse2s(L_clr);
-			Device.mView.transform_dir(L_dir, fuckingsun->direction);
+			Device.m_rt_view.mView.transform_dir(L_dir, fuckingsun->direction);
 			L_dir.normalize();
 
 			sunclr.set(L_clr.x, L_clr.y, L_clr.z, L_spec);
@@ -307,8 +313,8 @@ void CRenderTarget::phase_combine()
 
 		/*
 		// Fill VB
-		//float	_w					= float(Device.dwWidth);
-		//float	_h					= float(Device.dwHeight);
+		//float	_w					= float(Device.m_rt_view.dwWidth);
+		//float	_h					= float(Device.m_rt_view.dwHeight);
 		//p0.set						(.5f/_w, .5f/_h);
 		//p1.set						((_w+.5f)/_w, (_h+.5f)/_h );
 		//p0.set						(.5f/_w, .5f/_h);
@@ -328,8 +334,8 @@ void CRenderTarget::phase_combine()
 		*/
 
 		// Fill VB
-		float scale_X = float(Device.dwWidth) / float(TEX_jitter);
-		float scale_Y = float(Device.dwHeight) / float(TEX_jitter);
+		float scale_X = float(Device.m_rt_view.dwWidth) / float(TEX_jitter);
+		float scale_Y = float(Device.m_rt_view.dwHeight) / float(TEX_jitter);
 
 		// Fill vertex buffer
 		FVF::TL* pv = (FVF::TL*)RCache.Vertex.Lock(4, g_combine->vb_stride, Offset);
@@ -344,10 +350,13 @@ void CRenderTarget::phase_combine()
 		RCache.Vertex.Unlock(4, g_combine->vb_stride);
 
 		dxEnvDescriptorMixerRender& envdescren = *(dxEnvDescriptorMixerRender*)(&*envdesc.m_pDescriptorMixer);
+		const STextureList& env_textures = (CRenderThread::IsOnRenderThread() && envdescren.rt_snapshot_valid)
+			? envdescren.rt_sky_r_textures_env
+			: envdescren.sky_r_textures_env;
 
 		// Setup textures
-		ID3DBaseTexture* e0 = _menu_pp ? 0 : envdescren.sky_r_textures_env[0].second->surface_get();
-		ID3DBaseTexture* e1 = _menu_pp ? 0 : envdescren.sky_r_textures_env[1].second->surface_get();
+		ID3DBaseTexture* e0 = (_menu_pp || env_textures.size() < 1 || !env_textures[0].second) ? 0 : env_textures[0].second->surface_get();
+		ID3DBaseTexture* e1 = (_menu_pp || env_textures.size() < 2 || !env_textures[1].second) ? 0 : env_textures[1].second->surface_get();
 		t_envmap_0->surface_set(e0);
 		_RELEASE(e0);
 		t_envmap_1->surface_set(e1);
@@ -358,7 +367,7 @@ void CRenderTarget::phase_combine()
 		//RCache.set_Geometry			(g_combine_VP		);
 		RCache.set_Geometry(g_combine);
 
-		RCache.set_c("m_v2w", Device.mInvView);
+		RCache.set_c("m_v2w", Device.m_rt_view.mInvView);
 		RCache.set_c("L_ambient", ambclr);
 
 		RCache.set_c("Ldynamic_color", sunclr);
@@ -452,8 +461,8 @@ void CRenderTarget::phase_combine()
 		else
 			u_setrt(rt_ssfx_temp, 0, 0, 0);
 
-		float w = float(Device.dwWidth);
-		float h = float(Device.dwHeight);
+		float w = float(Device.m_rt_view.dwWidth);
+		float h = float(Device.m_rt_view.dwHeight);
 
 		// Render Scale
 		set_viewport_size(HW.pContext, w / ps_ssfx_water.x, h / ps_ssfx_water.x);
@@ -560,7 +569,14 @@ void CRenderTarget::phase_combine()
 	// pip r__svp_skip_volumetric drops god rays on the scope pass (subtle at magnification)
 	if (!(svp_pass && ps_r__svp_skip_volumetric))
 	{
-		if (RImplementation.o.ssfx_volumetric)
+		if (ps_r4_volumetric_froxels && !svp_pass && m_froxels)
+		{
+			ID3D11RenderTargetView* targetRtv = RImplementation.o.dx10_msaa ? rt_Generic_0_r->pRT : rt_Generic_0->pRT;
+			m_froxels->ApplyToScene(targetRtv, rt_Position->pTexture->get_SRView(),
+				rt_LUM_pool[0]->pTexture->get_SRView(),
+				Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, RImplementation.o.dx10_msaa != 0);
+		}
+		else if (RImplementation.o.ssfx_volumetric)
 		{
 			if (m_bHasActiveVolumetric || m_bHasActiveVolumetric_spot)
 				phase_combine_volumetric();
@@ -822,14 +838,14 @@ void CRenderTarget::phase_combine()
 	if (RImplementation.o.dx10_msaa)
 	{
 		if (PP_Complex) u_setrt(rt_Generic, 0, 0, HW.pBaseZB); // LDR RT
-		else u_setrt(Device.dwWidth, Device.dwHeight, HW.pBaseRT,NULL,NULL, HW.pBaseZB);
+		else u_setrt(Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, HW.pBaseRT,NULL,NULL, HW.pBaseZB);
 	}
 	else
 	{
 		if (PP_Complex) u_setrt(rt_Color, 0, 0, HW.pBaseZB); // LDR RT
-		else u_setrt(Device.dwWidth, Device.dwHeight, HW.pBaseRT,NULL,NULL, HW.pBaseZB);
+		else u_setrt(Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, HW.pBaseRT,NULL,NULL, HW.pBaseZB);
 	}
-	//. u_setrt				( Device.dwWidth,Device.dwHeight,HW.pBaseRT,NULL,NULL,HW.pBaseZB);
+	//. u_setrt				( Device.m_rt_view.dwWidth,Device.m_rt_view.dwHeight,HW.pBaseRT,NULL,NULL,HW.pBaseZB);
 	RCache.set_CullMode(CULL_NONE);
 	RCache.set_Stencil(FALSE);
 
@@ -851,8 +867,8 @@ void CRenderTarget::phase_combine()
 			Fvector4 uv6;
 		};
 
-		float _w = float(Device.dwWidth);
-		float _h = float(Device.dwHeight);
+		float _w = float(Device.m_rt_view.dwWidth);
+		float _h = float(Device.m_rt_view.dwHeight);
 		float ddw = 1.f / _w;
 		float ddh = 1.f / _h;
 		p0.set(.5f / _w, .5f / _h);
@@ -1019,8 +1035,8 @@ void CRenderTarget::phase_combine()
 	/*
 	if (0)		{
 		u32		C					= color_rgba	(255,255,255,255);
-		float	_w					= float(Device.dwWidth)/3;
-		float	_h					= float(Device.dwHeight)/3;
+		float	_w					= float(Device.m_rt_view.dwWidth)/3;
+		float	_h					= float(Device.m_rt_view.dwHeight)/3;
 
 		// draw light-spheres
 #ifdef DEBUG
@@ -1117,8 +1133,8 @@ void CRenderTarget::phase_combine_volumetric()
 	RCache.set_ColorWriteEnable(D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE);
 	{
 		// Fill VB
-		//float scale_X = float(Device.dwWidth) / float(TEX_jitter);
-		//float scale_Y = float(Device.dwHeight) / float(TEX_jitter);
+		//float scale_X = float(Device.m_rt_view.dwWidth) / float(TEX_jitter);
+		//float scale_Y = float(Device.m_rt_view.dwHeight) / float(TEX_jitter);
 
 		// Fill vertex buffer
 		FVF::TL* pv = (FVF::TL*)RCache.Vertex.Lock(4, g_combine->vb_stride, Offset);

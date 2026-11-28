@@ -208,23 +208,13 @@ void XRay::Engine::GameThread()
 		Device.seqFrameMT.Process(rp_Frame);
 	}
 
-    // demonized: While Renderer prepares frame and GPU renders it, use time opportunity to repeatedly call Lua GC with small step value
-    // Reduces stutters since less work will be done in main GC step or no work at all
+    // Time-budgeted GC64 hysteresis step (one bounded slice per frame; no-op between GC cycles).
     static auto LuaGC = []()
     {
         PROF_EVENT("seqLuaGC", PROF_CAT(Script));
-        // Do at least once
-        do
-        {
-            PROF_EVENT("LuaGC step", PROF_CAT(Script));
-            Device.LuaGCCount++;
-            if (Device.LuaGC() == 1) // 1 informs that GC cycle is complete
-            {
-                Device.LuaGCDone = true;
-                break;
-            }
-
-        } while (Device.isRendering && Device.LuaGCCount < psLua_ParallelGC_CallAmount);
+        Device.LuaGCCount++;
+        if (Device.LuaGC() == 1)
+            Device.LuaGCDone = true;
     };
     if (psLua_ParallelGC && Device.LuaGC)
         Device.secondary_tasks.run(LuaGC);

@@ -37,18 +37,18 @@ void CRenderTarget::phase_ssao()
 	// Compute params
 	float fSSAONoise = 2.0f;
 	fSSAONoise *= tan(deg2rad(67.5f));
-	fSSAONoise /= tan(deg2rad(Device.fFOV));
+	fSSAONoise /= tan(deg2rad(Device.m_rt_view.fFOV));
 
 	float fSSAOKernelSize = 150.0f;
 	fSSAOKernelSize *= tan(deg2rad(67.5f));
-	fSSAOKernelSize /= tan(deg2rad(Device.fFOV));
+	fSSAOKernelSize /= tan(deg2rad(Device.m_rt_view.fFOV));
 
 	// Fill VB
-	float scale_X = float(Device.dwWidth) * 0.5f / float(TEX_jitter);
-	float scale_Y = float(Device.dwHeight) * 0.5f / float(TEX_jitter);
+	float scale_X = float(Device.m_rt_view.dwWidth) * 0.5f / float(TEX_jitter);
+	float scale_Y = float(Device.m_rt_view.dwHeight) * 0.5f / float(TEX_jitter);
 
-	float _w = float(Device.dwWidth) * 0.5f;
-	float _h = float(Device.dwHeight) * 0.5f;
+	float _w = float(Device.m_rt_view.dwWidth) * 0.5f;
+	float _h = float(Device.m_rt_view.dwHeight) * 0.5f;
 
 	set_viewport(HW.pContext, _w, _h);
 
@@ -68,7 +68,7 @@ void CRenderTarget::phase_ssao()
 	RCache.set_Element(s_ssao->E[0]);
 	RCache.set_Geometry(g_combine);
 
-	RCache.set_c("m_v2w", Device.mInvView);
+	RCache.set_c("m_v2w", Device.m_rt_view.mInvView);
 	RCache.set_c("ssao_noise_tile_factor", fSSAONoise);
 	RCache.set_c("ssao_kernel_size", fSSAOKernelSize);
 	RCache.set_c("resolution", _w, _h, 1.0f / _w, 1.0f / _h);
@@ -101,7 +101,7 @@ void CRenderTarget::phase_ssao()
 		//RCache.set_Stencil( FALSE, D3DCMP_EQUAL, 0x01, 0xff, 0 );
 	}
 
-	set_viewport(HW.pContext, float(Device.dwWidth), float(Device.dwHeight));
+	set_viewport(HW.pContext, float(Device.m_rt_view.dwWidth), float(Device.m_rt_view.dwHeight));
 
 	RCache.set_Stencil(FALSE);
 }
@@ -121,12 +121,12 @@ void CRenderTarget::phase_downsamp()
 	u_setrt(rt_half_depth, 0, 0, 0/*Target->baseZB*/);
 	FLOAT ColorRGBA[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 	HW.pContext->ClearRenderTargetView(rt_half_depth->pRT, ColorRGBA);
-	u32 w = Device.dwWidth;
-	u32 h = Device.dwHeight;
+	u32 w = Device.m_rt_view.dwWidth;
+	u32 h = Device.m_rt_view.dwHeight;
 
 	if (RImplementation.o.ssao_half_data)
 	{
-		set_viewport(HW.pContext, float(Device.dwWidth) * 0.5f, float(Device.dwHeight) * 0.5f);
+		set_viewport(HW.pContext, float(Device.m_rt_view.dwWidth) * 0.5f, float(Device.m_rt_view.dwHeight) * 0.5f);
 		w /= 2;
 		h /= 2;
 	}
@@ -153,13 +153,13 @@ void CRenderTarget::phase_downsamp()
 		// Draw
 		RCache.set_Element(s_ssao->E[1]);
 		RCache.set_Geometry(g_combine);
-		RCache.set_c("m_v2w", Device.mInvView);
+		RCache.set_c("m_v2w", Device.m_rt_view.mInvView);
 
 		RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 	}
 
 	if (RImplementation.o.ssao_half_data)
-		set_viewport(HW.pContext, float(Device.dwWidth), float(Device.dwHeight));
+		set_viewport(HW.pContext, float(Device.m_rt_view.dwWidth), float(Device.m_rt_view.dwHeight));
 }
 
 void CRenderTarget::phase_ssfx_ao()
@@ -172,8 +172,8 @@ void CRenderTarget::phase_ssfx_ao()
 
 	float d_Z = EPS_S;
 	float d_W = 1.0f;
-	float w = float(Device.dwWidth);
-	float h = float(Device.dwHeight);
+	float w = float(Device.m_rt_view.dwWidth);
+	float h = float(Device.m_rt_view.dwHeight);
 
 	float ScaleFactor = std::min(std::max(ps_ssfx_ao.x, 1.0f), 8.0f);
 
@@ -316,8 +316,8 @@ void CRenderTarget::phase_ssfx_il()
 
 	float d_Z = EPS_S;
 	float d_W = 1.0f;
-	float w = float(Device.dwWidth);
-	float h = float(Device.dwHeight);
+	float w = float(Device.m_rt_view.dwWidth);
+	float h = float(Device.m_rt_view.dwHeight);
 
 	float ScaleFactor = std::min(std::max(ps_ssfx_il.x, 1.0f), 8.0f);
 

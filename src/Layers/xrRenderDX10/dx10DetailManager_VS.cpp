@@ -41,7 +41,7 @@ float GoToValue(float& current, float go_to)
 {
 	float diff = abs(current - go_to);
 
-	float r_value = Device.fTimeDelta;
+	float r_value = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.fTimeDelta : Device.fTimeDelta;
 
 	if (diff - r_value <= 0)
 	{
@@ -164,12 +164,16 @@ void CDetailManager::hw_Load_Shaders()
 void CDetailManager::hw_Render(light* L)
 {
 	PROF_EVENT("CDetailManager::hw_Render");
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const u32 cur_frame = on_rt ? Device.m_rt_view.dwFrame : Device.dwFrame;
+	const float time_global = on_rt ? Device.m_rt_view.fTimeGlobal : Device.fTimeGlobal;
+
 	// Render-prepare
 	//	Update timer
 	//	Can't use Device.fTimeDelta since it is smoothed! Don't know why, but smoothed value looks more choppy!
-	float fDelta = Device.fTimeGlobal - m_global_time_old;
+	float fDelta = time_global - m_global_time_old;
 	if ((fDelta < 0) || (fDelta > 1)) fDelta = 0.03;
-	m_global_time_old = Device.fTimeGlobal;
+	m_global_time_old = time_global;
 
 	m_time_rot_1 += (PI_MUL_2 * fDelta / swing_current.rot1);
 	m_time_rot_2 += (PI_MUL_2 * fDelta / swing_current.rot2);
@@ -191,7 +195,7 @@ void CDetailManager::hw_Render(light* L)
 
 #ifdef USE_DX11
 	// fill once per frame, the later phases replay the same buffer through their own ranges
-	if (hw_instancing && hw_frame_filled != Device.dwFrame)
+	if (hw_instancing && hw_frame_filled != cur_frame)
 	{
 		Device.Statistic->RenderDUMP_DT_Count = 0; // accumulates across this frame's phases
 		hw_Fill_Instances();
@@ -229,9 +233,9 @@ void CDetailManager::hw_Render(light* L)
 	//hw_Render_dump			(&*hwc_s_array,	0, 1, c_hdr );
 	hw_Render_dump(consts, wave.div(PI_MUL_2), dir2, prev_wave.div(PI_MUL_2), prev_dir2, 0, 1, L);
 
-	if (prev_frame != Device.dwFrame) 
+	if (prev_frame != cur_frame) 
 	{
-		prev_frame = Device.dwFrame;
+		prev_frame = cur_frame;
 		
 		// Prev Frame swing time
 		prev_time = m_time_pos;
@@ -341,7 +345,7 @@ void CDetailManager::hw_Fill_Instances()
 		Msg("! [DETAILS] instance buffer overflow, cap(%d) - some grass dropped", hw_instance_cap);
 	}
 
-	hw_frame_filled = Device.dwFrame;
+	hw_frame_filled = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwFrame : Device.dwFrame;
 }
 
 void CDetailManager::hw_Run_Begin(const CFrustum* F, u32 cascade)
@@ -441,13 +445,17 @@ void CDetailManager::hw_Render_dump(const Fvector4& consts, const Fvector4& wave
 	static shared_str strGrassAlign("grass_align");
 
 	// Grass benders data
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const bool use_snap = Device.m_rt_env.valid;
+	const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
+	const Fmatrix& full_xform = on_rt ? Device.m_rt_view.mFullTransform : Device.mFullTransform;
 	IGame_Persistent::grass_data& GData = g_pGamePersistent->grass_shader_data;
 	Fvector4 player_pos = { 0, 0, 0, 0 };
 	int BendersQty = _min(16, ps_ssfx_grass_interactive.y + 1);
 
 	// Add Player?
 	if (ps_ssfx_grass_interactive.x > 0)
-		player_pos.set(Device.vCameraPosition.x, Device.vCameraPosition.y, Device.vCameraPosition.z, -1);
+		player_pos.set(cam_pos.x, cam_pos.y, cam_pos.z, -1);
 
 #ifdef USE_DX11
 	if (hw_instancing)
@@ -561,7 +569,7 @@ void CDetailManager::hw_Render_dump(const Fvector4& consts, const Fvector4& wave
 						RCache.set_c(strConsts, consts);
 						RCache.set_c(strWave, wave);
 						RCache.set_c(strDir2D, wind);
-						RCache.set_c(strXForm, Device.mFullTransform);
+						RCache.set_c(strXForm, full_xform);
 						RCache.set_c(strGrassAlign, ps_ssfx_terrain_grass_align);
 						RCache.set_c(strWavePrev, prev_wave);
 						RCache.set_c(strDir2DPrev, prev_wind);
@@ -584,8 +592,16 @@ void CDetailManager::hw_Render_dump(const Fvector4& consts, const Fvector4& wave
 
 								for (int Bend = 1; Bend < BendersQty; Bend++)
 								{
-									c_grass[Bend].set(GData.pos[Bend].x, GData.pos[Bend].y, GData.pos[Bend].z, GData.radius_curr[Bend]);
-									c_grass[Bend + 16].set(GData.dir[Bend].x, GData.dir[Bend].y, GData.dir[Bend].z, GData.str[Bend]);
+									if (use_snap)
+									{
+										c_grass[Bend].set(Device.m_rt_env.grass_pos[Bend]);
+										c_grass[Bend + 16].set(Device.m_rt_env.grass_dir[Bend]);
+									}
+									else
+									{
+										c_grass[Bend].set(GData.pos[Bend].x, GData.pos[Bend].y, GData.pos[Bend].z, GData.radius_curr[Bend]);
+										c_grass[Bend + 16].set(GData.dir[Bend].x, GData.dir[Bend].y, GData.dir[Bend].z, GData.str[Bend]);
+									}
 								}
 							}
 
@@ -599,8 +615,16 @@ void CDetailManager::hw_Render_dump(const Fvector4& consts, const Fvector4& wave
 							{
 								for (int Bend = 0; Bend < BendersQty; Bend++)
 								{
-									c_prev_grass[Bend].set(GData.prev_pos[Bend]);
-									c_prev_grass[Bend + 16].set(GData.prev_dir[Bend]);
+									if (use_snap)
+									{
+										c_prev_grass[Bend].set(Device.m_rt_env.grass_prev_pos[Bend]);
+										c_prev_grass[Bend + 16].set(Device.m_rt_env.grass_prev_dir[Bend]);
+									}
+									else
+									{
+										c_prev_grass[Bend].set(GData.prev_pos[Bend]);
+										c_prev_grass[Bend + 16].set(GData.prev_dir[Bend]);
+									}
 								}
 							}
 						}
@@ -672,12 +696,22 @@ void CDetailManager::hw_Render_dump(const Fvector4& consts, const Fvector4& wave
 
 	vis_list& list = m_visibles[var_id];
 
-	CEnvDescriptor& desc = *g_pGamePersistent->Environment().CurrentEnv;
 	Fvector c_sun, c_ambient, c_hemi;
-	c_sun.set(desc.sun_color.x, desc.sun_color.y, desc.sun_color.z);
-	c_sun.mul(.5f);
-	c_ambient.set(desc.ambient.x, desc.ambient.y, desc.ambient.z);
-	c_hemi.set(desc.hemi_color.x, desc.hemi_color.y, desc.hemi_color.z);
+	if (use_snap)
+	{
+		c_sun.set(Device.m_rt_env.sun_color.x, Device.m_rt_env.sun_color.y, Device.m_rt_env.sun_color.z);
+		c_sun.mul(.5f);
+		c_ambient.set(Device.m_rt_env.ambient.x, Device.m_rt_env.ambient.y, Device.m_rt_env.ambient.z);
+		c_hemi.set(Device.m_rt_env.hemi_color.x, Device.m_rt_env.hemi_color.y, Device.m_rt_env.hemi_color.z);
+	}
+	else
+	{
+		CEnvDescriptor& desc = *g_pGamePersistent->Environment().CurrentEnv;
+		c_sun.set(desc.sun_color.x, desc.sun_color.y, desc.sun_color.z);
+		c_sun.mul(.5f);
+		c_ambient.set(desc.ambient.x, desc.ambient.y, desc.ambient.z);
+		c_hemi.set(desc.hemi_color.x, desc.hemi_color.y, desc.hemi_color.z);
+	}
 
 	// pip the main-pass drain keeps the visible set when the SVP pass draws the scope grass second
 	extern bool g_svp_defer_detail_clear;
@@ -701,7 +735,7 @@ void CDetailManager::hw_Render_dump(const Fvector4& consts, const Fvector4& wave
 				RCache.set_c(strConsts, consts);
 				RCache.set_c(strWave, wave);
 				RCache.set_c(strDir2D, wind);
-				RCache.set_c(strXForm, Device.mFullTransform);
+				RCache.set_c(strXForm, full_xform);
 				RCache.set_c(strGrassAlign, ps_ssfx_terrain_grass_align);
 
 				RCache.set_c(strWavePrev, prev_wave);
@@ -726,8 +760,16 @@ void CDetailManager::hw_Render_dump(const Fvector4& consts, const Fvector4& wave
 
 						for (int Bend = 1; Bend < BendersQty; Bend++)
 						{
-							c_grass[Bend].set(GData.pos[Bend].x, GData.pos[Bend].y, GData.pos[Bend].z, GData.radius_curr[Bend]);
-							c_grass[Bend + 16].set(GData.dir[Bend].x, GData.dir[Bend].y, GData.dir[Bend].z, GData.str[Bend]);
+							if (use_snap)
+							{
+								c_grass[Bend].set(Device.m_rt_env.grass_pos[Bend]);
+								c_grass[Bend + 16].set(Device.m_rt_env.grass_dir[Bend]);
+							}
+							else
+							{
+								c_grass[Bend].set(GData.pos[Bend].x, GData.pos[Bend].y, GData.pos[Bend].z, GData.radius_curr[Bend]);
+								c_grass[Bend + 16].set(GData.dir[Bend].x, GData.dir[Bend].y, GData.dir[Bend].z, GData.str[Bend]);
+							}
 						}
 					}
 
@@ -743,8 +785,16 @@ void CDetailManager::hw_Render_dump(const Fvector4& consts, const Fvector4& wave
 					{
 						for (int Bend = 0; Bend < BendersQty; Bend++)
 						{
-							c_prev_grass[Bend].set(GData.prev_pos[Bend]);
-							c_prev_grass[Bend + 16].set(GData.prev_dir[Bend]);
+							if (use_snap)
+							{
+								c_prev_grass[Bend].set(Device.m_rt_env.grass_prev_pos[Bend]);
+								c_prev_grass[Bend + 16].set(Device.m_rt_env.grass_prev_dir[Bend]);
+							}
+							else
+							{
+								c_prev_grass[Bend].set(GData.prev_pos[Bend]);
+								c_prev_grass[Bend + 16].set(GData.prev_dir[Bend]);
+							}
 						}
 					}
 				}

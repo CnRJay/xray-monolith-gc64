@@ -36,10 +36,11 @@ static bool svp_objective_hud_role(u8 role)
 bool svp_objective_hud_current()
 {
 	auto& vp = Device.m_SecondViewport;
+	const u32 cur_frame = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwFrame : Device.dwFrame;
 	return s_svp_objective_hud.active
-		&& s_svp_objective_hud.frame == Device.dwFrame
+		&& s_svp_objective_hud.frame == cur_frame
 		&& s_svp_objective_hud.session == vp.GetSVPSession()
-		&& vp.svp_camera_frame == Device.dwFrame
+		&& vp.svp_camera_frame == cur_frame
 		&& vp.svp_camera_session == s_svp_objective_hud.session;
 }
 
@@ -405,7 +406,7 @@ static void svp_bind_aperture(float pupil_mm)
 
 void CRenderTarget::EnsureScopeShaders()
 {
-	if (m_scope_shaders_ready)
+	if (m_scope_shaders_ready || CRenderThread::IsOnRenderThread())
 		return;
 	s_scope_color_write.create("scope_color_write");
 	s_scope_depth_write.create("scope_depth_write");
@@ -413,6 +414,12 @@ void CRenderTarget::EnsureScopeShaders()
 	s_svp_nearblur.create("svp_nearblur");
 	s_svp_distort_stamp.create("svp_distort_stamp");
 	s_svp_taa_stamp.create("svp_taa_stamp");
+	t_svp_nearblur_src.create("$user$svp_nearblur_src");
+	t_svp_nearblur_pos.create("$user$svp_nearblur_pos");
+	t_svp_secondvp.create(r2_RT_secondVP);
+	t_svp_generic2.create(r2_RT_generic2);
+	t_svp_heat.create(r2_RT_heat);
+	t_svp_tonemap.create("$user$svp_tonemap");
 	m_scope_shaders_ready = true;
 }
 
@@ -457,7 +464,7 @@ void CRenderTarget::phase_scope_debug()
 		bind("$user$ssfx_prev_frame$svp", S->rt_ssfx_prev_frame);
 	}
 	// the bind cache keys on CTexture identity so the remaps above are invisible to it
-	RCache.Invalidate();
+	RCache.Invalidate(false);
 
 	// draw onto the CURRENT target phase_combine left bound (the final LDR image), not a fresh RT or the
 	// following HUD/UI passes would render offscreen
@@ -546,12 +553,15 @@ void CRenderTarget::phase_svp_capture()
 		in.out_rtv = rt_secondVP->pRT;
 		in.out_uav = rt_secondVP->pUAView;
 		in.display_extent = { (u32)Width, (u32)Height }; // stub rt_secondVP follows the render extent, Ascii makes it display-res
-		in.view = Device.matrices[1].mView;
-		in.proj = Device.matrices[1].mProject;
-		in.view_proj.mul(Device.matrices[1].mProject, Device.matrices[1].mView);
-		in.prev_view = Device.matrices_previous[1].mView;
-		in.prev_proj = Device.matrices_previous[1].mProject;
-		in.prev_view_proj.mul(Device.matrices_previous[1].mProject, Device.matrices_previous[1].mView);
+		const bool on_rt = CRenderThread::IsOnRenderThread();
+		const auto& svp_mat = on_rt ? Device.m_rt_view.matrices[1] : Device.matrices[1];
+		const auto& svp_mat_prev = on_rt ? Device.m_rt_view.matrices_previous[1] : Device.matrices_previous[1];
+		in.view = svp_mat.mView;
+		in.proj = svp_mat.mProject;
+		in.view_proj.mul(svp_mat.mProject, svp_mat.mView);
+		in.prev_view = svp_mat_prev.mView;
+		in.prev_proj = svp_mat_prev.mProject;
+		in.prev_view_proj.mul(svp_mat_prev.mProject, svp_mat_prev.mView);
 		in.jitter_px = vp.svp_jitter_px;
 		in.near_plane = vp.svp_near; in.far_plane = vp.svp_far; in.fov = vp.svp_fov; in.aspect = vp.svp_aspect;
 		in.cam_pos = vp.svp_cam_pos; in.up = vp.svp_up; in.right = vp.svp_right; in.fwd = vp.svp_fwd;
@@ -690,9 +700,18 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void()> bind)
 	if (!elem)
 		return;
 
-	Fmatrix FTold = Device.mFullTransform;
-	Device.mFullTransform = Device.mFullTransformHud;
-	RCache.set_xform_project(Device.mProjectHud);
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	Fmatrix FTold = on_rt ? Device.m_rt_view.mFullTransform : Device.mFullTransform;
+	if (on_rt)
+	{
+		Device.m_rt_view.mFullTransform = Device.m_rt_view.mFullTransformHud;
+		RCache.set_xform_project(Device.m_rt_view.mProjectHud);
+	}
+	else
+	{
+		Device.mFullTransform = Device.mFullTransformHud;
+		RCache.set_xform_project(Device.mProjectHud);
+	}
 	RImplementation.rmNear();
 
 	// per-lens dump, which texture each lens draw samples as s_reticle + the optic type/geometry
@@ -764,7 +783,10 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void()> bind)
 		// pip reticle collimator geometry 2*ocular_radius/eye_distance, the shader rebuilds the
 		// authored reticle magnification as a centered field under true PiP
 		{
-			Fvector ed; ed.sub(Device.m_SecondViewport.eyepiece.m_W.c, Device.vCameraPosition);
+			const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
+			const Fvector& cam_dir = on_rt ? Device.m_rt_view.vCameraDirection : Device.vCameraDirection;
+			const float cam_fov = on_rt ? Device.m_rt_view.fFOV : Device.fFOV;
+			Fvector ed; ed.sub(Device.m_SecondViewport.eyepiece.m_W.c, cam_pos);
 			const float dist = _max(ed.magnitude(), 0.02f);
 			float kg = 2.f * Device.m_SecondViewport.eyepiece.radius / dist;
 			clamp(kg, 0.02f, 3.f);
@@ -776,7 +798,7 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void()> bind)
 			if (ps_r__svp_parallax > 0.f && g_pip_scope_magnification > 0.01f)
 			{
 				const float eff_mag = _max(g_pip_scope_ratio * g_pip_scope_magnification, 1.f);
-				const float hfov = deg2rad(_max(Device.fFOV, 1.f));
+				const float hfov = deg2rad(_max(cam_fov, 1.f));
 				par = ps_r__svp_parallax * 0.00075f * kg * eff_mag / hfov;
 			}
 			// z is the sine exact rim slope 2R/sqrt(RR+LL) on the axial depth, the stock
@@ -786,7 +808,7 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void()> bind)
 			if (ps_r__svp_reticle_fit)
 			{
 				const float R = Device.m_SecondViewport.eyepiece.radius;
-				const float L = _max(ed.dotproduct(Device.vCameraDirection), 0.02f);
+				const float L = _max(ed.dotproduct(cam_dir), 0.02f);
 				zslope = 2.f * R / sqrtf(R * R + L * L);
 				clamp(zslope, 0.02f, 3.f);
 			}
@@ -794,12 +816,13 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void()> bind)
 			{
 				extern int ps_r__svp_diag;
 				static u32 s_retz_ms = 0;
-				if (ps_r__svp_diag && Device.dwTimeGlobal - s_retz_ms > 1000)
+				const u32 cur_ms = on_rt ? Device.m_rt_view.dwTimeGlobal : Device.dwTimeGlobal;
+				if (ps_r__svp_diag && cur_ms - s_retz_ms > 1000)
 				{
-					s_retz_ms = Device.dwTimeGlobal;
+					s_retz_ms = cur_ms;
 					PipMsg("[SVP-RETZ] z=%.4f kg=%.4f R=%.4fcm L=%.4fcm fit=%d",
 						zslope, kg, Device.m_SecondViewport.eyepiece.radius * 100.f,
-						_max(ed.dotproduct(Device.vCameraDirection), 0.02f) * 100.f,
+						_max(ed.dotproduct(cam_dir), 0.02f) * 100.f,
 						ps_r__svp_reticle_fit);
 				}
 			}
@@ -1028,8 +1051,16 @@ void CRenderTarget::draw_scope(ref_shader se, std::function<void()> bind)
 	}
 
 	RImplementation.rmNormal();
-	Device.mFullTransform = FTold;
-	RCache.set_xform_project(Device.mProject);
+	if (on_rt)
+	{
+		Device.m_rt_view.mFullTransform = FTold;
+		RCache.set_xform_project(Device.m_rt_view.mProject);
+	}
+	else
+	{
+		Device.mFullTransform = FTold;
+		RCache.set_xform_project(Device.mProject);
+	}
 }
 
 // Draw captured reflex materials with their own shaders
@@ -1037,18 +1068,31 @@ u32 CRenderTarget::draw_reflex(bool svp)
 {
 	PIX_EVENT_F("RENDER_REFLEX_SIGHTS x%u", (u32)RImplementation.GMBase.RGraph.mapReflexHUDSorted.size());
 
-	Fmatrix FTold = Device.mFullTransform;
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	Fmatrix FTold = on_rt ? Device.m_rt_view.mFullTransform : Device.mFullTransform;
 	if (svp)
 	{
 		// Match the objective world and weapon projection
-		Device.mFullTransform.mul(Device.matrices[1].mProject, Device.matrices[1].mView);
-		RCache.set_xform_view(Device.matrices[1].mView);
-		RCache.set_xform_project(Device.matrices[1].mProject);
+		const auto& m1 = on_rt ? Device.m_rt_view.matrices[1] : Device.matrices[1];
+		if (on_rt)
+			Device.m_rt_view.mFullTransform.mul(m1.mProject, m1.mView);
+		else
+			Device.mFullTransform.mul(m1.mProject, m1.mView);
+		RCache.set_xform_view(m1.mView);
+		RCache.set_xform_project(m1.mProject);
 	}
 	else
 	{
-		Device.mFullTransform = Device.mFullTransformHud;
-		RCache.set_xform_project(Device.mProjectHud);
+		if (on_rt)
+		{
+			Device.m_rt_view.mFullTransform = Device.m_rt_view.mFullTransformHud;
+			RCache.set_xform_project(Device.m_rt_view.mProjectHud);
+		}
+		else
+		{
+			Device.mFullTransform = Device.mFullTransformHud;
+			RCache.set_xform_project(Device.mProjectHud);
+		}
 	}
 	RImplementation.rmNear();
 
@@ -1118,8 +1162,9 @@ u32 CRenderTarget::draw_reflex(bool svp)
 			const auto& vis = N.pVisual->getVisData();
 			Fvector world_center;
 			boundsW.transform_tiny(world_center, vis.sphere.P);
+			const auto& svp_mat = on_rt ? Device.m_rt_view.matrices[1] : Device.matrices[1];
 			Fvector view_center;
-			Device.matrices[1].mView.transform_tiny(view_center, world_center);
+			svp_mat.mView.transform_tiny(view_center, world_center);
 			const float world_scale = _max(boundsW.i.magnitude(),
 				_max(boundsW.j.magnitude(), boundsW.k.magnitude()));
 			const float world_radius = vis.sphere.R * world_scale;
@@ -1153,7 +1198,7 @@ u32 CRenderTarget::draw_reflex(bool svp)
 			const bool straddle = view_center.z - world_radius <= near_plane;
 			if (visible && !straddle)
 			{
-				const Fmatrix& P = Device.matrices[1].mProject;
+				const Fmatrix& P = svp_mat.mProject;
 				const float clip_x = view_center.x * P._11 + view_center.y * P._21
 					+ view_center.z * P._31 + P._41;
 				const float clip_y = view_center.x * P._12 + view_center.y * P._22
@@ -1202,7 +1247,7 @@ u32 CRenderTarget::draw_reflex(bool svp)
 
 		// published for the next camera build so the derived near never clips the capture
 		vp.svp_hybrid_front = hybrid_front;
-		vp.svp_hybrid_front_frame = Device.dwFrame;
+		vp.svp_hybrid_front_frame = on_rt ? Device.m_rt_view.dwFrame : Device.dwFrame;
 		vp.svp_hybrid_front_session = vp.GetSVPSession();
 		vp.svp_hybrid_front_epoch = vp.svp_optic_epoch;
 	}
@@ -1247,7 +1292,7 @@ u32 CRenderTarget::draw_reflex(bool svp)
 		{
 			auto tx = N.pVisual->GetTexture();
 			Fvector draw_view;
-			Device.matrices[1].mView.transform_tiny(draw_view, refW.c);
+			(on_rt ? Device.m_rt_view.matrices[1].mView : Device.matrices[1].mView).transform_tiny(draw_view, refW.c);
 			PipMsg("[SVP-HYBRID] selected=%u tex=%s score=%.4f frozen=%d straddle=%d drawView=(%.3f %.3f %.3f) vp=%ux%u owner=%p",
 				node_index, tx ? tx->cName.c_str() : "?", selected_score,
 				frozen_reflex ? 1 : 0, selected_straddle ? 1 : 0,
@@ -1273,10 +1318,20 @@ u32 CRenderTarget::draw_reflex(bool svp)
 	}
 
 	RImplementation.rmNormal();
-	Device.mFullTransform = FTold;
-	if (svp)
-		RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
+	if (on_rt)
+	{
+		Device.m_rt_view.mFullTransform = FTold;
+		if (svp)
+			RCache.set_xform_view(Device.m_rt_view.mView);
+		RCache.set_xform_project(Device.m_rt_view.mProject);
+	}
+	else
+	{
+		Device.mFullTransform = FTold;
+		if (svp)
+			RCache.set_xform_view(Device.mView);
+		RCache.set_xform_project(Device.mProject);
+	}
 	return drawn;
 }
 
@@ -1287,22 +1342,23 @@ bool CRenderTarget::draw_hybrid_reflex()
 	extern int ps_markswitch_current;
 	auto& G = RImplementation.GMBase.RGraph;
 	auto& vp = Device.m_SecondViewport;
+	const u32 cur_frame = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwFrame : Device.dwFrame;
 	constexpr int mark_magnifier_type = 12;
 	const float reticle_value = ps_s3ds_param_3.y;
 	const bool reticle_valid = _valid(reticle_value)
 		&& reticle_value >= 0.f && reticle_value <= float(u8(-1))
 		&& floorf(reticle_value) == reticle_value;
 	const int reticle_type = reticle_valid ? static_cast<int>(reticle_value) : -1;
-	const bool camera_current = vp.svp_camera_frame == Device.dwFrame
+	const bool camera_current = vp.svp_camera_frame == cur_frame
 		&& vp.svp_camera_session == vp.GetSVPSession();
-	const bool lens_current = vp.svp_lens_frame == Device.dwFrame
+	const bool lens_current = vp.svp_lens_frame == cur_frame
 		&& vp.svp_lens_root != nullptr && vp.svp_lens_visual != nullptr
 		&& vp.eyepiece.radius > EPS;
 	const bool target_current = RImplementation.TargetSVP == this
 		&& RImplementation.Target == this;
 	const auto& optic = vp.RenderOpticConfig();
 	const bool identity_current = optic.typed_route && optic.valid
-		&& optic.frame == Device.dwFrame
+		&& optic.frame == cur_frame
 			&& optic.session == vp.GetSVPSession()
 			&& (optic.scope[0] || optic.diagnostic_scope[0]);
 	const bool type_current = identity_current
@@ -1512,23 +1568,20 @@ void CRenderTarget::phase_3DSSReticle()
 
 			if (svp)
 			{
-				// point the stock named textures at the active SVP targets
-				auto remap = [](LPCSTR name, ref_rt& target) {
-					ref_texture t;
-					t.create(name);
-					t->surface_set(target->pSurface);
-				};
-				remap(r2_RT_secondVP, S->rt_secondVP);
-				remap(r2_RT_generic2, S->rt_Position);
-				remap(r2_RT_heat, S->rt_Heat);
+				// point the pre-created named texture aliases at the active SVP targets (no CResourceManager create on RT)
+				if (t_svp_secondvp && S->rt_secondVP)
+					t_svp_secondvp->surface_set(S->rt_secondVP->pSurface);
+				if (t_svp_generic2 && S->rt_Position)
+					t_svp_generic2->surface_set(S->rt_Position->pSurface);
+				if (t_svp_heat && S->rt_Heat)
+					t_svp_heat->surface_set(S->rt_Heat->pSurface);
+				if (t_svp_tonemap && S->t_LUM_dest)
 				{
-					ref_texture t;
-					t.create("$user$svp_tonemap");
 					ID3DBaseTexture* s = S->t_LUM_dest->surface_get();
-					t->surface_set(s);
+					t_svp_tonemap->surface_set(s);
 					_RELEASE(s);
 				}
-				RCache.Invalidate();
+				RCache.Invalidate(false);
 
 				u_setrt(M->rt_Generic_0, nullptr, M->rt_Position, M->baseZB);
 				RCache.set_CullMode(CULL_CCW);
@@ -1546,7 +1599,7 @@ void CRenderTarget::phase_3DSSReticle()
 					RCache.set_c("output_res", outr);
 					Fvector up = {0, 1, 0};
 					Device.m_SecondViewport.objective.m_W.transform_dir(up);
-					Device.mView.transform_dir(up);
+					(CRenderThread::IsOnRenderThread() ? Device.m_rt_view.mView : Device.mView).transform_dir(up);
 					up.z = 0.0f;
 					up.normalize();
 					float angle = acosf(up.dotproduct({0, 1, 0})) * (up.x > 0 ? 1.0f : -1.0f);
@@ -1559,7 +1612,7 @@ void CRenderTarget::phase_3DSSReticle()
 				if (RImplementation.TargetSVP && Device.m_SecondViewport.eyepiece.radius > EPS)
 				{
 					auto& vpd = Device.m_SecondViewport;
-					const Fmatrix& MH = Device.mFullTransformHud;
+					const Fmatrix& MH = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.mFullTransformHud : Device.mFullTransformHud;
 					auto toPx = [&](const Fvector& wp, float& sx, float& sy) {
 						const float x  = wp.x*MH._11 + wp.y*MH._21 + wp.z*MH._31 + MH._41;
 						const float y  = wp.x*MH._12 + wp.y*MH._22 + wp.z*MH._32 + MH._42;

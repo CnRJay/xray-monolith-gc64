@@ -455,17 +455,40 @@ public:
 	// Main
 	virtual void Calculate();
 	virtual void Render();
+	bool SupportsDecoupledRender() const override { return true; }
+	void ExtractFrame() override;
+	void RenderSubmit() override;
 	virtual void RenderUI3DDirect();
 	bool GetUI3DIconAtlasInfo(u32& width, u32& height, float& resolution) override;
 	bool BeginUI3DIconAtlas() override;
 	void BeginUI3DIconAtlasItem() override;
 	void EndUI3DIconAtlas() override;
 
-	void renderGBuffer(bool clearGraph);
-	void renderSceneLighting(BOOL bSUN, bool svp);
+	void renderGBuffer(bool clearGraph, bool preExtracted = false);
+	void renderSceneLighting(BOOL bSUN, bool svp, bool preExtracted = false);
+	void extract_sun_cascades();
+	void render_sun_cascades_submit();
+	void extract_lights_for_rt();
+	void render_lights_submit(light_Package& LP);
 	void ResetSVPHistory();
 	void share_main_smaps();
 	void deriveScopeLens();
+
+	// Frozen extraction state handed from ExtractFrame() to RenderSubmit()
+	bool m_rt_extracted = false;
+	bool m_rt_defer_occq = false;
+	bool m_rt_skip_scene = false;
+	bool m_rt_menu_pp = false;
+	BOOL m_rt_bSUN = FALSE;
+	bool m_rt_svp = false;
+	u32 m_rt_gbuffer_frame = 0;
+	xr_vector<u8> m_rt_sun_needs_render;
+	bool m_rt_sun_need_shafts = false;
+	bool m_rt_sun_last_chain = false;
+	xr_vector<light*> m_rt_occq_lights;
+	xr_vector<light*> m_rt_shadowed_lights;
+	xr_vector<light*> m_rt_point_lights;
+	xr_vector<light*> m_rt_spot_lights;
 	virtual void Screenshot(ScreenshotMode mode = SM_NORMAL, LPCSTR name = 0);
 	virtual void Screenshot(ScreenshotMode mode, CMemoryWriter& memory_writer);
 	virtual void ScreenshotAsyncBegin();

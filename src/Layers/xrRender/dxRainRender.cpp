@@ -60,7 +60,9 @@ void dxRainRender::Copy(IRainRender& _in)
 
 void dxRainRender::Render(CEffect_Rain& owner)
 {
-	float factor = g_pGamePersistent->Environment().CurrentEnv->rain_density;
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const bool use_snap = Device.m_rt_env.valid;
+	float factor = use_snap ? Device.m_rt_env.rain_density : g_pGamePersistent->Environment().CurrentEnv->rain_density;
 	if (factor < EPS_L) return;
     factor = _powf(factor, r_rain_exp);
 
@@ -105,14 +107,14 @@ void dxRainRender::Render(CEffect_Rain& owner)
 
 	// visual
 	float factor_visual = factor / 2.f + .5f;
-	Fvector3 f_rain_color = g_pGamePersistent->Environment().CurrentEnv->rain_color;
+	Fvector3 f_rain_color = use_snap ? Device.m_rt_env.rain_color : g_pGamePersistent->Environment().CurrentEnv->rain_color;
 	u32 u_rain_color = color_rgba_f(f_rain_color.x, f_rain_color.y, f_rain_color.z, factor_visual);
 
 	// perform update
 	u32 vOffset;
 	FVF::LIT* verts = (FVF::LIT *)RCache.Vertex.Lock(render_items * 4, hGeom_Rain->vb_stride, vOffset);
 	FVF::LIT* start = verts;
-	const Fvector& vEye = Device.vCameraPosition;
+	const Fvector& vEye = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
 	u32 rendered_items = 0;
 	for (CEffect_Rain::Item& one : owner.items)
 	{
@@ -181,7 +183,7 @@ void dxRainRender::Render(CEffect_Rain& owner)
 	if (0 == P) return;
 
 	{
-		float dt = Device.fTimeDelta;
+		float dt = on_rt ? Device.m_rt_view.fTimeDelta : Device.fTimeDelta;
 		_IndexStream& _IS = RCache.Index;
 		RCache.set_Shader(_splash_SH);
 		RCache.set_c(s_shader_setup, ps_ssfx_rain_3); // Alpha, Refraction

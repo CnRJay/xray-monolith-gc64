@@ -580,14 +580,19 @@ void CDetailManager::Render()
 #endif
 
 	// Always ensure per-frame detail visibility/cache are prepared before drawing.
-	// In MT mode this acts as a synchronization point with the worker task.
-	MT_CALC();
+	// When running on the decoupled Render Thread, MT_CALC() already completed during the safe sync window.
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	if (!on_rt)
+		MT_CALC();
 
 	RDEVICE.Statistic->RenderDUMP_DT_Render.Begin();
-	g_pGamePersistent->m_pGShaderConstants->m_blender_mode.w = 1.0f; //--#SM+#-- Флaa нaчaлa ?aндa?a o?aвu [begin of grass render]
+	if (on_rt && RDEVICE.m_rt_env.valid)
+		RDEVICE.m_rt_env.blender_mode.w = 1.0f;
+	else
+		g_pGamePersistent->m_pGShaderConstants->m_blender_mode.w = 1.0f;
 
 #ifndef _EDITOR
-	float factor = g_pGamePersistent->Environment().wind_strength_factor;
+	float factor = RDEVICE.m_rt_env.valid ? RDEVICE.m_rt_env.wind_strength_factor : g_pGamePersistent->Environment().wind_strength_factor;
 #else
 	float factor			= 0.3f;
 #endif
@@ -599,10 +604,13 @@ void CDetailManager::Render()
 	else soft_Render();
 	RCache.set_CullMode(CULL_CCW);
 
-	g_pGamePersistent->m_pGShaderConstants->m_blender_mode.w = 0.0f; //--#SM+#-- Флaa eонцa ?aндa?a o?aвu [end of grass render]	
+	if (on_rt && RDEVICE.m_rt_env.valid)
+		RDEVICE.m_rt_env.blender_mode.w = 0.0f;
+	else
+		g_pGamePersistent->m_pGShaderConstants->m_blender_mode.w = 0.0f;
 	
 	RDEVICE.Statistic->RenderDUMP_DT_Render.End();
-	m_frame_rendered.store(RDEVICE.dwFrame, std::memory_order_release);
+	m_frame_rendered.store(on_rt ? RDEVICE.m_rt_view.dwFrame : RDEVICE.dwFrame, std::memory_order_release);
 }
 
 void __stdcall CDetailManager::MT_CALC()

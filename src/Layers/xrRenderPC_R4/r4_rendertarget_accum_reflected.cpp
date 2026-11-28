@@ -12,8 +12,8 @@ void CRenderTarget::accum_reflected(light* L)
 
 	BOOL bIntersect = FALSE; //enable_scissor(L);
 	RCache.set_xform_world(L->m_xform);
-	RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
+	RCache.set_xform_view(Device.m_rt_view.mView);
+	RCache.set_xform_project(Device.m_rt_view.mProject);
 	bIntersect = enable_scissor(L);
 
 	// *****************************	Minimize overdraw	*************************************
@@ -25,8 +25,8 @@ void CRenderTarget::accum_reflected(light* L)
 	// 2D texgen (texture adjustment matrix)
 	Fmatrix m_Texgen;
 	{
-		float _w = float(Device.dwWidth);
-		float _h = float(Device.dwHeight);
+		float _w = float(Device.m_rt_view.dwWidth);
+		float _h = float(Device.m_rt_view.dwHeight);
 		float o_w = (.5f / _w);
 		float o_h = (.5f / _h);
 		Fmatrix m_TexelAdjust =
@@ -44,8 +44,8 @@ void CRenderTarget::accum_reflected(light* L)
 	float L_spec;
 	L_clr.set(L->color.r, L->color.g, L->color.b);
 	L_spec = u_diffuse2s(L_clr);
-	Device.mView.transform_tiny(L_pos, L->position);
-	Device.mView.transform_dir(L_dir, L->direction);
+	Device.m_rt_view.mView.transform_tiny(L_pos, L->position);
+	Device.m_rt_view.mView.transform_dir(L_dir, L->direction);
 	L_dir.normalize();
 
 	{

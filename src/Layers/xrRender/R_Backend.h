@@ -242,7 +242,7 @@ private:
 #endif
 
 public:
-	void Invalidate(); // pip: SetActive needs a full cache reset per viewport (was private)
+	void Invalidate(bool clearTextureOverrides = true); // pip: SetActive needs a full cache reset per viewport (was private)
 	struct _stats
 	{
 		u32 polys;

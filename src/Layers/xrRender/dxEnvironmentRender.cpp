@@ -129,6 +129,18 @@ void dxEnvDescriptorMixerRender::Destroy()
 	sky_r_textures.clear();
 	sky_r_textures_env.clear();
 	clouds_r_textures.clear();
+	rt_sky_r_textures.clear();
+	rt_sky_r_textures_env.clear();
+	rt_clouds_r_textures.clear();
+	rt_snapshot_valid = false;
+}
+
+void dxEnvDescriptorMixerRender::SnapshotForRT()
+{
+	rt_sky_r_textures.assign(sky_r_textures.begin(), sky_r_textures.end());
+	rt_sky_r_textures_env.assign(sky_r_textures_env.begin(), sky_r_textures_env.end());
+	rt_clouds_r_textures.assign(clouds_r_textures.begin(), clouds_r_textures.end());
+	rt_snapshot_valid = true;
 }
 
 void dxEnvDescriptorMixerRender::Clear()
@@ -148,6 +160,8 @@ void dxEnvDescriptorMixerRender::Clear()
 	clouds_r_textures.push_back(zero);
 	clouds_r_textures.push_back(zero);
 	clouds_r_textures.push_back(zero);
+
+	rt_snapshot_valid = false;
 }
 
 void dxEnvDescriptorMixerRender::lerp(IEnvDescriptorRender* inA, IEnvDescriptorRender* inB)
@@ -246,13 +260,17 @@ void dxEnvironmentRender::OnFrame(CEnvironment& env)
 	}
 
 	//. Setup skybox textures, somewhat ugly
-	ID3DBaseTexture* e0 = mixRen.sky_r_textures[0].second->surface_get();
-	ID3DBaseTexture* e1 = mixRen.sky_r_textures[1].second->surface_get();
+	if (!Device.m_render_thread.IsBusy() && mixRen.sky_r_textures.size() >= 2 &&
+		mixRen.sky_r_textures[0].second && mixRen.sky_r_textures[1].second)
+	{
+		ID3DBaseTexture* e0 = mixRen.sky_r_textures[0].second->surface_get();
+		ID3DBaseTexture* e1 = mixRen.sky_r_textures[1].second->surface_get();
 
-	tsky0->surface_set(e0);
-	_RELEASE(e0);
-	tsky1->surface_set(e1);
-	_RELEASE(e1);
+		tsky0->surface_set(e0);
+		_RELEASE(e0);
+		tsky1->surface_set(e1);
+		_RELEASE(e1);
+	}
 
 	// ******************** Environment params (setting)
 #if defined(USE_DX10) || defined(USE_DX11)
@@ -270,6 +288,25 @@ void dxEnvironmentRender::OnFrame(CEnvironment& env)
 	CHK_DX(HW.pDevice->SetRenderState( D3DRS_FOGSTART, *(u32 *)(&env.CurrentEnv->fog_near) ));
 	CHK_DX(HW.pDevice->SetRenderState( D3DRS_FOGEND, *(u32 *)(&env.CurrentEnv->fog_far) ));
 #endif	//	USE_DX10
+}
+
+void dxEnvironmentRender::SyncSkyTextures(CEnvironment& env)
+{
+	if (!env.CurrentEnv || !env.CurrentEnv->m_pDescriptorMixer)
+		return;
+	dxEnvDescriptorMixerRender& mixRen = *(dxEnvDescriptorMixerRender*)&*env.CurrentEnv->m_pDescriptorMixer;
+	mixRen.SnapshotForRT();
+
+	if (mixRen.rt_sky_r_textures.size() >= 2 &&
+		mixRen.rt_sky_r_textures[0].second && mixRen.rt_sky_r_textures[1].second)
+	{
+		ID3DBaseTexture* e0 = mixRen.rt_sky_r_textures[0].second->surface_get();
+		ID3DBaseTexture* e1 = mixRen.rt_sky_r_textures[1].second->surface_get();
+		tsky0->surface_set(e0);
+		_RELEASE(e0);
+		tsky1->surface_set(e1);
+		_RELEASE(e1);
+	}
 }
 
 void dxEnvironmentRender::OnLoad()
@@ -305,13 +342,20 @@ void dxEnvironmentRender::RenderSky(CEnvironment& env, bool OnlyMV)
 	dxEnvDescriptorMixerRender& mixRen = *(dxEnvDescriptorMixerRender*)&*env.CurrentEnv->m_pDescriptorMixer;
 
 	// draw sky box
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const bool use_snap = Device.m_rt_env.valid;
+	const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
+	const float sky_rot = use_snap ? Device.m_rt_env.sky_rotation : env.CurrentEnv->sky_rotation;
+	const Fvector3& sky_col = use_snap ? Device.m_rt_env.sky_color : env.CurrentEnv->sky_color;
+	const float env_weight = use_snap ? Device.m_rt_env.weight : env.CurrentEnv->weight;
+
 	Fmatrix mSky;
-	mSky.rotateY(env.CurrentEnv->sky_rotation);
-	mSky.translate_over(Device.vCameraPosition);
+	mSky.rotateY(sky_rot);
+	mSky.translate_over(cam_pos);
 
 	u32 i_offset, v_offset;
-	u32 C = color_rgba(iFloor(env.CurrentEnv->sky_color.x * 255.f), iFloor(env.CurrentEnv->sky_color.y * 255.f),
-	                   iFloor(env.CurrentEnv->sky_color.z * 255.f), iFloor(env.CurrentEnv->weight * 255.f));
+	u32 C = color_rgba(iFloor(sky_col.x * 255.f), iFloor(sky_col.y * 255.f),
+	                   iFloor(sky_col.z * 255.f), iFloor(env_weight * 255.f));
 
 	// Fill index buffer
 	u16* pib = RCache.Index.Lock(20 * 3, i_offset);
@@ -344,7 +388,7 @@ void dxEnvironmentRender::RenderSky(CEnvironment& env, bool OnlyMV)
 		RCache.set_Geometry(sh_2geom);
 		RCache.set_Shader(sh_2sky);
 		RCache.set_Element(sh_2sky->E[0]);
-		RCache.set_Textures(&mixRen.sky_r_textures);
+		RCache.set_Textures((on_rt && mixRen.rt_snapshot_valid) ? &mixRen.rt_sky_r_textures : &mixRen.sky_r_textures);
 		RCache.Render(D3DPT_TRIANGLELIST, v_offset, 0, 12, i_offset, 20);
 	}
 
@@ -374,11 +418,17 @@ void dxEnvironmentRender::RenderClouds(CEnvironment& env)
 	PROF_EVENT("EnvironmentRender::RenderClouds");
 	::Render->rmFar();
 
+	const bool on_rt = CRenderThread::IsOnRenderThread();
+	const bool use_snap = Device.m_rt_env.valid;
+	const Fvector& cam_pos = on_rt ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
+	const float sky_rot = use_snap ? Device.m_rt_env.sky_rotation : env.CurrentEnv->sky_rotation;
+	const Fvector4& clouds_col = use_snap ? Device.m_rt_env.clouds_color : env.CurrentEnv->clouds_color;
+
 	Fmatrix mXFORM, mScale;
 	mScale.scale(10, 0.4f, 10);
-	mXFORM.rotateY(env.CurrentEnv->sky_rotation);
+	mXFORM.rotateY(sky_rot);
 	mXFORM.mulB_43(mScale);
-	mXFORM.translate_over(Device.vCameraPosition);
+	mXFORM.translate_over(cam_pos);
 
 	Fvector wd0, wd1;
 	Fvector4 wind_dir;
@@ -387,8 +437,8 @@ void dxEnvironmentRender::RenderClouds(CEnvironment& env)
 	wind_dir.set(wd0.x, wd0.z, wd1.x, wd1.z).mul(0.5f).add(0.5f).mul(255.f);
 	u32 i_offset, v_offset;
 	u32 C0 = color_rgba(iFloor(wind_dir.x), iFloor(wind_dir.y), iFloor(wind_dir.w), iFloor(wind_dir.z));
-	u32 C1 = color_rgba(iFloor(env.CurrentEnv->clouds_color.x * 255.f), iFloor(env.CurrentEnv->clouds_color.y * 255.f),
-	                    iFloor(env.CurrentEnv->clouds_color.z * 255.f), iFloor(env.CurrentEnv->clouds_color.w * 255.f));
+	u32 C1 = color_rgba(iFloor(clouds_col.x * 255.f), iFloor(clouds_col.y * 255.f),
+	                    iFloor(clouds_col.z * 255.f), iFloor(clouds_col.w * 255.f));
 
 	// Fill index buffer
 	u16* pib = RCache.Index.Lock(env.CloudsIndices.size(), i_offset);
@@ -406,7 +456,7 @@ void dxEnvironmentRender::RenderClouds(CEnvironment& env)
 	RCache.set_Geometry(clouds_geom);
 	RCache.set_Shader(clouds_sh);
 	dxEnvDescriptorMixerRender& mixRen = *(dxEnvDescriptorMixerRender*)&*env.CurrentEnv->m_pDescriptorMixer;
-	RCache.set_Textures(&mixRen.clouds_r_textures);
+	RCache.set_Textures((on_rt && mixRen.rt_snapshot_valid) ? &mixRen.rt_clouds_r_textures : &mixRen.clouds_r_textures);
 	RCache.Render(D3DPT_TRIANGLELIST, v_offset, 0, env.CloudsVerts.size(), i_offset, env.CloudsIndices.size() / 3);
 
 	::Render->rmNormal();

@@ -40,8 +40,8 @@ void CRenderTarget::accum_spot(light* L)
 	{
 		// setup xform
 		RCache.set_xform_world(L->m_xform);
-		RCache.set_xform_view(Device.mView);
-		RCache.set_xform_project(Device.mProject);
+		RCache.set_xform_view(Device.m_rt_view.mView);
+		RCache.set_xform_project(Device.m_rt_view.mProject);
 		const BOOL near_intersect = enable_scissor(L);
 		// built per call so the svp replay of this light clips to its own viewport
 		if (ps_r__light_scissor && compute_light_scissor(L, near_intersect, scissor_rect))
@@ -113,7 +113,7 @@ void CRenderTarget::accum_spot(light* L)
 		Fmatrix xf_view = L->X.S.view;
 		Fmatrix xf_project;
 		xf_project.mul(m_TexelAdjust, L->X.S.project);
-		m_Shadow.mul(xf_view, Device.mInvView);
+		m_Shadow.mul(xf_view, Device.m_rt_view.mInvView);
 		m_Shadow.mulA_44(xf_project);
 
 		// lmap
@@ -129,7 +129,7 @@ void CRenderTarget::accum_spot(light* L)
 
 		// compute xforms
 		xf_project.mul(m_TexelAdjust2, L->X.S.project);
-		m_Lmap.mul(xf_view, Device.mInvView);
+		m_Lmap.mul(xf_view, Device.m_rt_view.mInvView);
 		m_Lmap.mulA_44(xf_project);
 	}
 
@@ -139,8 +139,8 @@ void CRenderTarget::accum_spot(light* L)
 	L_clr.set(L->color.r, L->color.g, L->color.b);
 	L_clr.mul(L->get_LOD());
 	L_spec = u_diffuse2s(L_clr);
-	Device.mView.transform_tiny(L_pos, L->position);
-	//Device.mView.transform_dir(L_dir, L->direction);
+	Device.m_rt_view.mView.transform_tiny(L_pos, L->position);
+	//Device.m_rt_view.mView.transform_dir(L_dir, L->direction);
 	//L_dir.normalize();
 
 	// Draw volume with projective texgen
@@ -278,114 +278,6 @@ void CRenderTarget::accum_spot(light* L)
 	increment_light_marker();
 }
 
-void CRenderTarget::accum_volumetric_lv(light* L)
-{
-	//LV: Point lights will be fixed later... I hope
-	if (L == nullptr)
-		return;
-
-	// [ SSS ] Fade through distance volumetric lights.
-	if (ps_ssfx_volumetric.x > 0)
-	{
-		float Falloff = ps_ssfx_volumetric.y - std::min(std::max((L->vis.distance - 20) * 0.01f, 0.0f), 1.0f) * ps_ssfx_volumetric.y;
-		L->m_volumetric_intensity = Falloff;
-		L->flags.bVolumetric = Falloff <= 0 ? false : true;
-	}
-
-	if (!L->flags.bVolumetric)
-		return;
-
-	if (!RImplementation.o.ssfx_volumetric)
-	{
-		phase_vol_accumulator();
-	}
-	else
-	{
-		if (!m_bHasActiveVolumetric_spot)
-		{
-			m_bHasActiveVolumetric_spot = true;
-
-			FLOAT ColorRGBA[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			HW.pContext->ClearRenderTargetView(rt_ssfx_volumetric->pRT, ColorRGBA);
-		}
-
-		u_setrt(rt_ssfx_volumetric, NULL, NULL, NULL);
-
-		RCache.set_Stencil(FALSE);
-		RCache.set_CullMode(CULL_NONE);
-		RCache.set_ColorWriteEnable();
-	}
-
-	//Set XFORMs, we gonna transform our geometry in VS
-	L->xform_calc();
-	RCache.set_xform_world(L->m_xform);
-	RCache.set_xform_view(Device.mView);
-	RCache.set_xform_project(Device.mProject);
-
-	//Shadow xform (+texture adjustment matrix)
-	Fmatrix m_Shadow, m_Lmap;
-	{
-		float smapsize = float(RImplementation.o.smapsize);
-		float fTexelOffs = (.5f / smapsize);
-		float view_dim = float(L->X.S.size - 2) / smapsize;
-		float view_sx = float(L->X.S.posX + 1) / smapsize;
-		float view_sy = float(L->X.S.posY + 1) / smapsize;
-		float fRange = float(1.f) * ps_r2_ls_depth_scale;
-		float fBias = ps_r2_ls_depth_bias;
-
-		Fmatrix m_TexelAdjust = {
-			view_dim / 2.f, 0.0f, 0.0f, 0.0f,
-			0.0f, -view_dim / 2.f, 0.0f, 0.0f,
-			0.0f, 0.0f, fRange, 0.0f,
-			view_dim / 2.f + view_sx + fTexelOffs, view_dim / 2.f + view_sy + fTexelOffs, fBias, 1.0f
-		};
-
-		//Compute xforms
-		Fmatrix xf_world;
-		xf_world.invert(Device.mView);
-		Fmatrix xf_view = L->X.S.view;
-		Fmatrix xf_project;
-		xf_project.mul(m_TexelAdjust, L->X.S.project);
-
-		m_Shadow.set(xf_view);
-		m_Shadow.mulA_44(xf_project);
-	}
-
-	//Light direction (spot), color, and position. All in world space
-	Fvector L_dir, L_clr, L_pos;
-	L_clr.set(L->color.r, L->color.g, L->color.b);
-	L_clr.mul(L->m_volumetric_intensity);
-	L_clr.mul(L->m_volumetric_distance);
-	L_clr.mul(L->get_LOD());
-
-    // Lower intensity to be comparable to SSS
-    L_clr.mul(0.33f);
-
-	L_pos.set(L->position);
-	L_dir.set(L->direction);
-	L_dir.normalize();
-
-	//Attenuation
-	float att_R = L->m_volumetric_distance * L->range * .95f;
-	float att_factor = 1.f / (att_R * att_R);
-
-	//Set the shader
-	RCache.set_Element(s_combine->E[5]);
-	RCache.set_CullMode(CULL_CW);
-	RCache.set_Stencil(FALSE);
-
-	RCache.set_ColorWriteEnable();
-	//Set constants
-	RCache.set_c("Ldynamic_pos", L_pos.x, L_pos.y, L_pos.z, att_factor);
-	RCache.set_c("Ldynamic_dir", L_dir.x, L_dir.y, L_dir.z, -cos(L->cone * 0.5));
-	RCache.set_c("Ldynamic_color", L_clr.x, L_clr.y, L_clr.z, L->get_LOD());
-
-	RCache.set_c("m_shadow", m_Shadow);
-
-	//Render, no IB/VB - geometry in VS
-	draw_volume(L);
-}
-
 void CRenderTarget::accum_volumetric(light* L)
 {
 	// [ SSS ] Fade through distance volumetric lights.
@@ -436,8 +328,8 @@ void CRenderTarget::accum_volumetric(light* L)
 	{
 		// setup xform
 		RCache.set_xform_world(L->m_xform);
-		RCache.set_xform_view(Device.mView);
-		RCache.set_xform_project(Device.mProject);
+		RCache.set_xform_view(Device.m_rt_view.mView);
+		RCache.set_xform_project(Device.m_rt_view.mProject);
 		enable_scissor(L);
 
 		//enable_dbt_bounds				(L);
@@ -475,7 +367,7 @@ void CRenderTarget::accum_volumetric(light* L)
 		Fmatrix xf_view = L->X.S.view;
 		Fmatrix xf_project;
 		xf_project.mul(m_TexelAdjust, L->X.S.project);
-		m_Shadow.mul(xf_view, Device.mInvView);
+		m_Shadow.mul(xf_view, Device.m_rt_view.mInvView);
 		m_Shadow.mulA_44(xf_project);
 
 		// lmap
@@ -491,7 +383,7 @@ void CRenderTarget::accum_volumetric(light* L)
 
 		// compute xforms
 		xf_project.mul(m_TexelAdjust2, L->X.S.project);
-		m_Lmap.mul(xf_view, Device.mInvView);
+		m_Lmap.mul(xf_view, Device.m_rt_view.mInvView);
 		m_Lmap.mulA_44(xf_project);
 
 		// Compute light frustum in world space
@@ -514,8 +406,8 @@ void CRenderTarget::accum_volumetric(light* L)
 	for (u32 i=0; i<8; i++)		{
 		Fvector		pt;
 		BB.getpoint	(i,pt);
-		//Device.mFullTransform.transform	(pt);
-		Device.mFullTransform.transform	(mView);
+		//Device.m_rt_view.mFullTransform.transform	(pt);
+		Device.m_rt_view.mFullTransform.transform	(mView);
 		bbp.modify	(pt);
 	}
 	*/
@@ -536,14 +428,14 @@ void CRenderTarget::accum_volumetric(light* L)
 	//float	scaledRadius = L->spatial.sphere.R;
 	//Fvector	rr = Fvector().set(scaledRadius,scaledRadius,scaledRadius);
 	//Fvector pt = L->spatial.sphere.P;
-	Device.mView.transform(pt);
+	Device.m_rt_view.mView.transform(pt);
 	aabb.setb(pt, rr);
 	/*	
 		//	Calculate presise AABB assuming we are drawing for the spot light
 		{
 			aabb.invalidate();
 			Fmatrix	transform;
-			transform.mul( Device.mView, L->m_xform);		 
+			transform.mul( Device.m_rt_view.mView, L->m_xform);		 
 			for (u32 i=0; i<DU_CONE_NUMVERTEX; ++i)
 			{
 				Fvector		pt = du_cone_vertices[i];
@@ -596,8 +488,8 @@ void CRenderTarget::accum_volumetric(light* L)
 	}
 
 	L_spec = u_diffuse2s(L_clr);
-	Device.mView.transform_tiny(L_pos, L->position);
-	//Device.mView.transform_dir(L_dir, L->direction);
+	Device.m_rt_view.mView.transform_tiny(L_pos, L->position);
+	//Device.m_rt_view.mView.transform_dir(L_dir, L->direction);
 	//L_dir.normalize();
 
 
@@ -678,7 +570,7 @@ void CRenderTarget::accum_volumetric(light* L)
 
 			//	Transform frustum to clip space
 			Fmatrix PlaneTransform;
-			PlaneTransform.transpose(Device.mInvFullTransform);
+			PlaneTransform.transpose(Device.m_rt_view.mInvFullTransform);
 			//HW.pDevice->SetRenderState(D3DRS_CLIPPLANEENABLE, 0x3F);
 
 			for (int i = 0; i < 6; ++i)
@@ -703,7 +595,7 @@ void CRenderTarget::accum_volumetric(light* L)
 			/*
 			//	Transform frustum to clip space
 			Fmatrix PlaneTransform;
-			PlaneTransform.transpose(Device.mInvFullTransform);
+			PlaneTransform.transpose(Device.m_rt_view.mInvFullTransform);
 			HW.pDevice->SetRenderState(D3DRS_CLIPPLANEENABLE, 0x3F);
 
 			for ( int i=0; i<6; ++i)

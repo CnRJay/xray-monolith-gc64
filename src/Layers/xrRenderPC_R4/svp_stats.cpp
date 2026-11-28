@@ -361,7 +361,7 @@ namespace
 			double(s.data.copy_kb_cat[0]), double(s.data.copy_kb_cat[1]), double(s.data.copy_kb_cat[2]),
 			double(s.data.copy_kb_cat[3])
 		};
-		const float dt = Device.fTimeDelta;
+		const float dt = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.fTimeDelta : Device.fTimeDelta;
 		if (!s_avg_seeded)
 		{
 			for (u32 i = 0; i < SEC_COUNT; ++i)
@@ -742,8 +742,9 @@ namespace svp_stats
 			+ d.sec[SEC_MAIN_EMISSIVE].polys + d.sec[SEC_MAIN_COMBINE].polys;
 
 		CGameFont& F = *s_font;
-		const float H = (float)Device.dwHeight;
-		const float W = (float)Device.dwWidth;
+		const bool on_rt = CRenderThread::IsOnRenderThread();
+		const float H = (float)(on_rt ? Device.m_rt_view.dwHeight : Device.dwHeight);
+		const float W = (float)(on_rt ? Device.m_rt_view.dwWidth : Device.dwWidth);
 		const float hi = 0.0135f;    // font height as a screen fraction, readable at 1080p and 4k
 		F.SetHeightI(hi);
 		const float line = H * hi;

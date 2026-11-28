@@ -2,6 +2,9 @@
 #pragma hdrstop
 
 #include "ModelPool.h"
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
+#include <tbb/task_arena.h>
 
 // The spawn prefetch thread creates and releases models while the main thread does the same. These two
 // flags describe the call in progress, so each thread needs its own; and the pool, the registry and the
@@ -168,8 +171,11 @@ dxRender_Visual* CModelPool::Instance_Load(LPCSTR name, IReader* data, BOOL allo
 	V->Load(name, data, 0);
 
 	// Registration
-	if (allow_register) 
+	if (allow_register)
+	{
+		g_pGamePersistent->RegisterModel(V);
 		V = Instance_Register(name, V);
+	}
 	return V;
 }
 
@@ -500,15 +506,47 @@ void CModelPool::Discard(dxRender_Visual* & V, BOOL b_complete)
 void CModelPool::Prefetch()
 {
 	Logging(FALSE);
-	// prefetch visuals
+	// prefetch visuals: parallel-read .ogf files from disk/MO2 USVFS, then create visuals sequentially on Main Thread (safe for Lua shader scripts).
 	string256 section;
 	strconcat(sizeof(section), section, "prefetch_visuals_", g_pGamePersistent->m_game_params.m_game_type);
 	CInifile::Sect& sect = pSettings->r_section(section);
-	for (CInifile::SectCIt I = sect.Data.begin(); I != sect.Data.end(); I++)
+
+	const size_t count = sect.Data.size();
+	xr_vector<IReader*> preloaded(count, nullptr);
+	if (count >= 4)
 	{
-		const CInifile::Item& item = *I;
-		dxRender_Visual* V = Create(item.first.c_str());
-		Delete(V,FALSE);
+		// Limit concurrent file opens to 4 workers to avoid MO2 USVFS hook lock contention on high-core CPUs.
+		tbb::task_arena ioArena(4);
+		ioArena.execute([&]() {
+			tbb::parallel_for(tbb::blocked_range<size_t>(0, count, 4),
+				[&](const tbb::blocked_range<size_t>& r)
+				{
+					for (size_t i = r.begin(); i < r.end(); ++i)
+					{
+						LPCSTR N = sect.Data[i].first.c_str();
+						string_path fn, name;
+						if (0 == strext(N)) strconcat(sizeof(name), name, N, ".ogf");
+						else xr_strcpy(name, sizeof(name), N);
+
+						if (FS.exist(N))
+							xr_strcpy(fn, N);
+						else if (!FS.exist(fn, "$level$", name) && !FS.exist(fn, "$game_meshes$", name))
+							continue;
+
+						preloaded[i] = FS.r_open(fn);
+					}
+				});
+		});
+	}
+
+	for (size_t i = 0; i < count; ++i)
+	{
+		const CInifile::Item& item = sect.Data[i];
+		IReader* reader = preloaded[i];
+		dxRender_Visual* V = Create(item.first.c_str(), reader);
+		if (reader)
+			FS.r_close(reader);
+		Delete(V, FALSE);
 	}
 	Logging(TRUE);
 }

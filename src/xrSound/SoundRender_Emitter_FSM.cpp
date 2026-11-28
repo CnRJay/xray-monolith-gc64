@@ -384,8 +384,19 @@ BOOL CSoundRender_Emitter::update_culling(float dt)
 			volume_att -= 0.1f;
 		//v2v3v4 out
 
-		// Update occlusion
-		float occ = (owner_data->g_type == SOUND_TYPE_WORLD_AMBIENT) ? 1.0f : SoundRender->get_occlusion(p_source.position, .2f, occluder);
+		// Update occlusion at 20 Hz (still 20x faster than the 1.0/s volume_lerp) to avoid
+		// thousands of redundant CFORM raycasts per second during heavy gunfire.
+		float occ = 1.0f;
+		if (owner_data->g_type != SOUND_TYPE_WORLD_AMBIENT)
+		{
+			m_occ_timer -= dt;
+			if (m_occ_timer <= 0.f)
+			{
+				m_cached_occ = SoundRender->get_occlusion(p_source.position, .2f, occluder);
+				m_occ_timer = 0.05f;
+			}
+			occ = m_cached_occ;
+		}
 		volume_lerp(occluder_volume, occ, 1.f, dt);
 		clamp(occluder_volume, 0.f, 1.f);
 	}

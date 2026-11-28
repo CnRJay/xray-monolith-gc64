@@ -33,6 +33,8 @@ void CSoundRender_Emitter::start(ref_sound* _owner, BOOL _loop, float delay)
 	}
 	bStopping = FALSE;
 	bRewind = FALSE;
+	m_cached_occ = 1.f;
+	m_occ_timer = 0.f;
 }
 
 void CSoundRender_Emitter::i_stop()
@@ -67,6 +69,8 @@ void CSoundRender_Emitter::rewind()
 
 	set_cursor(0);
 	bRewind = TRUE;
+	m_cached_occ = 1.f;
+	m_occ_timer = 0.f;
 }
 
 void CSoundRender_Emitter::pause(BOOL bVal, int id)

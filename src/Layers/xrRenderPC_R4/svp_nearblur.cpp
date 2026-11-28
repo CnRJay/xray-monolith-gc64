@@ -35,14 +35,10 @@ bool CRenderTarget::svp_nearblur_pass()
 				HW.pContext->CopySubresourceRegion(m_svp_nb_mip_surf, 0, 0, 0, 0, rt_Generic_0->pSurface, 0, nullptr);
 				HW.pContext->GenerateMips(m_svp_nb_mip_tex->get_SRView());
 			}
-			{
-				ref_texture t; t.create("$user$svp_nearblur_src");
-				t->surface_set(m_svp_nb_mip_surf ? m_svp_nb_mip_surf : rt_Generic_0->pSurface);
-			}
-			{
-				ref_texture t; t.create("$user$svp_nearblur_pos");
-				t->surface_set(rt_Position->pSurface);
-			}
+			if (t_svp_nearblur_src)
+				t_svp_nearblur_src->surface_set(m_svp_nb_mip_surf ? m_svp_nb_mip_surf : rt_Generic_0->pSurface);
+			if (t_svp_nearblur_pos)
+				t_svp_nearblur_pos->surface_set(rt_Position->pSurface);
 			u_setrt(Width, Height, rt_secondVP->pRT, nullptr, nullptr, nullptr);
 			const float w = float(Width), h = float(Height);
 			u32 Offset = 0;
@@ -69,10 +65,12 @@ bool CRenderTarget::svp_nearblur_pass()
 				// the near field ends at the real muzzle, per weapon, clamped to the old design bound
 				float md = 1.5f;
 				CSecondVPParams::WeaponPoseSnapshot pose;
+				const u32 cur_frame = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwFrame : Device.dwFrame;
+				const Fvector& cam_pos = CRenderThread::IsOnRenderThread() ? Device.m_rt_view.vCameraPosition : Device.vCameraPosition;
 				if (Device.m_SecondViewport.ReadWeaponPose(pose)
-					&& Device.m_SecondViewport.SnapshotExact(pose.frame, pose.session, Device.dwFrame)
+					&& Device.m_SecondViewport.SnapshotExact(pose.frame, pose.session, cur_frame)
 					&& pose.muzzle_pos.square_magnitude() > EPS)
-					md = clampr(pose.muzzle_pos.distance_to(Device.vCameraPosition), 0.5f, 3.f);
+					md = clampr(pose.muzzle_pos.distance_to(cam_pos), 0.5f, 3.f);
 				// max radius is the physical coc at the svp near plane capped at the inscribed disc
 				const float z_near = Device.m_SecondViewport.svp_near;
 				const float coc_near = k * _max(1.f / _max(z_near, 0.05f) - 1.f / focus, 0.f);

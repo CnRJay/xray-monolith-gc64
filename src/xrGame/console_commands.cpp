@@ -89,6 +89,8 @@ extern float g_step_particle_distance;
 // Lua
 extern int psLUA_GCSTEP;
 extern int psLua_ParallelGCStep;
+extern int psLua_ParallelGC_TriggerMB;
+extern int psLua_ParallelGC_BudgetUS;
 extern int psLua_ParallelGC_CallAmount;
 extern BOOL psLua_ParallelGC_debug;
 extern BOOL psLua_ParallelGC;
@@ -189,6 +191,7 @@ extern BOOL mt_UpdateWeaponSounds;
 extern BOOL mt_Scheduler;
 extern BOOL mt_SchedulerRT;
 extern BOOL mt_calc_bones;
+extern int ps_r__mt_decouple;
 extern BOOL mt_ph_commander;
 extern BOOL mt_TaskManager;
 extern BOOL mt_ui;
@@ -2780,6 +2783,8 @@ void CCC_RegisterCommands()
 
 	// demonized: GC step that is used for repeated calls on second thread while frame is rendering, limit to small values
 	CMD4(CCC_Integer, "lua_parallel_gcstep", &psLua_ParallelGCStep, 1, 100);
+	CMD4(CCC_Integer, "lua_parallel_gc_trigger_mb", &psLua_ParallelGC_TriggerMB, 8, 512);
+	CMD4(CCC_Integer, "lua_parallel_gc_budget_us", &psLua_ParallelGC_BudgetUS, 100, 5000);
 	CMD4(CCC_Integer, "lua_parallel_gc_call_amount", &psLua_ParallelGC_CallAmount, 1, 50);
 	CMD4(CCC_Integer, "lua_parallel_gc_debug", &psLua_ParallelGC_debug, 0, 1);
 	CMD4(CCC_Integer, "lua_parallel_gc", &psLua_ParallelGC, 0, 1);
@@ -3310,6 +3315,7 @@ void CCC_RegisterCommands()
     CMD4(CCC_Integer, "mt_schedulerRT", &mt_SchedulerRT, 0, 1);
 	CMD4(CCC_Integer, "mt_level_call", &mt_ph_commander, 0, 1);
     CMD4(CCC_Integer, "mt_calc_bones", &mt_calc_bones, 0, 1);
+    CMD4(CCC_Integer, "r__mt_decouple", &ps_r__mt_decouple, 0, 1);
     CMD4(CCC_Integer, "mt_task_manager", &mt_TaskManager, 0, 1);
     CMD4(CCC_Integer, "mt_ui", &mt_ui, 0, 1);
 

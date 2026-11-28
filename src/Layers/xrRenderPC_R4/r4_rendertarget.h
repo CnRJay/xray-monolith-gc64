@@ -6,6 +6,7 @@
 #include "../xrRender/r__dsgraph_types.h"
 #include "SvpDlss.h"
 class light;
+class CVolumetricFroxels;
 
 // pip SVP scene render extent for the color/depth/MV targets, full display-res (svp_height) at gate 0
 // so r__svp_render_scale is inert until the DLSS scaffolding is active (r__svp_dlss != 0)
@@ -260,6 +261,13 @@ public:
 	ref_shader s_svp_nearblur; // pip near-field defocus on the scope image (svpscope 2)
 	ref_shader s_svp_distort_stamp; // pip neutral distort-mask stamp over the composited lens
 	ref_shader s_svp_taa_stamp; // pip raw taa skip mask over the composited lens
+	// Pre-created texture alias handles (initialized on Main Thread in EnsureScopeShaders)
+	ref_texture t_svp_nearblur_src;
+	ref_texture t_svp_nearblur_pos;
+	ref_texture t_svp_secondvp;
+	ref_texture t_svp_generic2;
+	ref_texture t_svp_heat;
+	ref_texture t_svp_tonemap;
 	bool m_scope_shaders_ready = false;
 	// taa history seeds from the current frame on the next resolve, true at creation and on scope edges
 	bool m_taa_seed_history = true;
@@ -562,7 +570,7 @@ public:
 	void accum_reflected(light* L);
 	//	Igor: for volumetric lights
 	void accum_volumetric(light* L);
-	void accum_volumetric_lv(light* L);
+	CVolumetricFroxels* m_froxels = nullptr;
 	void phase_bloom();
 	void phase_luminance();
 	void phase_combine();

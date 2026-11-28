@@ -189,6 +189,12 @@ namespace xr_imgui
 
     void ide::OnRender()
     {
+        if (Device.m_decoupled_ui_recording)
+        {
+            CaptureFrame();
+            return;
+        }
+
         ImGui::Render();
         m_render->Render(ImGui::GetDrawData());
 
@@ -199,6 +205,30 @@ namespace xr_imgui
         }
 
         ImGui::NewFrame();
+    }
+
+    void ide::CaptureFrame()
+    {
+        ImGui::Render();
+        m_render->CaptureDrawData(ImGui::GetDrawData());
+
+        if (firstframe)
+        {
+            firstframe = false;
+            return;
+        }
+
+        ImGui::NewFrame();
+    }
+
+    void ide::RenderCaptured()
+    {
+        m_render->RenderCaptured();
+    }
+
+    void ide::ClearCaptured()
+    {
+        m_render->ClearCaptured();
     }
 
     void ide::ShowMain()

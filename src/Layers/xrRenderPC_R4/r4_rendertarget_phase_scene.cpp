@@ -7,9 +7,9 @@ void CRenderTarget::phase_scene_prepare()
 
 		//	TODO: DX10: Check if we need to set RT here.
 		if (!RImplementation.o.dx10_msaa)
-			u_setrt(Device.dwWidth, Device.dwHeight, rt_Position->pRT,NULL,NULL, baseZB);
+			u_setrt(Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, rt_Position->pRT,NULL,NULL, baseZB);
 		else
-			u_setrt(Device.dwWidth, Device.dwHeight, rt_Position->pRT,NULL,NULL, rt_MSAADepth->pZRT);
+			u_setrt(Device.m_rt_view.dwWidth, Device.m_rt_view.dwHeight, rt_Position->pRT,NULL,NULL, rt_MSAADepth->pZRT);
 
 		FLOAT ColorRGBA[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 		HW.pContext->ClearRenderTargetView(rt_Position->pRT, ColorRGBA);
@@ -33,8 +33,8 @@ void CRenderTarget::phase_scene_prepare()
 			constexpr int kSegsPerCorner = 8;
 			constexpr int kTris = 4 * kSegsPerCorner;
 			constexpr u32 kVerts = kTris * 3;
-			const float w = float(Device.dwWidth);
-			const float h = float(Device.dwHeight);
+			const float w = float(Device.m_rt_view.dwWidth);
+			const float h = float(Device.m_rt_view.dwHeight);
 			const float cx = w * 0.5f;
 			const float cy = h * 0.5f;
 			// Margin beyond 0.5 covers lens distortion / chromatic aberration / TAA jitter.
@@ -135,8 +135,8 @@ void CRenderTarget::phase_scene_end()
 	// common calc for quad-rendering
 	u32 Offset;
 	u32 C = color_rgba(255, 255, 255, 255);
-	float _w = float(Device.dwWidth);
-	float _h = float(Device.dwHeight);
+	float _w = float(Device.m_rt_view.dwWidth);
+	float _h = float(Device.m_rt_view.dwHeight);
 	Fvector2 p0, p1;
 	p0.set(.5f / _w, .5f / _h);
 	p1.set((_w + .5f) / _w, (_h + .5f) / _h);

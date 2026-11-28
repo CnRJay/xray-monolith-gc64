@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "dxFontRender.h"
+#include "dxUIRender.h"
 
 #include "../../xrEngine/GameFont.h"
 
@@ -24,16 +25,34 @@ extern ENGINE_API Fvector2 g_current_font_scale;
 
 void dxFontRender::OnRender(CGameFont& owner)
 {
-	VERIFY(g_bRendering);
-	if (pShader) RCache.set_Shader(pShader);
+	const bool recording = UIRenderImpl.IsRecording();
+	if (!recording)
+	{
+		VERIFY(g_bRendering);
+		if (pShader) RCache.set_Shader(pShader);
+	}
 
 	if (!(owner.uFlags & CGameFont::fsValid))
 	{
-		CTexture* T = RCache.get_ActiveTexture(0);
-		owner.vTS.set((int)T->get_Width(), (int)T->get_Height());
-		owner.fTCHeight = owner.fHeight / float(owner.vTS.y);
-		owner.uFlags |= CGameFont::fsValid;
+		CTexture* T = nullptr;
+		if (recording && pShader && pShader->E[0] && !pShader->E[0]->passes.empty() &&
+			pShader->E[0]->passes[0]->T && !pShader->E[0]->passes[0]->T->empty())
+		{
+			T = &*(pShader->E[0]->passes[0]->T->at(0).second);
+		}
+		else if (!recording)
+		{
+			T = RCache.get_ActiveTexture(0);
+		}
+		if (T)
+		{
+			owner.vTS.set((int)T->get_Width(), (int)T->get_Height());
+			owner.fTCHeight = owner.fHeight / float(owner.vTS.y);
+			owner.uFlags |= CGameFont::fsValid;
+		}
 	}
+
+	static xr_vector<FVF::TL> s_rec_verts;
 
 	for (u32 i = 0; i < owner.strings.size();)
 	{
@@ -54,10 +73,21 @@ void dxFontRender::OnRender(CGameFont& owner)
 			else break;
 		}
 
-		// lock AGP memory
-		u32 vOffset;
-		FVF::TL* v = (FVF::TL*)RCache.Vertex.Lock(length * 4, pGeom.stride(), vOffset);
-		FVF::TL* start = v;
+		// lock AGP memory or stage into CPU recording buffer
+		u32 vOffset = 0;
+		FVF::TL* v = nullptr;
+		FVF::TL* start = nullptr;
+		if (recording)
+		{
+			s_rec_verts.resize(static_cast<size_t>(length) * 4);
+			v = s_rec_verts.data();
+			start = v;
+		}
+		else
+		{
+			v = (FVF::TL*)RCache.Vertex.Lock(length * 4, pGeom.stride(), vOffset);
+			start = v;
+		}
 
 		// fill vertices
 		u32 last = i + count;
@@ -155,13 +185,21 @@ void dxFontRender::OnRender(CGameFont& owner)
 			}
 		}
 
-		// Unlock and draw
+		// Unlock and draw (or commit to UI command buffer)
 		u32 vCount = (u32)(v - start);
-		RCache.Vertex.Unlock(vCount, pGeom.stride());
-		if (vCount)
+		if (recording)
 		{
-			RCache.set_Geometry(pGeom);
-			RCache.Render(D3DPT_TRIANGLELIST, vOffset, 0, vCount, 0, vCount / 2);
+			if (vCount)
+				UIRenderImpl.RecordFontQuads(pShader, start, vCount);
+		}
+		else
+		{
+			RCache.Vertex.Unlock(vCount, pGeom.stride());
+			if (vCount)
+			{
+				RCache.set_Geometry(pGeom);
+				RCache.Render(D3DPT_TRIANGLELIST, vOffset, 0, vCount, 0, vCount / 2);
+			}
 		}
 	}
 }

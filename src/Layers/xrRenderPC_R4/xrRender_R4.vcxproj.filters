@@ -399,6 +399,9 @@
     <ClInclude Include="r4_rendertarget.h">
       <Filter>Core_Target</Filter>
     </ClInclude>
+    <ClInclude Include="r4_volumetric_froxels.h">
+      <Filter>Core_Target</Filter>
+    </ClInclude>
     <ClInclude Include="svp_target.h">
       <Filter>Core_Target</Filter>
     </ClInclude>
@@ -568,6 +571,9 @@
       <Filter>Refactored\Execution &amp; 3D\Visuals\Skeleton</Filter>
     </ClInclude>
     <ClInclude Include="..\xrRender\SkeletonCustom.h">
+      <Filter>Refactored\Execution &amp; 3D\Visuals\Skeleton</Filter>
+    </ClInclude>
+    <ClInclude Include="..\xrRender\BonePaletteSIMD.h">
       <Filter>Refactored\Execution &amp; 3D\Visuals\Skeleton</Filter>
     </ClInclude>
     <ClInclude Include="..\xrRender\SkeletonX.h">
@@ -1107,6 +1113,9 @@
     <ClCompile Include="r4_rendertarget.cpp">
       <Filter>Core_Target</Filter>
     </ClCompile>
+    <ClCompile Include="r4_volumetric_froxels.cpp">
+      <Filter>Core_Target</Filter>
+    </ClCompile>
     <ClCompile Include="r4_rendertarget_accum_direct.cpp">
       <Filter>Core_Target</Filter>
     </ClCompile>
@@ -1336,6 +1345,12 @@
       <Filter>Refactored\Execution &amp; 3D\Visuals\Skeleton</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\SkeletonRigid.cpp">
+      <Filter>Refactored\Execution &amp; 3D\Visuals\Skeleton</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\BonePaletteSIMD.cpp">
+      <Filter>Refactored\Execution &amp; 3D\Visuals\Skeleton</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\BonePaletteSIMD_AVX2.cpp">
       <Filter>Refactored\Execution &amp; 3D\Visuals\Skeleton</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\SkeletonX.cpp">
