@@ -149,7 +149,7 @@ Higher FPS, smoother combat, faster loading, 64-bit script memory, 3D volumetric
    - **`STALKER-Anomaly-DX11_<tag>.zip`** (Recommended): Standard release build with profiling turned off for best FPS.
    - **`STALKER-Anomaly-ProfiledDX11_<tag>.zip`** (Optional): Includes Optick CPU/GPU profiling (`prof_capture`) for benchmarking and bug reports.
 3. **Extract** the archive directly into your `ANOMALY` root folder so `bin/AnomalyDX11.exe` and `gamedata/` overwrite cleanly.
-   - *No separate `lua51.dll` replacement is needed; LuaJIT 2.1 GC64 is built directly into the executable.*
+   - *One executable works on all 64-bit CPUs (AVX2 and AVX-512 are detected automatically at runtime; no separate AVX2 download needed), and LuaJIT 2.1 GC64 is built directly into the executable.*
 4. **Clear your shader cache** by deleting `appdata/shaders_cache` (and your MO2 overwrite folder if it contains one).
 5. **Launch** with **Anomaly (DX11)** (`bin/AnomalyDX11.exe`).
 
@@ -251,8 +251,7 @@ Download the <code>ProfiledDX11</code> build, open the console (<code>~</code>),
 1. Open `src/engine-vs2026.sln` (or `src/engine.sln`).
 2. Set Platform to **`x64`**.
 3. Pick a Configuration:
-   - **`DX11`**: Standard release build (`AnomalyDX11.exe`)
-   - **`VerifiedDX11`**: Release build with `VERIFY` checks and PDB symbols (`VerifiedDX11.exe`)
+   - **`DX11`**: Standard release build with profiling disabled (`AnomalyDX11.exe`)
    - **`ProfiledDX11`**: Release build with Optick CPU + DX11 GPU profiling (`AnomalyDX11.exe`)
 4. Build (`Ctrl+Shift+B`). Outputs go to `_build/_game/bin_dbg/`.
 
@@ -265,7 +264,7 @@ Download the <code>ProfiledDX11</code> build, open the console (<code>~</code>),
 ### Contributing Guidelines
 1. Fork and create a feature/fix branch (`git checkout -b feat/my-improvement`).
 2. Keep thread safety intact: never call Lua, `CResourceManager::_CreateShader`, or `CResourceManager::_CreateTexture` from the Render Thread or TBB worker loops, and guard DX11-only code in shared `src/Layers/xrRender/` files with `#if RENDER == R_R4` or `#if defined(USE_DX11)`.
-3. Verify `DX11|x64` and `VerifiedDX11|x64` build cleanly and test in-game before opening a PR.
+3. Verify `DX11|x64` builds cleanly and test in-game before opening a PR.
 
 </details>
 

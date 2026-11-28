@@ -163,6 +163,13 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          if echo "${TAG}" | grep -qiE '-(wip|alpha|beta|rc|pre)'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "title=X-Ray Monolith: Next Gen ${TAG} (Pre-Release)" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "title=X-Ray Monolith: Next Gen ${TAG}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Extract Changelog Notes
         shell: python
@@ -222,7 +229,8 @@ jobs:
             STALKER-Anomaly-ProfiledDX11_*.zip
             pdb/*.zip
           tag_name: "${{ steps.ver.outputs.tag }}"
-          name: "X-Ray Monolith DX11 ${{ steps.ver.outputs.tag }}"
+          name: "${{ steps.ver.outputs.title }}"
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           body_path: release_notes.md
           generate_release_notes: true
           token: "${{ secrets.GITHUB_TOKEN }}"
