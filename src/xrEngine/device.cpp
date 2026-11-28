@@ -491,6 +491,8 @@ void CRenderDevice::on_idle()
 #if XRCORE_PROFILER == PROFILER_OPTICK
 	if (g_prof_capture_frames > 0 && --g_prof_capture_frames == 0)
 	{
+		// Drain the decoupled Render Thread before Optick::StopCapture triggers gpu_timeline::prof_stop() on HW.pContext.
+		FlushRenderThread();
 		PROF_STOP_CAPTURE();
 		string_path fn;
 		FS.update_path(fn, "$logs$", "optick.opt");
