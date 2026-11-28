@@ -1144,6 +1144,7 @@ int scope_2dtexactive = 0.0;
 Fvector3 ssfx_wetness_multiplier = Fvector3().set(1.0f, 0.3f, 0.0f);
 
 BOOL dump_cvar_enable = TRUE;
+int psEngineCfgVer = 0;
 
 void CCC_Register()
 {
@@ -1158,7 +1159,8 @@ void CCC_Register()
 	CMD1(CCC_SaveCFG, "cfg_save");
 	CMD1(CCC_LoadCFG, "cfg_load");
 	CMD1(CCC_DumpCVars, "dump_cvar");
-        CMD4(CCC_Integer, "dump_cvar_enable", &dump_cvar_enable, 0, 1);
+	CMD4(CCC_Integer, "dump_cvar_enable", &dump_cvar_enable, 0, 1);
+	CMD4(CCC_Integer, "engine_cfg_ver", &psEngineCfgVer, 0, 10000);
 	CMD1(CCC_RenderDocCapture, "rdoc_capture");
 	CMD1(CCC_RenderDocOpen, "rdoc_open");
 	CMD1(CCC_RenderDocOverlay, "rdoc_overlay");

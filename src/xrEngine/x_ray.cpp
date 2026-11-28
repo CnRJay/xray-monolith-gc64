@@ -327,10 +327,41 @@ void destroyEngine()
 	DevicePtr = nullptr;
 }
 
+extern int psEngineCfgVer;
+static constexpr int CURRENT_ENGINE_CFG_VER = 1;
+
+static void migrateCvar(LPCSTR name, LPCSTR value)
+{
+	if (!Console || Console->Commands.find(name) == Console->Commands.end())
+		return;
+	string256 cmd;
+	xr_sprintf(cmd, sizeof(cmd), "%s %s", name, value);
+	Console->Execute(cmd);
+}
+
+static void migrateUserConfig()
+{
+	if (!Console || psEngineCfgVer >= CURRENT_ENGINE_CFG_VER)
+		return;
+
+	const int oldVer = psEngineCfgVer;
+
+	if (psEngineCfgVer < 1)
+	{
+		// v1: LuaJIT GC64 hysteresis + time-budgeted parallel GC defaults.
+		migrateCvar("lua_parallel_gc_trigger_mb", "16");
+		migrateCvar("lua_parallel_gc_budget_us", "1500");
+		psEngineCfgVer = 1;
+	}
+
+	Msg("* [ConfigMigration] Migrated %s config v%d -> v%d", Console->ConfigFile, oldVer, psEngineCfgVer);
+}
+
 void execUserScript()
 {
 	Console->Execute("default_controls");
 	Console->ExecuteScript(Console->ConfigFile);
+	migrateUserConfig();
 	if (strstr(Core.Params, "-gpu_markers")) Console->Execute("r__gpu_markers 1");
 	if (strstr(Core.Params, "-shader_debug")) Console->Execute("r__shader_debug 1");
 	if (Console->GetBool("dump_cvar_enable"))
