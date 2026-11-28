@@ -107,6 +107,7 @@ public:
 			Msg("! profiler capture already running, %d frames left", g_prof_capture_frames);
 			return;
 		}
+		Device.FlushRenderThread();
 		PROF_START_CAPTURE();
 		g_prof_capture_frames = frames;
 	}

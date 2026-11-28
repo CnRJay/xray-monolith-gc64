@@ -301,6 +301,11 @@ namespace
 		return id;
 	}
 
+	IC u32 active_frame()
+	{
+		return CRenderThread::IsOnRenderThread() ? Device.m_rt_view.dwFrame : Device.dwFrame;
+	}
+
 	bool render_thread()
 	{
 		const DWORD id = GetCurrentThreadId();
@@ -848,10 +853,10 @@ namespace
 		prof_forced = false;
 	}
 
-	// On the render thread between frames the open frame closes and the burst drains the GPU, so every captured frame resolves
+	// On the render thread between frames (or on Main Thread after FlushRenderThread), close the open frame and drain GPU queries
 	void prof_stop()
 	{
-		if (prof_now == prof_on && thread == GetCurrentThreadId() && stack.empty())
+		if (prof_now == prof_on && stack.empty() && (thread == GetCurrentThreadId() || !CRenderThread::IsOnRenderThread()))
 		{
 			if (cur)
 			{
@@ -871,6 +876,8 @@ namespace
 	// Optick calls this before it changes state, so the GPU row is filled while the capture is still on
 	bool prof_state_changed(Optick::State::Type state)
 	{
+		if (!CRenderThread::IsOnRenderThread())
+			Device.FlushRenderThread();
 		if (state == Optick::State::START_CAPTURE)
 		{
 			xrCriticalSectionGuard guard(prof_lock);
@@ -1139,14 +1146,14 @@ namespace
 			}
 			HW.pContext->End(cur->disjoint);
 			// Frames left open while recording was off are stale, their slots are reused unread
-			cur->pending = cur->frame + 1 == Device.dwFrame;
+			cur->pending = cur->frame + 1 == active_frame();
 		}
 #if XRCORE_PROFILER == PROFILER_OPTICK
 		// The start burst runs between frames, with no disjoint query open
 		if (prof_now == prof_starting)
 		{
 			prof_burst();
-			prof_first = Device.dwFrame;
+			prof_first = active_frame();
 			prof_now = prof_on;
 		}
 #endif
@@ -1180,7 +1187,7 @@ namespace
 				return false;
 			}
 		}
-		s.frame = Device.dwFrame;
+		s.frame = active_frame();
 		s.scopes.clear();
 		s.pipes_used = 0;
 		s.started = false;
@@ -2056,9 +2063,12 @@ namespace
 
 void frame_start()
 {
-	if (!render_thread() || !stack.empty())
+	if (!stack.empty())
 		return;
-	if ((!cur || cur->frame != Device.dwFrame) && !frame_begin())
+	// Re-latch active render submission thread when switching between coupled menu/console (Main Thread) and decoupled gameplay (Render Thread).
+	thread = GetCurrentThreadId();
+	const u32 cur_frame = active_frame();
+	if ((!cur || cur->frame != cur_frame) && !frame_begin())
 		return;
 	if (!cur->started)
 	{
@@ -2070,7 +2080,8 @@ void frame_start()
 
 void frame_end()
 {
-	if (!cur || !cur->started || cur->ended || cur->frame != Device.dwFrame || !stack.empty() || GetCurrentThreadId() != thread)
+	const u32 cur_frame = active_frame();
+	if (!cur || !cur->started || cur->ended || cur->frame != cur_frame || !stack.empty() || GetCurrentThreadId() != thread)
 		return;
 	cur->cpu_end = CPU::QPC();
 	HW.pContext->End(cur->bracket[1]);
@@ -2079,7 +2090,8 @@ void frame_end()
 
 void frame_presented()
 {
-	if (!cur || !cur->ended || cur->presented || cur->frame != Device.dwFrame || !stack.empty() || GetCurrentThreadId() != thread)
+	const u32 cur_frame = active_frame();
+	if (!cur || !cur->ended || cur->presented || cur->frame != cur_frame || !stack.empty() || GetCurrentThreadId() != thread)
 		return;
 	HW.pContext->End(cur->bracket[2]);
 	cur->presented = true;
@@ -2096,7 +2108,8 @@ u32 scope_begin(LPCWSTR name)
 		return no_scope;
 	}
 
-	if ((!cur || cur->frame != Device.dwFrame) && stack.empty() && !frame_begin())
+	const u32 cur_frame = active_frame();
+	if ((!cur || cur->frame != cur_frame) && stack.empty() && !frame_begin())
 		return no_scope;
 	if (!cur)
 		return no_scope;
