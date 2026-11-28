@@ -40,14 +40,16 @@
 #define GCSWEEPMAX	40
 
 static uint8_t gc_remark_passes = 0;
-static double gc_last_atomic_ms[7] = {0};
+static double gc_last_atomic_ms[10] = {0};
 static unsigned int gc_atomic_seq = 0;
+static size_t gc_last_sep_total_ud = 0;
+static size_t gc_last_sep_moved_ud = 0;
 
-LUA_API unsigned int luaJIT_gc_last_atomic_ms(double out[7])
+LUA_API unsigned int luaJIT_gc_last_atomic_ms(double out[10])
 {
   if (out) {
     int i;
-    for (i = 0; i < 7; i++) out[i] = gc_last_atomic_ms[i];
+    for (i = 0; i < 10; i++) out[i] = gc_last_atomic_ms[i];
   }
   return gc_atomic_seq;
 }
@@ -218,6 +220,7 @@ static void gc_mark_mmudata(global_State *g)
 size_t lj_gc_separateudata(global_State *g, int all)
 {
   size_t m = 0;
+  size_t total_ud = 0, moved_ud = 0;
   GCRef *p = &mainthread(g)->nextgc;
   GCobj *o;
 #if LJ_GC_UDHINT
@@ -235,6 +238,7 @@ size_t lj_gc_separateudata(global_State *g, int all)
   }
 #endif
   while ((o = gcref(*p)) != NULL) {
+    total_ud++;
 #if LJ_GC_UDHINT
     if (own) {
       size_t k, e = j + GCUDH_WIN < np ? j + GCUDH_WIN : np;
@@ -246,7 +250,7 @@ size_t lj_gc_separateudata(global_State *g, int all)
 	    gc_udh_prefetch(hp[pf]);
 	  break;
 	}
-      if (rec && !iswhite(o)) {
+      if (rec && !iswhite(o) && !isfinalized(gco2ud(o))) {
 	if (nn == szn && !(hn = gc_udh_grow(hn, &szn)))
 	  rec = 0;
 	else
@@ -255,12 +259,26 @@ size_t lj_gc_separateudata(global_State *g, int all)
     }
 #endif
     if (!(iswhite(o) || all) || isfinalized(gco2ud(o))) {
-      p = &o->gch.nextgc;  /* Nothing to do. */
+      if (!all && isfinalized(gco2ud(o))) {
+	/* Already finalized userdata never needs separateudata again; move to g->gc.root for normal sweep. */
+	*p = o->gch.nextgc;
+	setgcrefr(o->gch.nextgc, g->gc.root);
+	setgcref(g->gc.root, o);
+      } else {
+	p = &o->gch.nextgc;  /* Nothing to do. */
+      }
     } else if (!lj_meta_fastg(g, tabref(gco2ud(o)->metatable), MM_gc)) {
       markfinalized(o);  /* Done, as there's no __gc metamethod. */
-      p = &o->gch.nextgc;
+      if (!all) {
+	*p = o->gch.nextgc;
+	setgcrefr(o->gch.nextgc, g->gc.root);
+	setgcref(g->gc.root, o);
+      } else {
+	p = &o->gch.nextgc;
+      }
     } else {  /* Otherwise move userdata to be finalized to mmudata list. */
       m += sizeudata(gco2ud(o));
+      moved_ud++;
       markfinalized(o);
 #if LJ_GC_UDHINT
       if (own && recm) {
@@ -289,6 +307,8 @@ size_t lj_gc_separateudata(global_State *g, int all)
     gc_udh_mv = hm; gc_udh_szmv = szm; gc_udh_nmv = recm ? nm : 0;
   }
 #endif
+  gc_last_sep_total_ud = total_ud;
+  gc_last_sep_moved_ud = moved_ud;
   return m;
 }
 
@@ -685,9 +705,9 @@ static void gc_finalize(lua_State *L)
     return;
   }
 #endif
-  /* Add userdata back to the main userdata list and make it white. */
-  setgcrefr(o->gch.nextgc, mainthread(g)->nextgc);
-  setgcref(mainthread(g)->nextgc, o);
+  /* Add finalized userdata to g->gc.root (like cdata) so lj_gc_separateudata never walks it again. */
+  setgcrefr(o->gch.nextgc, g->gc.root);
+  setgcref(g->gc.root, o);
   makewhite(g, o);
   /* Resolve the __gc metamethod. */
   mo = lj_meta_fastg(g, tabref(gco2ud(o)->metatable), MM_gc);
@@ -751,7 +771,7 @@ static void atomic(global_State *g, lua_State *L)
   size_t udsize;
 #if LJ_TARGET_WINDOWS
   static double inv_qpc_ms = 0.0;
-  LARGE_INTEGER t0, t1, t2, t3, t4, t5, t6;
+  LARGE_INTEGER t0, t1, t2, t3, t3a, t3b, t4, t5, t6;
   if (inv_qpc_ms == 0.0) {
     LARGE_INTEGER f;
     QueryPerformanceFrequency(&f);
@@ -785,7 +805,13 @@ static void atomic(global_State *g, lua_State *L)
 #endif
 
   udsize = lj_gc_separateudata(g, 0);  /* Separate userdata to be finalized. */
+#if LJ_TARGET_WINDOWS
+  QueryPerformanceCounter(&t3a);
+#endif
   gc_mark_mmudata(g);  /* Mark them. */
+#if LJ_TARGET_WINDOWS
+  QueryPerformanceCounter(&t3b);
+#endif
   udsize += gc_propagate_gray(g);  /* And propagate the marks. */
 #if LJ_TARGET_WINDOWS
   QueryPerformanceCounter(&t4);
@@ -810,9 +836,12 @@ static void atomic(global_State *g, lua_State *L)
   gc_last_atomic_ms[1] = (double)(t1.QuadPart - t0.QuadPart) * inv_qpc_ms;
   gc_last_atomic_ms[2] = (double)(t2.QuadPart - t1.QuadPart) * inv_qpc_ms;
   gc_last_atomic_ms[3] = (double)(t3.QuadPart - t2.QuadPart) * inv_qpc_ms;
-  gc_last_atomic_ms[4] = (double)(t4.QuadPart - t3.QuadPart) * inv_qpc_ms;
-  gc_last_atomic_ms[5] = (double)(t5.QuadPart - t4.QuadPart) * inv_qpc_ms;
-  gc_last_atomic_ms[6] = (double)(t6.QuadPart - t5.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[4] = (double)(t3a.QuadPart - t3.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[5] = (double)(t3b.QuadPart - t3a.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[6] = (double)(t4.QuadPart - t3b.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[7] = (double)(t5.QuadPart - t4.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[8] = (double)gc_last_sep_total_ud;
+  gc_last_atomic_ms[9] = (double)gc_last_sep_moved_ud;
   gc_atomic_seq++;
 #endif
 }

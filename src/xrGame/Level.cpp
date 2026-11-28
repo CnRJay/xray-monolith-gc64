@@ -1279,11 +1279,11 @@ void CLevel::OnFrame()
 int psLUA_GCSTEP = 300;
 int psLua_ParallelGCStep = 75;
 int psLua_ParallelGC_TriggerMB = 16;
-int psLua_ParallelGC_BudgetUS = 500;
+int psLua_ParallelGC_BudgetUS = 1500;
 extern BOOL psLua_ParallelGC;
 extern BOOL psLua_ParallelGC_debug;
 
-extern "C" unsigned int luaJIT_gc_last_atomic_ms(double out[7]);
+extern "C" unsigned int luaJIT_gc_last_atomic_ms(double out[10]);
 
 static bool s_lua_gc_cycle_active = false;
 static size_t s_lua_gc_baseline_kb = 0;
@@ -1360,15 +1360,15 @@ int CLevel::LuaGC()
 
     const int done = lua_gc(L, LUA_GCTIMEOUT, _max(psLua_ParallelGC_BudgetUS, 100));
     static unsigned int s_last_atomic_seq = 0;
-    double astats[7];
+    double astats[10];
     const unsigned int aseq = luaJIT_gc_last_atomic_ms(astats);
     if (aseq != s_last_atomic_seq)
     {
         s_last_atomic_seq = aseq;
         if (astats[0] > 5.0)
         {
-            Msg("~ [LuaGC] atomic=%.2fms (uv=%.2f weak+root=%.2f grayagain=%.2f sepud=%.2f clearweak=%.2f tail=%.2f) heap=%zuKB",
-                astats[0], astats[1], astats[2], astats[3], astats[4], astats[5], astats[6], cur_kb);
+            Msg("~ [LuaGC] atomic=%.2fms (gray=%.2f sep_walk=%.2f mark_mm=%.2f prop_mm=%.2f clearweak=%.2f | ud=%.0f moved=%.0f) heap=%zuKB",
+                astats[0], astats[3], astats[4], astats[5], astats[6], astats[7], astats[8], astats[9], cur_kb);
         }
     }
     if (done > 0)
