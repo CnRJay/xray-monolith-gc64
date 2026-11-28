@@ -22,6 +22,8 @@
 #pragma warning(pop)
 
 #include "../../3rd party/meshoptimizer/meshoptimizer.h"
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 // MT_TREE_ST index reorder, load-time scratch shared by the visual pre-scan and LoadBuffers
 namespace
@@ -39,8 +41,10 @@ struct tree_vb_span
 };
 
 xr_vector<tree_ib_range> tree_ranges;
+xr_vector<tree_vb_span> tree_spans;
+xr_vector<u32> tree_range_span;
+xr_vector<u8> tree_span_ok;
 xr_vector<Fvector> tree_positions;
-xr_vector<u32> tree_idx_a, tree_idx_b;
 u32 tree_stat_cache = 0;
 u32 tree_stat_overdraw = 0;
 u32 tree_stat_skipped = 0;
@@ -66,9 +70,10 @@ void tree_ib_clear()
 {
 	// the merged position scratch runs to megabytes so hand the capacity back
 	tree_ranges.clear_and_free();
+	tree_spans.clear_and_free();
+	tree_range_span.clear_and_free();
+	tree_span_ok.clear_and_free();
 	tree_positions.clear_and_free();
-	tree_idx_a.clear_and_free();
-	tree_idx_b.clear_and_free();
 	tree_stat_cache = 0;
 	tree_stat_overdraw = 0;
 	tree_stat_skipped = 0;
@@ -146,101 +151,84 @@ void tree_ib_prescan(IReader* fs)
 	tree_stat_ticks += t.GetElapsed_ticks();
 }
 
-// second fsL_VB pass, pulls only the position floats of the windows the tree ranges address
-void tree_ib_read_positions(CStreamReader* base_fs)
+// Prepare merged VB spans before the single fsL_VB pass so tree positions are captured directly from RAM with zero second disk read.
+void tree_ib_prepare_spans()
 {
+	tree_spans.clear();
+	tree_range_span.clear();
+	tree_span_ok.clear();
+	tree_positions.clear();
 	if (tree_ranges.empty()) return;
 
 	xr_vector<u32> order(tree_ranges.size());
 	for (u32 i = 0; i < order.size(); ++i) order[i] = i;
 	std::sort(order.begin(), order.end(), tree_range_by_vb);
 
-	// merge the overlapping windows so each vertex is read at most once
-	xr_vector<tree_vb_span> spans;
-	xr_vector<u32> range_span(tree_ranges.size(), u32(-1));
+	tree_range_span.assign(tree_ranges.size(), u32(-1));
 	for (u32 k = 0; k < order.size(); ++k)
 	{
 		const u32 ri = order[k];
 		const tree_ib_range& r = tree_ranges[ri];
 		if (0 == r.v_count) continue;
-		if (!spans.empty() && spans.back().vb_id == r.vb_id && r.v_base <= spans.back().v_end)
+		if (!tree_spans.empty() && tree_spans.back().vb_id == r.vb_id && r.v_base <= tree_spans.back().v_end)
 		{
-			if (r.v_base + r.v_count > spans.back().v_end) spans.back().v_end = r.v_base + r.v_count;
+			if (r.v_base + r.v_count > tree_spans.back().v_end) tree_spans.back().v_end = r.v_base + r.v_count;
 		}
 		else
 		{
 			tree_vb_span s = {r.vb_id, r.v_base, r.v_base + r.v_count, 0};
-			spans.push_back(s);
+			tree_spans.push_back(s);
 		}
-		range_span[ri] = u32(spans.size() - 1);
+		tree_range_span[ri] = u32(tree_spans.size() - 1);
 	}
 
 	u32 total = 0;
-	for (u32 s = 0; s < spans.size(); ++s)
+	for (u32 s = 0; s < tree_spans.size(); ++s)
 	{
-		spans[s].pos_offset = total;
-		total += spans[s].v_end - spans[s].v_base;
+		tree_spans[s].pos_offset = total;
+		total += tree_spans[s].v_end - tree_spans[s].v_base;
 	}
 	if (0 == total) return;
 	tree_positions.resize(total);
+	tree_span_ok.assign(tree_spans.size(), 0);
+}
 
-	xr_vector<u8> span_ok(spans.size(), 0);
-	xr_vector<u8> raw;
+void tree_ib_capture_vb(u32 vb_id, const D3DVERTEXELEMENT9* dcl, const BYTE* pData, u32 v_count, u32 v_size, u32& span_cursor)
+{
+	if (tree_spans.empty()) return;
+	const bool pos_ok = tree_decl_pos_is_float3(dcl) && v_size >= sizeof(Fvector);
+	while (span_cursor < tree_spans.size() && tree_spans[span_cursor].vb_id < vb_id) ++span_cursor;
 
-	CStreamReader* fs = base_fs->open_chunk(fsL_VB);
-	if (fs)
+	if (!pos_ok && span_cursor < tree_spans.size() && tree_spans[span_cursor].vb_id == vb_id)
+		Msg("! [TREE-IB] vb %d position is not float3 at offset 0, its tree ranges are skipped", vb_id);
+
+	while (span_cursor < tree_spans.size() && tree_spans[span_cursor].vb_id == vb_id)
 	{
-		const u32 count = fs->r_u32();
-		const u32 bufferSize = (MAXD3DDECLLENGTH + 1) * sizeof(D3DVERTEXELEMENT9);
-		D3DVERTEXELEMENT9* dcl = (D3DVERTEXELEMENT9*)_alloca(bufferSize);
-		u32 s = 0;
-		for (u32 i = 0; i < count; ++i)
+		const tree_vb_span& sp = tree_spans[span_cursor];
+		if (pos_ok && sp.v_end <= v_count)
 		{
-			fs->r(dcl, bufferSize);
-			fs->advance(-(int)bufferSize);
-			const u32 dcl_len = D3DXGetDeclLength(dcl) + 1;
-			fs->advance(int(dcl_len * sizeof(D3DVERTEXELEMENT9)));
-
-			const u32 v_count = fs->r_u32();
-			const u32 v_size = D3DXGetDeclVertexSize(dcl, 0);
-			const bool pos_ok = tree_decl_pos_is_float3(dcl) && v_size >= sizeof(Fvector);
-
-			while (s < spans.size() && spans[s].vb_id < i) ++s;
-
-			if (!pos_ok && s < spans.size() && spans[s].vb_id == i)
-				Msg("! [TREE-IB] vb %d position is not float3 at offset 0, its tree ranges are skipped", i);
-
-			u32 cursor = 0;
-			while (s < spans.size() && spans[s].vb_id == i)
-			{
-				const tree_vb_span& sp = spans[s];
-				if (pos_ok && sp.v_end <= v_count && sp.v_base >= cursor)
-				{
-					const u32 n = sp.v_end - sp.v_base;
-					fs->advance(int((sp.v_base - cursor) * v_size));
-					raw.resize(n * v_size);
-					fs->r(&raw[0], n * v_size);
-					Fvector* dst = &tree_positions[sp.pos_offset];
-					for (u32 v = 0; v < n; ++v) CopyMemory(&dst[v], &raw[v * v_size], sizeof(Fvector));
-					cursor = sp.v_end;
-					span_ok[s] = 1;
-				}
-				++s;
-			}
-			fs->advance(int((v_count - cursor) * v_size));
+			const u32 n = sp.v_end - sp.v_base;
+			const BYTE* src = pData + sp.v_base * v_size;
+			Fvector* dst = &tree_positions[sp.pos_offset];
+			for (u32 v = 0; v < n; ++v) CopyMemory(&dst[v], src + v * v_size, sizeof(Fvector));
+			tree_span_ok[span_cursor] = 1;
 		}
-		fs->close();
-	}
-
-	for (u32 ri = 0; ri < tree_ranges.size(); ++ri)
-	{
-		const u32 s = range_span[ri];
-		if (u32(-1) == s || 0 == span_ok[s]) continue;
-		tree_ranges[ri].pos_offset = spans[s].pos_offset + (tree_ranges[ri].v_base - spans[s].v_base);
+		++span_cursor;
 	}
 }
 
-// cache pass then overdraw over the cache pass output, in place on the ram index payload
+void tree_ib_finalize_spans()
+{
+	if (tree_spans.empty() || tree_positions.empty()) return;
+	for (u32 ri = 0; ri < tree_ranges.size(); ++ri)
+	{
+		const u32 s = tree_range_span[ri];
+		if (u32(-1) == s || 0 == tree_span_ok[s]) continue;
+		tree_ranges[ri].pos_offset = tree_spans[s].pos_offset + (tree_ranges[ri].v_base - tree_spans[s].v_base);
+	}
+}
+
+// Parallel meshoptimizer cache + overdraw reorder across all disjoint tree index ranges in this IB.
 void tree_ib_reorder(u32 ib_id, u16* data, u32 ib_count, u32& cursor)
 {
 	const bool acmr_dbg = ps_r__svp_stats >= 2;
@@ -251,7 +239,7 @@ void tree_ib_reorder(u32 ib_id, u16* data, u32 ib_count, u32& cursor)
 		++cursor;
 	}
 
-	// instances share geometry so the sorted list repeats the same window, only unique ones are worked
+	xr_vector<tree_ib_range> jobs;
 	u32 prev_base = 0, prev_count = 0;
 	bool have_prev = false;
 
@@ -263,7 +251,6 @@ void tree_ib_reorder(u32 ib_id, u16* data, u32 ib_count, u32& cursor)
 			++tree_stat_dup;
 			continue;
 		}
-		// a partial overlap would rewrite indices the previous window already reordered
 		if (have_prev && r.i_base < prev_base + prev_count)
 		{
 			Msg("! [TREE-IB] range overlap, skipped");
@@ -280,40 +267,62 @@ void tree_ib_reorder(u32 ib_id, u16* data, u32 ib_count, u32& cursor)
 			++tree_stat_skipped;
 			continue;
 		}
+		jobs.push_back(r);
+	}
 
-		tree_idx_a.resize(r.i_count);
-		tree_idx_b.resize(r.i_count);
+	if (jobs.empty())
+		return;
+
+	xr_vector<u8> job_ok(jobs.size(), 0);
+	auto runJob = [&](size_t ji)
+	{
+		const tree_ib_range& r = jobs[ji];
+		xr_vector<u32> idx_a(r.i_count);
+		xr_vector<u32> idx_b(r.i_count);
 		u32 max_idx = 0;
 		for (u32 k = 0; k < r.i_count; ++k)
 		{
 			const u32 v = data[r.i_base + k];
-			tree_idx_a[k] = v;
+			idx_a[k] = v;
 			if (v > max_idx) max_idx = v;
 		}
 		if (max_idx >= r.v_count)
+			return;
+
+		meshopt_optimizeVertexCache(&idx_b[0], &idx_a[0], r.i_count, r.v_count);
+		meshopt_optimizeOverdraw(&idx_a[0], &idx_b[0], r.i_count, &tree_positions[r.pos_offset].x,
+		                         r.v_count, sizeof(Fvector), 1.05f);
+
+		for (u32 k = 0; k < r.i_count; ++k)
+			data[r.i_base + k] = u16(idx_a[k]);
+		job_ok[ji] = 1;
+	};
+
+	if (jobs.size() >= 4 && !acmr_dbg)
+	{
+		tbb::parallel_for(tbb::blocked_range<size_t>(0, jobs.size(), 4),
+			[&](const tbb::blocked_range<size_t>& r)
+			{
+				for (size_t ji = r.begin(); ji < r.end(); ++ji)
+					runJob(ji);
+			});
+	}
+	else
+	{
+		for (size_t ji = 0; ji < jobs.size(); ++ji)
+			runJob(ji);
+	}
+
+	for (size_t ji = 0; ji < jobs.size(); ++ji)
+	{
+		if (job_ok[ji])
+		{
+			++tree_stat_cache;
+			++tree_stat_overdraw;
+		}
+		else
 		{
 			++tree_stat_skipped;
-			continue;
-		}
-
-		// the model only runs for the windows that get reported, it is o(n) per index
-		const bool acmr_sample = acmr_dbg && tree_acmr_reported < 3;
-		const float acmr_before = acmr_sample ? tree_ib_acmr(&tree_idx_a[0], r.i_count) : 0.f;
-
-		meshopt_optimizeVertexCache(&tree_idx_b[0], &tree_idx_a[0], r.i_count, r.v_count);
-		++tree_stat_cache;
-		meshopt_optimizeOverdraw(&tree_idx_a[0], &tree_idx_b[0], r.i_count, &tree_positions[r.pos_offset].x,
-		                         r.v_count, sizeof(Fvector), 1.05f);
-		++tree_stat_overdraw;
-
-		for (u32 k = 0; k < r.i_count; ++k) data[r.i_base + k] = u16(tree_idx_a[k]);
-
-		// the dedupe above already advanced past the repeats so every sample is a distinct window
-		if (acmr_sample)
-		{
-			Msg("* [TREE-IB] acmr32 sample %d tris %d before %.3f after %.3f", tree_acmr_reported,
-			    r.i_count / 3, acmr_before, tree_ib_acmr(&tree_idx_a[0], r.i_count));
-			++tree_acmr_reported;
 		}
 	}
 }
@@ -525,6 +534,17 @@ void CRender::LoadBuffers(CStreamReader* base_fs, BOOL _alternative)
 	xr_vector<ID3DVertexBuffer*>& _VB = _alternative ? xVB : nVB;
 	xr_vector<ID3DIndexBuffer*>& _IB = _alternative ? xIB : nIB;
 
+	const bool tree_reorder = !_alternative && !tree_ranges.empty();
+	CTimer tree_timer;
+	u32 tree_span_cursor = 0;
+	u32 tree_range_cursor = 0;
+	if (tree_reorder)
+	{
+		tree_timer.Start();
+		tree_ib_prepare_spans();
+		tree_stat_ticks += tree_timer.GetElapsed_ticks();
+	}
+
 	// Vertex buffers
 	{
 		// Use DX9-style declarators
@@ -538,7 +558,6 @@ void CRender::LoadBuffers(CStreamReader* base_fs, BOOL _alternative)
 		for (u32 i = 0; i < count; i++)
 		{
 			// decl
-			//			D3DVERTEXELEMENT9*	dcl		= (D3DVERTEXELEMENT9*) fs().pointer();
 			fs->r(dcl, bufferSize);
 			fs->advance(-(int)bufferSize);
 
@@ -551,33 +570,24 @@ void CRender::LoadBuffers(CStreamReader* base_fs, BOOL _alternative)
 			u32 vSize = D3DXGetDeclVertexSize(dcl, 0);
 			Msg("* [Loading VB] %d verts, %d Kb", vCount, (vCount * vSize) / 1024);
 
-			// Create and fill
-			//BYTE*	pData		= 0;
-			//R_CHK				(HW.pDevice->CreateVertexBuffer(vCount*vSize,dwUsage,0,D3DPOOL_MANAGED,&_VB[i],0));
-			//R_CHK				(_VB[i]->Lock(0,0,(void**)&pData,0));
-			//			CopyMemory			(pData,fs().pointer(),vCount*vSize);
-			//fs->r				(pData,vCount*vSize);
-			//_VB[i]->Unlock		();
-			//	TODO: DX10: Check fragmentation.
-			//	Check if buffer is less then 2048 kb
 			BYTE* pData = xr_alloc<BYTE>(vCount * vSize);
 			fs->r(pData, vCount * vSize);
+			if (tree_reorder)
+			{
+				tree_timer.Start();
+				tree_ib_capture_vb(i, dcl, pData, vCount, vSize, tree_span_cursor);
+				tree_stat_ticks += tree_timer.GetElapsed_ticks();
+			}
 			dx10BufferUtils::CreateVertexBuffer(&_VB[i], pData, vCount * vSize);
 			xr_free(pData);
-
-			//			fs->advance			(vCount*vSize);
 		}
 		fs->close();
 	}
 
-	const bool tree_reorder = !_alternative && !tree_ranges.empty();
-	CTimer tree_timer;
-	u32 tree_range_cursor = 0;
 	if (tree_reorder)
 	{
-		// the tally covers the position pass and the reorder calls, not the buffer reads around them
 		tree_timer.Start();
-		tree_ib_read_positions(base_fs);
+		tree_ib_finalize_spans();
 		tree_stat_ticks += tree_timer.GetElapsed_ticks();
 	}
 
