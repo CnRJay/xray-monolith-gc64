@@ -5,8 +5,8 @@
 
 #include "../xrCore/profiler.h"
 
-float psShedulerCurrent = 10.f;
-float psShedulerTarget = 10.f;
+float psShedulerCurrent = 5.f;
+float psShedulerTarget = 5.f;
 const float psShedulerReaction = 0.1f;
 
 //-------------------------------------------------------------------------------------
@@ -519,7 +519,7 @@ void CSheduler::UpdateDeferred()
 	PROF_EVENT(PROF_CAT(GameLogic));
 
 	cycles_start = CPU::QPC();
-	cycles_limit = CPU::qpc_freq * u64(iCeil(psShedulerCurrent)) / 1000ull + cycles_start;
+	cycles_limit = u64(double(CPU::qpc_freq) * (double(psShedulerCurrent) / 1000.0)) + cycles_start;
 
 	// Normal (sheduled)
 	m_processing_now = true;
@@ -531,7 +531,7 @@ void CSheduler::UpdateFinalize()
 {
 	PROF_EVENT(PROF_CAT(GameLogic));
 
-	clamp(psShedulerTarget, 3.f, 66.f);
+	clamp(psShedulerTarget, 2.5f, 6.f);
 	psShedulerCurrent = 0.9f * psShedulerCurrent + 0.1f * psShedulerTarget;
 	Device.Statistic->fShedulerLoad = psShedulerCurrent;
 

@@ -31,8 +31,26 @@
 #include "e2kintrin.h"
 #endif
 
+#if LJ_TARGET_WINDOWS
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #define GCSTEPSIZE	1024u
 #define GCSWEEPMAX	40
+
+static uint8_t gc_remark_passes = 0;
+static double gc_last_atomic_ms[7] = {0};
+static unsigned int gc_atomic_seq = 0;
+
+LUA_API unsigned int luaJIT_gc_last_atomic_ms(double out[7])
+{
+  if (out) {
+    int i;
+    for (i = 0; i < 7; i++) out[i] = gc_last_atomic_ms[i];
+  }
+  return gc_atomic_seq;
+}
 #define GCSWEEPCOST	10
 #define GCFINALIZECOST	100
 
@@ -102,6 +120,7 @@ static void gc_mark_gcroot(global_State *g)
 /* Start a GC cycle and mark the root set. */
 static void gc_mark_start(global_State *g)
 {
+  gc_remark_passes = 0;
   setgcrefnull(g->gc.gray);
   setgcrefnull(g->gc.grayagain);
   setgcrefnull(g->gc.weak);
@@ -730,9 +749,22 @@ void lj_gc_freeall(global_State *g)
 static void atomic(global_State *g, lua_State *L)
 {
   size_t udsize;
+#if LJ_TARGET_WINDOWS
+  static double inv_qpc_ms = 0.0;
+  LARGE_INTEGER t0, t1, t2, t3, t4, t5, t6;
+  if (inv_qpc_ms == 0.0) {
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    inv_qpc_ms = f.QuadPart > 0 ? (1000.0 / (double)f.QuadPart) : 0.0001;
+  }
+  QueryPerformanceCounter(&t0);
+#endif
 
   gc_mark_uv(g);  /* Need to remark open upvalues (the thread may be dead). */
   gc_propagate_gray(g);  /* Propagate any left-overs. */
+#if LJ_TARGET_WINDOWS
+  QueryPerformanceCounter(&t1);
+#endif
 
   setgcrefr(g->gc.gray, g->gc.weak);  /* Empty the list of weak tables. */
   setgcrefnull(g->gc.weak);
@@ -741,17 +773,29 @@ static void atomic(global_State *g, lua_State *L)
   gc_traverse_curtrace(g);  /* Traverse current trace. */
   gc_mark_gcroot(g);  /* Mark GC roots (again). */
   gc_propagate_gray(g);  /* Propagate all of the above. */
+#if LJ_TARGET_WINDOWS
+  QueryPerformanceCounter(&t2);
+#endif
 
   setgcrefr(g->gc.gray, g->gc.grayagain);  /* Empty the 2nd chance list. */
   setgcrefnull(g->gc.grayagain);
   gc_propagate_gray(g);  /* Propagate it. */
+#if LJ_TARGET_WINDOWS
+  QueryPerformanceCounter(&t3);
+#endif
 
   udsize = lj_gc_separateudata(g, 0);  /* Separate userdata to be finalized. */
   gc_mark_mmudata(g);  /* Mark them. */
   udsize += gc_propagate_gray(g);  /* And propagate the marks. */
+#if LJ_TARGET_WINDOWS
+  QueryPerformanceCounter(&t4);
+#endif
 
   /* All marking done, clear weak tables. */
   gc_clearweak(g, gcref(g->gc.weak));
+#if LJ_TARGET_WINDOWS
+  QueryPerformanceCounter(&t5);
+#endif
 
   lj_buf_shrink(L, &g->tmpbuf);  /* Shrink temp buffer. */
 
@@ -760,6 +804,17 @@ static void atomic(global_State *g, lua_State *L)
   g->strempty.marked = g->gc.currentwhite;
   setmref(g->gc.sweep, &g->gc.root);
   g->gc.estimate = g->gc.total - (GCSize)udsize;  /* Initial estimate. */
+#if LJ_TARGET_WINDOWS
+  QueryPerformanceCounter(&t6);
+  gc_last_atomic_ms[0] = (double)(t6.QuadPart - t0.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[1] = (double)(t1.QuadPart - t0.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[2] = (double)(t2.QuadPart - t1.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[3] = (double)(t3.QuadPart - t2.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[4] = (double)(t4.QuadPart - t3.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[5] = (double)(t5.QuadPart - t4.QuadPart) * inv_qpc_ms;
+  gc_last_atomic_ms[6] = (double)(t6.QuadPart - t5.QuadPart) * inv_qpc_ms;
+  gc_atomic_seq++;
+#endif
 }
 
 /* GC state machine. Returns a cost estimate for each step performed. */
@@ -773,6 +828,14 @@ static size_t gc_onestep(lua_State *L)
   case GCSpropagate:
     if (gcref(g->gc.gray) != NULL)
       return propagatemark(g);  /* Propagate one gray object. */
+    if (gcref(g->gc.grayagain) != NULL && gc_remark_passes < 2) {
+      /* Incrementally drain grayagain before GCSatomic so tables mutated over the
+      ** multi-frame mark phase don't stall the atomic pause. */
+      setgcrefr(g->gc.gray, g->gc.grayagain);
+      setgcrefnull(g->gc.grayagain);
+      gc_remark_passes++;
+      return 0;
+    }
     g->gc.state = GCSatomic;  /* End of mark phase. */
     return 0;
   case GCSatomic:

@@ -292,13 +292,13 @@ float CSoundRender_Core::get_occlusion(Fvector& P, float R, Fvector* occ)
 		if (bNeedFullTest)
 		{
 #ifdef _EDITOR
-			ETOOLS::ray_options		(CDB::OPT_ONLYNEAREST);
+			ETOOLS::ray_options		(CDB::OPT_ONLYFIRST);
 			ETOOLS::ray_query		(geom_MODEL,base,dir,range);
 			if (0!=ETOOLS::r_count()){ 
 				// cache polygon
 				const CDB::RESULT*	R = ETOOLS::r_begin			();
 #else
-			geom_DB.ray_options(CDB::OPT_ONLYNEAREST);
+			geom_DB.ray_options(CDB::OPT_ONLYFIRST);
 			geom_DB.ray_query(geom_MODEL, base, dir, range);
 			if (0 != geom_DB.r_count())
 			{
