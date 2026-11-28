@@ -375,8 +375,8 @@ void CSheduler::ProcessStep()
 			if (m_bTerminating)
 				break;
 
-			// Stop if really underestimated the cost of batch, check every 8th item
-			if ((i % 8) == 0 && Device.dwPrecacheFrame == 0 && CPU::QPC() > cycles_limit)
+			// Stop as soon as the frame time budget is exceeded so heavy AI updates don't overshoot by multiple milliseconds.
+			if (i > 0 && Device.dwPrecacheFrame == 0 && CPU::QPC() > cycles_limit)
 			{
 				psShedulerTarget += (psShedulerReaction * 3);
 				break;

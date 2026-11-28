@@ -781,7 +781,7 @@ static size_t gc_onestep(lua_State *L)
     atomic(g, L);
     g->gc.state = GCSsweepstring;  /* Start of sweep phase. */
     g->gc.sweepstr = 0;
-    return 0;
+    return GCSTEPSIZE * 64;  /* Yield step immediately after atomic pause instead of piling string sweeps on top. */
   case GCSsweepstring: {
     GCSize old = g->gc.total;
     gc_fullsweep(g, &g->strhash[g->gc.sweepstr++]);  /* Sweep one chain. */
