@@ -6,7 +6,7 @@
 // R_constants::GetCBuffer is inlined in dx10R_Backend_Runtime.h to avoid per-call overhead.
 
 // maps only the bound slots this stage recorded and only when the buffer says it changed
-static void flush_cb_stage(u32 stage, ref_cbuffer* slots)
+static ICF void flush_cb_stage(u32 stage, ref_cbuffer* slots)
 {
 	const u8 count = RCache.m_cb_slot_count[stage];
 	const u8* list = RCache.m_cb_slots[stage];
@@ -31,7 +31,6 @@ static void verify_cb_stage(const char* stage, ref_cbuffer* slots, u32 i)
 
 void R_constants::flush_cache()
 {
-	PROF_EVENT("R_constants::flush_cache");
 	extern int ps_r__cb_dirty_list;
 	const int mode = ps_r__cb_dirty_list;
 

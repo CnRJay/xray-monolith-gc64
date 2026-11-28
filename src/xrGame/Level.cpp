@@ -1278,8 +1278,13 @@ void CLevel::OnFrame()
 
 int psLUA_GCSTEP = 300;
 int psLua_ParallelGCStep = 75;
+int psLua_ParallelGC_TriggerMB = 64;
+int psLua_ParallelGC_BudgetUS = 500;
 extern BOOL psLua_ParallelGC;
 extern BOOL psLua_ParallelGC_debug;
+
+static bool s_lua_gc_cycle_active = false;
+static size_t s_lua_gc_baseline_kb = 0;
 
 void CLevel::script_gc()
 {
@@ -1301,7 +1306,14 @@ void CLevel::script_gc()
 	if (!(psLua_ParallelGC && Device.LuaGC))
 	{
 		PROF_EVENT("CLevel::script_gc", PROF_CAT(Script));
-		lua_gc(ai().script_engine().lua(), LUA_GCSTEP, psLUA_GCSTEP);
+		lua_State* L = ai().script_engine().lua();
+		if (s_lua_gc_baseline_kb != 0)
+		{
+			lua_gc(L, LUA_GCRESTART, -1);
+			s_lua_gc_baseline_kb = 0;
+			s_lua_gc_cycle_active = false;
+		}
+		lua_gc(L, LUA_GCSTEP, psLUA_GCSTEP);
 	}
 	
 }
@@ -1311,16 +1323,47 @@ bool CLevel::Load(u32 dwNum)
 {
     PROF_EVENT("CLevel::Load", PROF_CAT(Scene));
     inherited::Load(dwNum);
+    s_lua_gc_cycle_active = false;
+    s_lua_gc_baseline_kb = 0;
     Msg("Device.LuaGC bind");
     Device.LuaGC.bind(&CLevel::LuaGC);
     Device.LuaGCDebug.bind(&CLevel::LuaGCDebug);
     return true;
 }
 
-// demonized: called from Device, via Device.LuaGC pointer
+// GC64-aware hysteresis + time-budgeted incremental GC so we don't trigger full GCSatomic
+// cycles every ~0.5s or ambush Main Thread FrameMove/CActor::shedule_Update with sync GC stalls.
 int CLevel::LuaGC()
 {
-    return lua_gc(ai().script_engine().lua(), LUA_GCSTEP, psLua_ParallelGCStep);
+    lua_State* L = ai().script_engine().lua();
+    if (!L)
+        return 1;
+
+    const size_t cur_kb = static_cast<size_t>(lua_gc(L, LUA_GCCOUNT, 0));
+    const size_t trigger_kb = static_cast<size_t>(_max(psLua_ParallelGC_TriggerMB, 8)) * 1024u;
+
+    if (!s_lua_gc_cycle_active)
+    {
+        if (s_lua_gc_baseline_kb == 0 || cur_kb < s_lua_gc_baseline_kb)
+            s_lua_gc_baseline_kb = cur_kb;
+
+        // Keep auto-GC paused on Main Thread until heap growth exceeds the GC64 hysteresis window.
+        lua_gc(L, LUA_GCSTOP, 0);
+
+        if (cur_kb < s_lua_gc_baseline_kb + trigger_kb)
+            return 1;
+
+        s_lua_gc_cycle_active = true;
+    }
+
+    const int done = lua_gc(L, LUA_GCTIMEOUT, _max(psLua_ParallelGC_BudgetUS, 100));
+    if (done > 0)
+    {
+        s_lua_gc_cycle_active = false;
+        s_lua_gc_baseline_kb = static_cast<size_t>(lua_gc(L, LUA_GCCOUNT, 0));
+        lua_gc(L, LUA_GCSTOP, 0);
+    }
+    return done;
 }
 void CLevel::LuaGCDebug()
 {
