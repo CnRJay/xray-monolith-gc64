@@ -12,9 +12,9 @@
 
 //typedef unsigned char BYTE;
 
-unsigned textsize = 0, codesize = 0;
+static thread_local unsigned textsize = 0, codesize = 0;
 
-char wterr[] = "Can't write.";
+static const char wterr[] = "Can't write.";
 
 /********** LZSS compression **********/
 
@@ -29,19 +29,19 @@ char wterr[] = "Can't write.";
 #define MAX_FREQ 0x4000 /* updates tree when the */
 
 
-u8 text_buf[N + F];
-int match_position, match_length, lson[N + 1], rson[N + 257], dad[N + 1];
+static thread_local u8 text_buf[N + F];
+static thread_local int match_position, match_length, lson[N + 1], rson[N + 257], dad[N + 1];
 
-unsigned code, len;
-unsigned tim_size = 0;
+static thread_local unsigned code, len;
+static thread_local unsigned tim_size = 0;
 
-unsigned freq[T + 1]; /* frequency table */
+static thread_local unsigned freq[T + 1]; /* frequency table */
 
-int prnt[T + N_CHAR + 1]; /* pointers to parent nodes, except for the */
+static thread_local int prnt[T + N_CHAR + 1]; /* pointers to parent nodes, except for the */
 /* elements [T..T + N_CHAR - 1] which are used to get */
 /* the positions of leaves corresponding to the codes. */
 
-int son[T]; /* pointers to child nodes (son[], son[] + 1) */
+static thread_local int son[T]; /* pointers to child nodes (son[], son[] + 1) */
 
 //************************** Internal FS
 //typedef xr_vector<BYTE> vecB;
@@ -92,6 +92,9 @@ public:
 		in_start = _start;
 		in_end = _end;
 		in_iterator = in_start;
+
+		// reset output pointers so empty inputs never return a previous buffer
+		out_start = out_end = out_iterator = 0;
 
 		// bitwise input/output
 		getbuf = getlen = putbuf = putlen = 0;
@@ -191,7 +194,7 @@ public:
 	}
 };
 
-static LZfs fs;
+static thread_local LZfs fs;
 //************************** Internal FS
 IC void InitTree(void) /* initialize trees */
 {
