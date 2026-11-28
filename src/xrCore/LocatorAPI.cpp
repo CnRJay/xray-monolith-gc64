@@ -10,6 +10,9 @@
 #include <fcntl.h>
 #include <sys\stat.h>
 #include <filesystem>
+#include <memory>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 #pragma warning(default:4995)
 
 #include "FS_internal.h"
@@ -219,16 +222,13 @@ CLocatorAPI::~CLocatorAPI()
 	_dump_open_files(1);
 }
 
-void CLocatorAPI::Register(LPCSTR name, u32 vfs, u32 crc, u32 ptr, u32 size_real, u32 size_compressed, u32 modif)
+void CLocatorAPI::RegisterNoLock(LPCSTR name, u32 vfs, u32 crc, u32 ptr, u32 size_real, u32 size_compressed, u32 modif)
 {
-	//Msg("Register[%d] [%s]",vfs,name);
 	string256 temp_file_name;
 	xr_strcpy(temp_file_name, sizeof(temp_file_name), name);
 	xr_strlwr(temp_file_name);
 
-	// Register file
 	file desc;
-	// desc.name = xr_strlwr(xr_strdup(name));
 	desc.name = temp_file_name;
 	desc.vfs = vfs;
 	desc.crc = crc;
@@ -236,21 +236,12 @@ void CLocatorAPI::Register(LPCSTR name, u32 vfs, u32 crc, u32 ptr, u32 size_real
 	desc.size_real = size_real;
 	desc.size_compressed = size_compressed;
 	desc.modif = modif & (~u32(0x3));
-	// Msg("registering file %s - %d", name, size_real);
-	// if file already exist - update info
-	check_pathes();
-	// Keep file and parent-folder registration atomic. Do not call exist()
-	// here: it would acquire this nonrecursive SRW lock again.
-	xrSRWLockGuard guard(m_files_lock);
+
 	{
 		files_it I = m_files.find(desc);
 		if (I != m_files.end())
 		{
-			//. Msg("-- file already scanned [%s]", I->name);
 			desc.name = I->name;
-
-			// sad but true, performance option
-			// correct way is to erase and then insert new record:
 			const_cast<file&>(*I) = desc;
 			return;
 		}
@@ -258,35 +249,51 @@ void CLocatorAPI::Register(LPCSTR name, u32 vfs, u32 crc, u32 ptr, u32 size_real
 		{
 			desc.name = xr_strdup(desc.name);
 		}
-
-		// otherwise insert file
 		m_files.insert(desc);
 	}
 
-	// Try to register folder(s)
+	// Register parent folders upward until hitting an already-registered ancestor
+	// (every ancestor above an existing folder is already registered).
 	string_path temp;
 	xr_strcpy(temp, sizeof(temp), temp_file_name);
 	string_path path;
-	string_path folder;
 	u32 vfs_id = vfs;
 	while (temp[0] && temp[1])
 	{
-		_splitpath(temp, path, folder, 0, 0);
-		xr_strcat(path, folder);
-		if (file_find_it_nolock(path) == m_files.end())
-		{
-			desc.name = xr_strdup(path);
-			desc.vfs = vfs_id;
-			desc.ptr = 0;
-			desc.size_real = 0;
-			desc.size_compressed = 0;
-			desc.modif = u32(-1);
-			m_files.insert(desc);
-		}
-		xr_strcpy(temp, sizeof(temp), path);
-		if (xr_strlen(temp)) temp[xr_strlen(temp) - 1] = 0;
+		const char* s1 = strrchr(temp, '\\');
+		const char* s2 = strrchr(temp, '/');
+		const char* sep = (s1 > s2) ? s1 : s2;
+		if (!sep)
+			break;
+		const size_t dir_len = (size_t)(sep - temp) + 1;
+		if (dir_len >= sizeof(path))
+			break;
+		CopyMemory(path, temp, dir_len);
+		path[dir_len] = 0;
+
+		if (file_find_it_nolock(path) != m_files.end())
+			break;
+
+		desc.name = xr_strdup(path);
+		desc.vfs = vfs_id;
+		desc.ptr = 0;
+		desc.size_real = 0;
+		desc.size_compressed = 0;
+		desc.modif = u32(-1);
+		m_files.insert(desc);
+
+		if (dir_len <= 1)
+			break;
+		temp[dir_len - 1] = 0;
 		vfs_id = 0xffffffff;
 	}
+}
+
+void CLocatorAPI::Register(LPCSTR name, u32 vfs, u32 crc, u32 ptr, u32 size_real, u32 size_compressed, u32 modif)
+{
+	check_pathes();
+	xrSRWLockGuard guard(m_files_lock);
+	RegisterNoLock(name, vfs, crc, ptr, size_real, size_compressed, modif);
 }
 
 IReader* open_chunk(void* ptr, u32 ID)
@@ -338,7 +345,7 @@ IReader* open_chunk(void* ptr, u32 ID)
 };
 
 
-void CLocatorAPI::LoadArchive(archive& A, LPCSTR entrypoint)
+void CLocatorAPI::LoadArchiveFromToc(archive& A, IReader* hdr, LPCSTR entrypoint)
 {
 	// Create base path
 	string_path fs_entry_point;
@@ -353,7 +360,6 @@ void CLocatorAPI::LoadArchive(archive& A, LPCSTR entrypoint)
 			if (P != pathes.end())
 			{
 				FS_Path* root = P->second;
-				// R_ASSERT3 (root, "path not found ", read_path.c_str());
 				xr_strcpy(fs_entry_point, sizeof(fs_entry_point), root->m_Path);
 			}
 			xr_strcat(fs_entry_point, "gamedata\\");
@@ -372,7 +378,6 @@ void CLocatorAPI::LoadArchive(archive& A, LPCSTR entrypoint)
 			if (P != pathes.end())
 			{
 				FS_Path* root = P->second;
-				// R_ASSERT3 (root, "path not found ", alias_name);
 				xr_strcpy(fs_entry_point, sizeof(fs_entry_point), root->m_Path);
 			}
 			xr_strcat(fs_entry_point, sizeof(fs_entry_point), read_path.c_str() + xr_strlen(alias_name) + 1);
@@ -388,20 +393,9 @@ void CLocatorAPI::LoadArchive(archive& A, LPCSTR entrypoint)
 	if (entrypoint)
 		xr_strcpy(fs_entry_point, sizeof(fs_entry_point), entrypoint);
 
-
-	// DUMMY_STUFF *g_temporary_stuff_subst = NULL;
-	//
-	// if(strstr(A.path.c_str(),".xdb"))
-	// {
-	// g_temporary_stuff_subst = g_temporary_stuff;
-	// g_temporary_stuff = NULL;
-	// }
-
-	// Read FileSystem
-	A.open();
-	IReader* hdr = open_chunk(A.hSrcFile, 1);
 	R_ASSERT(hdr);
-	RStringVec fv;
+	check_pathes();
+	xrSRWLockGuard guard(m_files_lock);
 	while (!hdr->eof())
 	{
 		string_path name, full;
@@ -431,12 +425,17 @@ void CLocatorAPI::LoadArchive(archive& A, LPCSTR entrypoint)
 
 		strconcat(sizeof(full), full, fs_entry_point, name);
 
-		Register(full, A.vfs_idx, crc, ptr, size_real, size_compr, 0);
+		RegisterNoLock(full, A.vfs_idx, crc, ptr, size_real, size_compr, 0);
 	}
-	hdr->close();
+}
 
-	// if(g_temporary_stuff_subst)
-	// g_temporary_stuff = g_temporary_stuff_subst;
+void CLocatorAPI::LoadArchive(archive& A, LPCSTR entrypoint)
+{
+	A.open();
+	IReader* hdr = open_chunk(A.hSrcFile, 1);
+	R_ASSERT(hdr);
+	LoadArchiveFromToc(A, hdr, entrypoint);
+	hdr->close();
 }
 
 void CLocatorAPI::archive::open()
@@ -613,53 +612,329 @@ bool ignore_path(const char* _path)
 		return true;
 }
 
+namespace
+{
+	struct SScanEntry
+	{
+		xr_string name;
+		u32 size = 0;
+		u32 mtime = 0;
+		bool isDir = false;
+		bool isArchive = false;
+		int childIdx = -1;
+	};
+
+	struct SScanNode
+	{
+		xr_string path;
+		xr_vector<SScanEntry> entries;
+		std::vector<std::unique_ptr<SScanNode>> children;
+		bool valid = false;
+	};
+
+	static inline u32 FileTimeToUnix(const FILETIME& ft)
+	{
+		ULARGE_INTEGER ull;
+		ull.LowPart = ft.dwLowDateTime;
+		ull.HighPart = ft.dwHighDateTime;
+		if (ull.QuadPart < 116444736000000000ULL)
+			return 0;
+		return static_cast<u32>((ull.QuadPart - 116444736000000000ULL) / 10000000ULL);
+	}
+
+	static std::unique_ptr<SScanNode> ScanDirectoryTree(const char* dirPath, bool recurse, bool needCheck, int depth)
+	{
+		string_path scanPath;
+		xr_strcpy(scanPath, sizeof(scanPath), dirPath);
+		xr_strcat(scanPath, "*");
+
+		WIN32_FIND_DATAA ffd;
+		HANDLE hFind = FindFirstFileExA(
+			scanPath,
+			FindExInfoBasic,
+			&ffd,
+			FindExSearchNameMatch,
+			nullptr,
+			FIND_FIRST_EX_LARGE_FETCH);
+		if (hFind == INVALID_HANDLE_VALUE)
+			return nullptr;
+
+		auto node = std::make_unique<SScanNode>();
+		node->path = dirPath;
+		node->valid = true;
+		node->entries.reserve(64);
+
+		bool hasXrIgnore = false;
+		do
+		{
+			const char* fname = ffd.cFileName;
+			if (_stricmp(fname, ".xrignore") == 0)
+			{
+				hasXrIgnore = true;
+				break;
+			}
+			if (ffd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)
+				continue;
+			if (ignore_name(fname))
+				continue;
+
+			const bool isDir = (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+			if (isDir)
+			{
+				if (!recurse)
+					continue;
+				if ((fname[0] == '.' && fname[1] == 0) || (fname[0] == '.' && fname[1] == '.' && fname[2] == 0))
+					continue;
+			}
+
+			if (needCheck)
+			{
+				string1024 fullPath;
+				xr_strcpy(fullPath, sizeof(fullPath), dirPath);
+				xr_strcat(fullPath, fname);
+				if (ignore_path(fullPath))
+					continue;
+			}
+
+			SScanEntry e;
+			e.name = fname;
+			e.size = ffd.nFileSizeLow;
+			e.mtime = FileTimeToUnix(ffd.ftLastWriteTime);
+			e.isDir = isDir;
+			if (!isDir)
+			{
+				const char* ext = strrchr(fname, '.');
+				if (ext && (_strnicmp(ext, ".db", 3) == 0 || _strnicmp(ext, ".xdb", 4) == 0))
+					e.isArchive = true;
+			}
+			node->entries.push_back(std::move(e));
+		} while (FindNextFileA(hFind, &ffd));
+
+		FindClose(hFind);
+
+		if (hasXrIgnore)
+		{
+			node->entries.clear();
+			node->valid = false;
+			return node;
+		}
+
+		// Preserve exact lexicographical order for deterministic mod override precedence.
+		std::sort(node->entries.begin(), node->entries.end(),
+			[](const SScanEntry& a, const SScanEntry& b) { return xr_strcmp(a.name.c_str(), b.name.c_str()) < 0; });
+
+		if (recurse)
+		{
+			xr_vector<size_t> dirIndices;
+			for (size_t i = 0; i < node->entries.size(); ++i)
+			{
+				if (node->entries[i].isDir)
+				{
+					node->entries[i].childIdx = static_cast<int>(dirIndices.size());
+					dirIndices.push_back(i);
+				}
+			}
+
+			if (!dirIndices.empty())
+			{
+				node->children.resize(dirIndices.size());
+				auto scanChild = [&](size_t ci)
+				{
+					string_path childPath;
+					xr_strcpy(childPath, sizeof(childPath), dirPath);
+					xr_strcat(childPath, node->entries[dirIndices[ci]].name.c_str());
+					xr_strlwr(childPath);
+					xr_strcat(childPath, "\\");
+					node->children[ci] = ScanDirectoryTree(childPath, true, needCheck, depth + 1);
+				};
+
+				if (dirIndices.size() >= 2 && depth < 4)
+				{
+					tbb::parallel_for(tbb::blocked_range<size_t>(0, dirIndices.size(), 1),
+						[&](const tbb::blocked_range<size_t>& r)
+						{
+							for (size_t ci = r.begin(); ci < r.end(); ++ci)
+								scanChild(ci);
+						});
+				}
+				else
+				{
+					for (size_t ci = 0; ci < dirIndices.size(); ++ci)
+						scanChild(ci);
+				}
+			}
+		}
+
+		return node;
+	}
+
+	struct SPreloadedArchive
+	{
+		xr_string lowerPath;
+		CLocatorAPI::archive arch;
+		IReader* hdrReader = nullptr;
+		IReader* toc = nullptr;
+	};
+
+	static void CollectArchivesFromTree(const SScanNode* node, xr_vector<xr_string>& outArchives)
+	{
+		if (!node || !node->valid)
+			return;
+		for (const SScanEntry& e : node->entries)
+		{
+			if (e.isDir)
+			{
+				if (e.childIdx >= 0 && node->children[e.childIdx])
+					CollectArchivesFromTree(node->children[e.childIdx].get(), outArchives);
+			}
+			else if (e.isArchive)
+			{
+				string_path full;
+				xr_strcpy(full, sizeof(full), node->path.c_str());
+				xr_strcat(full, e.name.c_str());
+				xr_strlwr(full);
+				outArchives.emplace_back(full);
+			}
+		}
+	}
+}
+
 bool CLocatorAPI::Recurse(const char* path)
 {
-	string_path scanPath;
-	xr_strcpy(scanPath, sizeof(scanPath), path);
-	xr_strcat(scanPath, ".xrignore");
-	struct stat buffer;
-	if (!stat(scanPath, &buffer))
-		return true;
-	xr_strcpy(scanPath, sizeof(scanPath), path);
-	xr_strcat(scanPath, "*.*");
-	_finddata_t findData;
-	intptr_t handle = _findfirst(scanPath, &findData);
-	if (handle == -1)
+	const bool recurse = !bNoRecurse;
+	const bool needCheck = m_Flags.test(flNeedCheck);
+
+	std::unique_ptr<SScanNode> root = ScanDirectoryTree(path, recurse, needCheck, 0);
+	if (!root)
 		return false;
-	rec_files.reserve(256);
-	size_t oldSize = rec_files.size();
-	intptr_t done = handle;
-	while (done != -1)
+	if (!root->valid) // .xrignore matched
+		return true;
+
+	// Pre-open and LZ-decompress all discovered .db/.xdb archive headers & TOCs in parallel.
+	xr_vector<xr_string> archivePaths;
+	CollectArchivesFromTree(root.get(), archivePaths);
+
+	xr_vector<SPreloadedArchive> preloaded;
+	if (!archivePaths.empty())
 	{
-		string1024 fullPath;
-		bool ignore = false;
-		if (m_Flags.test(flNeedCheck))
+		const bool forceAutoLoad = Core.ParamsData.test(ECoreParams::auto_load_arch);
+		preloaded.resize(archivePaths.size());
+		for (size_t i = 0; i < archivePaths.size(); ++i)
+			preloaded[i].lowerPath = std::move(archivePaths[i]);
+
+		auto loadOneArchive = [&](size_t i)
 		{
-			xr_strcpy(fullPath, sizeof(fullPath), path);
-			xr_strcat(fullPath, findData.name);
-			ignore = ignore_name(findData.name) || ignore_path(fullPath);
+			SPreloadedArchive& pa = preloaded[i];
+			pa.arch.path = pa.lowerPath.c_str();
+			pa.arch.open();
+			// Only perform pure file I/O + LZ decompression on workers; parse CInifile on Main Thread.
+			pa.hdrReader = open_chunk(pa.arch.hSrcFile, CFS_HeaderChunkID);
+			pa.toc = open_chunk(pa.arch.hSrcFile, 1);
+		};
+
+		if (preloaded.size() >= 2)
+		{
+			tbb::parallel_for(tbb::blocked_range<size_t>(0, preloaded.size(), 1),
+				[&](const tbb::blocked_range<size_t>& r)
+				{
+					for (size_t i = r.begin(); i < r.end(); ++i)
+						loadOneArchive(i);
+				});
 		}
 		else
 		{
-			ignore = ignore_name(findData.name);
+			loadOneArchive(0);
 		}
-		if (!ignore)
-			rec_files.push_back(findData);
-		done = _findnext(handle, &findData);
 	}
-	_findclose(handle);
-	size_t newSize = rec_files.size();
-	if (newSize > oldSize)
+
+	// Commit tree + preloaded archive TOCs in exact deterministic depth-first lexicographical order.
+	size_t archCursor = 0;
+	std::function<void(const SScanNode*)> commitNode = [&](const SScanNode* node)
 	{
-		std::sort(rec_files.begin() + oldSize, rec_files.end(), pred_str_ff);
-		for (size_t i = oldSize; i < newSize; i++)
-			ProcessOne(path, rec_files[i]);
-		rec_files.erase(rec_files.begin() + oldSize, rec_files.end());
-	}
-	// insert self
-	if (path && path[0] != 0)
-		Register(path, 0xffffffff, 0, 0, 0, 0, 0);
+		if (!node || !node->valid)
+			return;
+		for (const SScanEntry& e : node->entries)
+		{
+			string_path full;
+			xr_strcpy(full, sizeof(full), node->path.c_str());
+			xr_strcat(full, e.name.c_str());
+			xr_strlwr(full);
+
+			if (e.isDir)
+			{
+				xr_strcat(full, "\\");
+				{
+					check_pathes();
+					xrSRWLockGuard guard(m_files_lock);
+					RegisterNoLock(full, 0xffffffff, 0, 0, e.size, e.size, e.mtime);
+				}
+				if (e.childIdx >= 0 && node->children[e.childIdx])
+					commitNode(node->children[e.childIdx].get());
+			}
+			else if (e.isArchive)
+			{
+				SPreloadedArchive& pa = preloaded[archCursor++];
+				bool exists = false;
+				for (archives_it it = m_archives.begin(); it != m_archives.end(); ++it)
+				{
+					if (it->path == pa.arch.path)
+					{
+						exists = true;
+						break;
+					}
+				}
+				if (exists)
+				{
+					if (pa.hdrReader) { pa.hdrReader->close(); pa.hdrReader = nullptr; }
+					if (pa.toc) { pa.toc->close(); pa.toc = nullptr; }
+					xr_delete(pa.arch.header);
+					if (pa.arch.hSrcFile) pa.arch.close();
+					continue;
+				}
+				BOOL bAutoLoad = TRUE;
+				if (pa.hdrReader)
+				{
+					pa.arch.header = xr_new<CInifile>(pa.hdrReader, "archive_header");
+					pa.hdrReader->close();
+					pa.hdrReader = nullptr;
+					bAutoLoad = pa.arch.header->r_bool("header", "auto_load");
+				}
+				const bool doLoad = (bAutoLoad || Core.ParamsData.test(ECoreParams::auto_load_arch));
+				if (!doLoad)
+				{
+					if (pa.toc) { pa.toc->close(); pa.toc = nullptr; }
+					pa.arch.close();
+				}
+				{
+					xrSRWLockGuard guard(m_files_lock);
+					pa.arch.vfs_idx = m_archives.size();
+					m_archives.push_back(std::move(pa.arch));
+				}
+				archive& A = m_archives.back();
+				if (doLoad && pa.toc)
+				{
+					LoadArchiveFromToc(A, pa.toc);
+					pa.toc->close();
+					pa.toc = nullptr;
+				}
+			}
+			else
+			{
+				check_pathes();
+				xrSRWLockGuard guard(m_files_lock);
+				RegisterNoLock(full, 0xffffffff, 0, 0, e.size, e.size, e.mtime);
+			}
+		}
+
+		if (!node->path.empty())
+		{
+			check_pathes();
+			xrSRWLockGuard guard(m_files_lock);
+			RegisterNoLock(node->path.c_str(), 0xffffffff, 0, 0, 0, 0, 0);
+		}
+	};
+
+	commitNode(root.get());
 	return true;
 }
 
@@ -791,6 +1066,9 @@ void CLocatorAPI::_initialize(u32 flags, LPCSTR target_folder, LPCSTR fs_name)
 	else
 	{
 		IReader* pFSltx = setup_fs_ltx(fs_name);
+		// Track already recursively scanned roots so child fsgame.ltx paths (e.g. $game_textures$ under $game_data$)
+		// do not re-walk the entire gamedata tree through MO2 USVFS a second time.
+		xr_vector<xr_string> scanned_recursive_roots;
 		// append all pathes    
 		string_path id, root, add, def, capt;
 		const char *lp_add, *lp_def, *lp_capt;
@@ -845,7 +1123,26 @@ void CLocatorAPI::_initialize(u32 flags, LPCSTR target_folder, LPCSTR fs_name)
 
 			FS_Path* P = new FS_Path((p_it != pathes.end()) ? p_it->second->m_Path : root, lp_add, lp_def, lp_capt, fl);
 			bNoRecurse = !(fl & FS_Path::flRecurse);
-			Recurse(P->m_Path);
+
+			string_path normPath;
+			xr_strcpy(normPath, sizeof(normPath), P->m_Path ? P->m_Path : "");
+			xr_strlwr(normPath);
+			bool alreadyCovered = false;
+			for (const xr_string& prevRoot : scanned_recursive_roots)
+			{
+				if (xr_strlen(normPath) >= prevRoot.size() &&
+					memcmp(normPath, prevRoot.c_str(), prevRoot.size()) == 0)
+				{
+					alreadyCovered = true;
+					break;
+				}
+			}
+			if (!alreadyCovered)
+			{
+				Recurse(P->m_Path);
+				if ((fl & FS_Path::flRecurse) && normPath[0] != 0)
+					scanned_recursive_roots.emplace_back(normPath);
+			}
 			auto I = pathes.insert(std::make_pair(xr_strdup(id), P));
 #ifndef DEBUG
 			m_Flags.set(flCacheFiles, FALSE);

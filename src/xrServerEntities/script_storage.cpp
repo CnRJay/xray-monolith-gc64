@@ -288,6 +288,65 @@ static void put_function(lua_State* state, u8 const* buffer, u32 const buffer_si
 #endif //-USE_LUAJIT_ONE
 
 
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
+#include <unordered_map>
+
+namespace
+{
+	std::unordered_map<std::string, xr_vector<u8>> s_script_preload_cache;
+}
+
+void CScriptStorage::clear_script_preload_cache()
+{
+	s_script_preload_cache.clear();
+}
+
+void CScriptStorage::preload_scripts()
+{
+	s_script_preload_cache.clear();
+	FS_FileSet fset;
+	FS.file_list(fset, "$game_scripts$", FS_ListFiles, "*.script");
+	if (fset.empty())
+		return;
+
+	xr_vector<xr_string> paths;
+	paths.reserve(fset.size());
+	for (const FS_File& f : fset)
+	{
+		string_path full;
+		FS.update_path(full, "$game_scripts$", f.name.c_str());
+		xr_strlwr(full);
+		paths.emplace_back(full);
+	}
+
+	xr_vector<xr_vector<u8>> buffers(paths.size());
+	tbb::parallel_for(tbb::blocked_range<size_t>(0, paths.size(), 16),
+		[&](const tbb::blocked_range<size_t>& r)
+		{
+			for (size_t i = r.begin(); i < r.end(); ++i)
+			{
+				IReader* rd = FS.r_open(paths[i].c_str());
+				if (!rd)
+					continue;
+				const int len = rd->length();
+				if (len > 0)
+				{
+					buffers[i].resize(static_cast<size_t>(len));
+					CopyMemory(buffers[i].data(), rd->pointer(), static_cast<size_t>(len));
+				}
+				FS.r_close(rd);
+			}
+		});
+
+	s_script_preload_cache.reserve(paths.size());
+	for (size_t i = 0; i < paths.size(); ++i)
+	{
+		if (!buffers[i].empty())
+			s_script_preload_cache.emplace(paths[i].c_str(), std::move(buffers[i]));
+	}
+}
+
 CScriptStorage::CScriptStorage()
 {
 	m_current_thread = 0;
@@ -307,6 +366,7 @@ CScriptStorage::CScriptStorage()
 
 CScriptStorage::~CScriptStorage()
 {
+	clear_script_preload_cache();
 	if (m_virtual_machine)
 		lua_close(m_virtual_machine);
 }
@@ -398,7 +458,10 @@ void CScriptStorage::reinit()
 	m_virtual_machine = luaL_newstate();
 #endif //-USE_GSC_MEM_ALLOC
 	if (m_virtual_machine)
+	{
 		luaJIT_gc_udhint(m_virtual_machine); // GC userdata walk hints go to the game state
+		preload_scripts();
+	}
 
 	if (!m_virtual_machine)
 	{
@@ -876,7 +939,27 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 	}
 	int start = lua_gettop(lua());
 	string_path l_caLuaFileName;
-	IReader* l_tpFileReader = FS.r_open(caScriptName);
+	IReader* l_tpFileReader = nullptr;
+	xr_vector<u8> cachedScriptData;
+	IReader cachedReader(nullptr, 0);
+	bool fromPreloadCache = false;
+	if (!s_script_preload_cache.empty())
+	{
+		string_path lowerScript;
+		xr_strcpy(lowerScript, sizeof(lowerScript), caScriptName);
+		xr_strlwr(lowerScript);
+		auto it = s_script_preload_cache.find(lowerScript);
+		if (it != s_script_preload_cache.end())
+		{
+			cachedScriptData = std::move(it->second);
+			s_script_preload_cache.erase(it);
+			cachedReader = IReader(cachedScriptData.data(), static_cast<int>(cachedScriptData.size()));
+			l_tpFileReader = &cachedReader;
+			fromPreloadCache = true;
+		}
+	}
+	if (!l_tpFileReader)
+		l_tpFileReader = FS.r_open(caScriptName);
 
 	if (!l_tpFileReader)
 	{
@@ -1009,10 +1092,12 @@ bool CScriptStorage::do_file(LPCSTR caScriptName, LPCSTR caNameSpaceName)
 		//		lua_pop		(lua(),4);
 		//		VERIFY		(lua_gettop(lua()) == start - 3);
 		lua_settop(lua(), start);
-		FS.r_close(l_tpFileReader);
+		if (!fromPreloadCache)
+			FS.r_close(l_tpFileReader);
 		return (false);
 	}
-	FS.r_close(l_tpFileReader);
+	if (!fromPreloadCache)
+		FS.r_close(l_tpFileReader);
 
 	int errFuncId = -1;
 #ifdef USE_DEBUGGER

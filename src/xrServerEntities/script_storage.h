@@ -94,6 +94,8 @@ public:
 	static void print_error(lua_State* L, int iErrorCode);
 	virtual void on_error(lua_State* L) = 0;
     void DebuggerAttach();
+	void preload_scripts();
+	void clear_script_preload_cache();
 
 #ifdef LUA_DEBUG_PRINT //DEBUG
 public:

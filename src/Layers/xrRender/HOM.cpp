@@ -13,6 +13,8 @@
 #include "../../xrCore/profiler.h"
 
 #include "dxRenderDeviceRender.h"
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 float psOSSR = .001f;
 
@@ -171,52 +173,93 @@ void CHOM::terrain_load()
 		C.ymax = -flt_max;
 	}
 
-	xr_vector<u32> keep_tri, keep_cell;
-	keep_tri.reserve(1 << 17);
-	keep_cell.reserve(1 << 17);
-
-	u32 bad_mtl = 0;
-	for (int i = 0; i < face_count; ++i)
+	struct SChunkKeep
 	{
-		const CDB::TRI& T = tris[i];
-		if (T.material >= mtl_count)
+		xr_vector<u32> tris;
+		xr_vector<u32> cells;
+		xr_vector<float> ymins;
+		xr_vector<float> ymaxs;
+		u32 bad_mtl = 0;
+	};
+
+	const int chunk_size = 65536;
+	const int num_chunks = (face_count + chunk_size - 1) / chunk_size;
+	xr_vector<SChunkKeep> chunks(num_chunks);
+
+	tbb::parallel_for(tbb::blocked_range<int>(0, num_chunks, 1),
+		[&](const tbb::blocked_range<int>& r)
 		{
-			++bad_mtl;
-			continue;
-		}
-		if (!is_ground[T.material])
-			continue;
+			for (int ci = r.begin(); ci < r.end(); ++ci)
+			{
+				const int i0 = ci * chunk_size;
+				const int i1 = _min(i0 + chunk_size, face_count);
+				SChunkKeep& ck = chunks[ci];
+				ck.tris.reserve(4096);
+				ck.cells.reserve(4096);
+				ck.ymins.reserve(4096);
+				ck.ymaxs.reserve(4096);
 
-		const Fvector& v0 = verts[T.verts[0]];
-		const Fvector& v1 = verts[T.verts[1]];
-		const Fvector& v2 = verts[T.verts[2]];
-		Fvector e1, e2, nrm;
-		e1.sub(v1, v0);
-		e2.sub(v2, v0);
-		nrm.crossproduct(e1, e2);
-		// area 4 without the root, the cross magnitude is twice the area
-		if (nrm.square_magnitude() < 64.f)
-			continue;
+				for (int i = i0; i < i1; ++i)
+				{
+					const CDB::TRI& T = tris[i];
+					if (T.material >= mtl_count)
+					{
+						++ck.bad_mtl;
+						continue;
+					}
+					if (!is_ground[T.material])
+						continue;
 
-		int gi = iFloor(((v0.x + v1.x + v2.x) * (1.f / 3.f) - bounds.min.x) * m_terr_sx);
-		int gj = iFloor(((v0.z + v1.z + v2.z) * (1.f / 3.f) - bounds.min.z) * m_terr_sz);
-		gi = (gi < 0) ? 0 : ((gi >= TERR_GRID) ? (TERR_GRID - 1) : gi);
-		gj = (gj < 0) ? 0 : ((gj >= TERR_GRID) ? (TERR_GRID - 1) : gj);
-		const u32 cell = u32(gi) * TERR_GRID + u32(gj);
+					const Fvector& v0 = verts[T.verts[0]];
+					const Fvector& v1 = verts[T.verts[1]];
+					const Fvector& v2 = verts[T.verts[2]];
+					Fvector e1, e2, nrm;
+					e1.sub(v1, v0);
+					e2.sub(v2, v0);
+					nrm.crossproduct(e1, e2);
+					// area 4 without the root, the cross magnitude is twice the area
+					if (nrm.square_magnitude() < 64.f)
+						continue;
 
-		terr_cell& C = m_terr_grid[cell];
-		++C.count;
-		C.ymin = _min(C.ymin, _min(v0.y, _min(v1.y, v2.y)));
-		C.ymax = _max(C.ymax, _max(v0.y, _max(v1.y, v2.y)));
-		keep_cell.push_back(cell);
-		keep_tri.push_back(u32(i));
+					int gi = iFloor(((v0.x + v1.x + v2.x) * (1.f / 3.f) - bounds.min.x) * m_terr_sx);
+					int gj = iFloor(((v0.z + v1.z + v2.z) * (1.f / 3.f) - bounds.min.z) * m_terr_sz);
+					gi = (gi < 0) ? 0 : ((gi >= TERR_GRID) ? (TERR_GRID - 1) : gi);
+					gj = (gj < 0) ? 0 : ((gj >= TERR_GRID) ? (TERR_GRID - 1) : gj);
+					const u32 cell = u32(gi) * TERR_GRID + u32(gj);
+
+					ck.cells.push_back(cell);
+					ck.tris.push_back(u32(i));
+					ck.ymins.push_back(_min(v0.y, _min(v1.y, v2.y)));
+					ck.ymaxs.push_back(_max(v0.y, _max(v1.y, v2.y)));
+				}
+			}
+		});
+
+	size_t total_kept = 0;
+	u32 bad_mtl = 0;
+	for (const SChunkKeep& ck : chunks)
+	{
+		total_kept += ck.tris.size();
+		bad_mtl += ck.bad_mtl;
 	}
 
-	if (keep_tri.empty())
+	if (total_kept == 0)
 	{
 		Msg("* [MOC-TERR] no ground tris on this level, terrain occluders off");
 		terrain_unload();
 		return;
+	}
+
+	for (const SChunkKeep& ck : chunks)
+	{
+		const size_t n = ck.tris.size();
+		for (size_t k = 0; k < n; ++k)
+		{
+			terr_cell& C = m_terr_grid[ck.cells[k]];
+			++C.count;
+			if (ck.ymins[k] < C.ymin) C.ymin = ck.ymins[k];
+			if (ck.ymaxs[k] > C.ymax) C.ymax = ck.ymaxs[k];
+		}
 	}
 
 	// prefix sum the counts then scatter the kept indices so each cell owns one span
@@ -231,12 +274,15 @@ void CHOM::terrain_load()
 	}
 	m_terr_index.resize(running);
 	{
-		const u32 kept = u32(keep_tri.size());
 		xr_vector<u32> cursor(cell_count);
 		for (u32 c = 0; c < cell_count; ++c)
 			cursor[c] = m_terr_grid[c].offset;
-		for (u32 k = 0; k < kept; ++k)
-			m_terr_index[cursor[keep_cell[k]]++] = keep_tri[k];
+		for (const SChunkKeep& ck : chunks)
+		{
+			const size_t n = ck.tris.size();
+			for (size_t k = 0; k < n; ++k)
+				m_terr_index[cursor[ck.cells[k]]++] = ck.tris[k];
+		}
 	}
 
 	if (bad_mtl)
