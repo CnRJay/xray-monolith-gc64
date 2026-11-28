@@ -31,6 +31,8 @@ CSoundRender_Emitter::CSoundRender_Emitter(void)
 	smooth_volume = 1.f;
 	occluder_volume = 1.f;
 	fade_volume = 1.f;
+	m_cached_occ = 1.f;
+	m_occ_timer = 0.f;
 	occluder[0].set(0, 0, 0);
 	occluder[1].set(0, 0, 0);
 	occluder[2].set(0, 0, 0);

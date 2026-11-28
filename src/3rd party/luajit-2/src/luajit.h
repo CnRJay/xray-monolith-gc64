@@ -74,6 +74,7 @@ LUA_API const char *luaJIT_profile_dumpstack(lua_State *L, const char *fmt,
 					     int depth, size_t *len);
 
 LUA_API void luaJIT_gc_udhint(lua_State *L);
+LUA_API unsigned int luaJIT_gc_last_atomic_ms(double out[7]);
 
 /* Enforce (dynamic) linker error for version mismatches. Call from main. */
 LUA_API void LUAJIT_VERSION_SYM(void);

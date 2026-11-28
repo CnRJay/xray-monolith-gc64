@@ -48,6 +48,8 @@ public:
 	float smooth_volume;
 	float occluder_volume; // USER
 	float fade_volume;
+	float m_cached_occ;
+	float m_occ_timer;
 	Fvector occluder [3];
 
 	State m_current_state;
